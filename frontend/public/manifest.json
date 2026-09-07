@@ -1,0 +1,11 @@
+{
+  "name": "FuelRadar",
+  "short_name": "FuelRadar",
+  "description": "Мониторинг наличия топлива на АЗС",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#15803d",
+  "lang": "ru",
+  "icons": []
+}

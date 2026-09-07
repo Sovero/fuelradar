@@ -1,0 +1,66 @@
+{
+  "version": 0.6,
+  "generator": "Overpass API",
+  "osm3s": { "timestamp_osm_base": "2026-09-07T12:00:00Z", "copyright": "The data included in this document is from www.openstreetmap.org. The data is made available under ODbL." },
+  "elements": [
+    {
+      "type": "node",
+      "id": 1000001,
+      "lat": 45.0401,
+      "lon": 38.9702,
+      "tags": {
+        "amenity": "fuel",
+        "name": "Лукойл",
+        "brand": "Лукойл",
+        "operator": "ЛУКОЙЛ-Югнефтепродукт",
+        "ref": "47",
+        "addr:street": "ул. Северная",
+        "addr:housenumber": "228",
+        "addr:city": "Краснодар",
+        "phone": "+7 (861) 000-00-00",
+        "opening_hours": "24/7",
+        "fuel:diesel": "yes",
+        "fuel:octane_95": "yes",
+        "fuel:octane_92": "yes"
+      }
+    },
+    {
+      "type": "node",
+      "id": 1000002,
+      "lat": 45.0280,
+      "lon": 38.9790,
+      "tags": {
+        "amenity": "fuel",
+        "name": "АЗС Роснефть",
+        "brand": "Роснефть",
+        "fuel:diesel": "yes"
+      }
+    },
+    {
+      "type": "node",
+      "id": 1000003,
+      "lat": 45.0550,
+      "lon": 38.9650,
+      "tags": {
+        "amenity": "fuel",
+        "name": "Газпромнефть АЗС № 12",
+        "brand": "Газпромнефть",
+        "ref": "12"
+      }
+    },
+    {
+      "type": "node",
+      "id": 1000004,
+      "lat": 45.0100,
+      "lon": 38.9950,
+      "tags": { "amenity": "fuel" }
+    },
+    {
+      "type": "node",
+      "id": 1000099,
+      "lat": 45.0500,
+      "lon": 38.9900,
+      "tags": { "amenity": "restaurant", "name": "Кафе у дороги" }
+    }
+  ]
+}

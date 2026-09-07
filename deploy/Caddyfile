@@ -1,0 +1,7 @@
+# Reverse proxy (R85). Для HTTPS подставьте домен:
+# fuelradar.example.com {
+#   reverse_proxy frontend:3000
+# }
+:80 {
+	reverse_proxy frontend:3000
+}

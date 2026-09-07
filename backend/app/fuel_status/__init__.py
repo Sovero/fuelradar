@@ -1,0 +1,43 @@
+"""Пакет статусов топлива и очередей (T04)."""
+
+from .statuses import (
+    AVAILABLE,
+    FORBIDDEN_TRANSITIONS,
+    FUEL_STATUSES,
+    LIKELY_AVAILABLE,
+    LOW_STOCK,
+    QUEUE_HIGH,
+    QUEUE_LEVELS,
+    QUEUE_LOW,
+    QUEUE_MEDIUM,
+    QUEUE_NONE,
+    QUEUE_VERY_HIGH,
+    UNAVAILABLE,
+    UNCERTAIN,
+    UNKNOWN,
+    StatusError,
+    assert_status_transition,
+    validate_fuel_status,
+    validate_queue_level,
+)
+
+__all__ = [
+    "AVAILABLE",
+    "LIKELY_AVAILABLE",
+    "LOW_STOCK",
+    "UNCERTAIN",
+    "UNAVAILABLE",
+    "UNKNOWN",
+    "FUEL_STATUSES",
+    "QUEUE_NONE",
+    "QUEUE_LOW",
+    "QUEUE_MEDIUM",
+    "QUEUE_HIGH",
+    "QUEUE_VERY_HIGH",
+    "QUEUE_LEVELS",
+    "FORBIDDEN_TRANSITIONS",
+    "StatusError",
+    "validate_fuel_status",
+    "validate_queue_level",
+    "assert_status_transition",
+]

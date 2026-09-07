@@ -21,3 +21,6 @@ out/
 # system
 .DS_Store
 Thumbs.db
+
+# thread workspace artifacts
+.freebuff/

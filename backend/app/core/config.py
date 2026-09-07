@@ -58,6 +58,20 @@ class Settings(BaseSettings):
     }
     source_trust_default: float = 0.5      # §8 — вес источника по умолчанию
 
+    # --- confidence (T04, §8/§9/§18) ---
+    confidence_share_strong: float = 0.80  # доля лучшего статуса → прямой статус
+    confidence_share_likely: float = 0.60  # доля для LIKELY_AVAILABLE (иначе UNCERTAIN)
+    confidence_min_weight: float = 0.30    # R19.1 — мин. вес для смены статуса, иначе «под вопросом»
+    gps_boost: float = 1.20                # R40 — отчёт с GPS < 300 м
+    gps_penalty: float = 0.60              # R40.1 — отчёт «издалека»
+    reliability_base: float = 0.50         # R41 — стартовый счёт пользователя
+
+    # --- очередь и ETA (T04, §10) ---
+    queue_seconds_per_vehicle: int = 80    # R20 — ~80 с/машина
+    avg_speed_kmh: float = 30.0            # ASSUMPTION: средняя городская скорость (без routing API)
+    score_distance_max_km: float = 15.0    # нормализация distance в Score
+    score_travel_max_minutes: float = 20.0  # нормализация travel_time в Score
+
     # --- источники (T02) ---
     overpass_endpoint: str = "https://overpass-api.de/api/interpreter"
     overpass_timeout_seconds: int = 30

@@ -552,7 +552,8 @@
       "VAPID_PUBLIC_KEY",
       "ADMIN_TOKEN",
       "SMTP_URL",
-      "JWT_SECRET"
+      "JWT_SECRET",
+      "NEXT_PUBLIC_YANDEX_MAPS_API_KEY"
     ]
   },
   "additions": [

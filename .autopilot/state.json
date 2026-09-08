@@ -44,7 +44,7 @@
       "id": "build",
       "status": "active",
       "startedAt": "2026-09-07T20:03:10+03:00",
-      "note": "5 из 10 тасков готово"
+      "note": "6 из 10 тасков готово"
     },
     {
       "id": "review",
@@ -57,8 +57,8 @@
   ],
   "requirements": {
     "total": 98,
-    "done": 46,
-    "inTicket": 45,
+    "done": 54,
+    "inTicket": 37,
     "inSpec": 0,
     "placeholder": 1,
     "deferred": 7,
@@ -291,9 +291,35 @@
         "backend/app/api/",
         "backend/app/auth/"
       ],
-      "status": "in-progress",
+      "status": "done",
+      "startedAt": "2026-09-07T20:04:00+03:00",
+      "finishedAt": "2026-09-08T22:17:26+03:00",
       "retries": 0,
-      "startedAt": "2026-09-08T21:47:29.0070092+03:00"
+      "files": [
+        "backend/app/api/__init__.py",
+        "backend/app/api/admin.py",
+        "backend/app/api/cache.py",
+        "backend/app/api/deps.py",
+        "backend/app/api/login.py",
+        "backend/app/api/meta.py",
+        "backend/app/api/personal.py",
+        "backend/app/api/schemas.py",
+        "backend/app/api/stations.py",
+        "backend/app/auth/__init__.py",
+        "backend/app/auth/service.py",
+        "backend/app/main.py",
+        "backend/app/dedup/service.py",
+        "backend/tests/test_api.py",
+        "backend/tests/conftest.py"
+      ],
+      "tests": {
+        "passed": 106,
+        "failed": 0
+      },
+      "concerns": [
+        "R21/R23/R26/R32/R92 закрываются частично — вторая половина (UI) в тасках 09/10",
+        "magic-link/Telegram-вход активируются ключами; без них — только dev-вход"
+      ]
     },
     {
       "id": "06",

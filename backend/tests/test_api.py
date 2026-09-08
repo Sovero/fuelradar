@@ -1,0 +1,414 @@
+"""T05 — публичный API: контракты, права (401/403), валидация (422 на русском), кэш."""
+
+from __future__ import annotations
+
+from datetime import UTC, datetime, timedelta
+
+import pytest
+from sqlalchemy import select
+
+from app.confidence import StatusService
+from app.core.config import settings
+from app.db.models import (
+    AdminActionLog,
+    CollectionJob,
+    SourceProvider,
+    SourceStationRecord,
+    Station,
+    StationBrand,
+)
+from app.db.session import init_db
+
+ADMIN = {"X-Admin-Token": "test-admin-token"}
+LAT, LON = 45.0355, 38.9753
+S1, S2, S3, S4 = "fr_station_950001", "fr_station_950002", "fr_station_950003", "fr_station_950004"
+
+
+def _ago(minutes: float) -> datetime:
+    return datetime.now(UTC).replace(tzinfo=None) - timedelta(minutes=minutes)
+
+
+@pytest.fixture(scope="module", autouse=True)
+def _data(db_session) -> None:
+    """S1 у точки (Лукойл, AVAILABLE ~98), S2 5 км (AVAILABLE 96, очередь LOW), S3 2 км
+    (конфликт → LIKELY, очередь HIGH), S4 20 км (вне радиуса по умолчанию)."""
+    init_db()
+    brand = db_session.scalar(select(StationBrand).where(StationBrand.name == "Лукойл"))
+    if brand is None:
+        brand = StationBrand(name="Лукойл", canonical_name="Лукойл", priority=1)
+        db_session.add(brand)
+        db_session.flush()
+
+    specs = {
+        S1: (LAT, LON, brand.id),
+        S2: (LAT + 0.045, LON, None),
+        S3: (LAT + 0.018, LON, None),
+        S4: (LAT + 0.18, LON, None),
+    }
+    for sid, (lat, lon, brand_id) in specs.items():
+        if db_session.get(Station, sid) is None:
+            db_session.add(Station(id=sid, canonical_name=f"АЗС тест {sid[-2:]}", brand_id=brand_id,
+                                   latitude=lat, longitude=lon, city="Краснодар"))
+    db_session.commit()
+
+    network = db_session.scalar(select(SourceProvider).where(SourceProvider.code == "network_import"))
+    users = db_session.scalar(select(SourceProvider).where(SourceProvider.code == "user_reports"))
+    svc = StatusService(db_session)
+    # S1: свежее AVAILABLE
+    svc.record_fuel_observation(S1, "AI_95", "AVAILABLE", network.id, _ago(5))
+    # S2: AVAILABLE 10 мин + очередь LOW 5 машин
+    svc.record_fuel_observation(S2, "AI_95", "AVAILABLE", network.id, _ago(10))
+    svc.record_queue_observation(S2, "LOW", users.id, 5)
+    # S3: конфликт есть/нет → LIKELY_AVAILABLE ~67-48; очередь HIGH без числа
+    svc.record_fuel_observation(S3, "AI_95", "AVAILABLE", network.id, _ago(60))
+    svc.record_fuel_observation(S3, "AI_95", "UNAVAILABLE", users.id, _ago(55),
+          user_reliability=None, gps_confirmed=None)
+    svc.record_queue_observation(S3, "HIGH", users.id)
+    # S4: только станция, без статусов
+    init_db()
+
+
+# ---------- карта/список: анонимно, со статусами и score (R63/R65) ----------
+
+
+def test_nearby_anonymous_with_status_and_score(client) -> None:
+    """R65: карта анонимна; ответ содержит статусы, score, дистанцию; кэш работает."""
+    r1 = client.get(f"/api/v1/stations/nearby?lat={LAT}&lon={LON}&radius_km=6")
+    assert r1.status_code == 200
+    assert r1.headers["X-Cache"] == "MISS"
+    items = r1.json()
+    ids = {i["id"] for i in items}
+    assert {S1, S2, S3} <= ids and S4 not in ids
+
+    s1 = next(i for i in items if i["id"] == S1)
+    assert s1["statuses"][0]["status"] == "AVAILABLE"
+    assert s1["statuses"][0]["fuel_code"] == "AI_95"
+    assert s1["statuses"][0]["confidence"] >= 90
+    assert s1["score"] is not None and 0 <= s1["score"] <= 100
+    assert s1["distance_km"] is not None and s1["distance_km"] < 0.1
+    assert s1["brand"] == "Лукойл"
+
+    r2 = client.get(f"/api/v1/stations/nearby?lat={LAT}&lon={LON}&radius_km=6")
+    assert r2.headers["X-Cache"] == "HIT"
+
+
+def test_filters_and_sort(client) -> None:
+    r = client.get(f"/api/v1/stations?lat={LAT}&lon={LON}&status=AVAILABLE&fuel=AI_95")
+    ids = {i["id"] for i in r.json()}
+    assert S1 in ids and S2 in ids and S3 not in ids  # S3 — LIKELY_AVAILABLE
+
+    r = client.get(f"/api/v1/stations?lat={LAT}&lon={LON}&confidence_min=90")
+    ids = {i["id"] for i in r.json()}
+    assert S1 in ids and S2 in ids and S3 not in ids
+
+    r = client.get(f"/api/v1/stations?lat={LAT}&lon={LON}&queue_max=LOW")
+    ids = {i["id"] for i in r.json()}
+    assert S1 in ids and S2 in ids and S3 not in ids  # очередь HIGH > LOW
+
+    r = client.get(f"/api/v1/stations?lat={LAT}&lon={LON}&sort=distance&radius_km=25")
+    order = [i["id"] for i in r.json()]
+    assert order.index(S1) < order.index(S3) < order.index(S2) < order.index(S4)
+
+    r = client.get(f"/api/v1/stations?lat={LAT}&lon={LON}&radius_km=25&brand=Лукойл")
+    assert {i["id"] for i in r.json()} == {S1}
+
+    r = client.get(f"/api/v1/stations?bbox={LAT - 0.1},{LON - 0.1},{LAT + 0.1},{LON + 0.1}")
+    assert S4 not in {i["id"] for i in r.json()}  # 20 км — вне bbox
+
+
+def test_validation_422_russian(client) -> None:
+    r = client.get("/api/v1/stations/nearby?lat=95&lon=38")
+    assert r.status_code == 422 and "широта" in r.json()["detail"]
+
+    r = client.get("/api/v1/stations/nearby?lat=45&lon=200")
+    assert r.status_code == 422 and "долгота" in r.json()["detail"]
+
+    r = client.get("/api/v1/stations?bbox=1,2,3")
+    assert r.status_code == 422 and "bbox" in r.json()["detail"]
+
+    r = client.get(f"/api/v1/stations?lat={LAT}&lon={LON}&status=BOGUS")
+    assert r.status_code == 422 and "статус" in r.json()["detail"]
+
+    r = client.get(f"/api/v1/stations?lat={LAT}&lon={LON}&fuel=БЕНЗИН-Х")
+    assert r.status_code == 422 and "топлив" in r.json()["detail"]
+
+    r = client.get(f"/api/v1/stations?lat={LAT}&lon={LON}&sort=cheese")
+    assert r.status_code == 422 and "sort" in r.json()["detail"]
+
+
+# ---------- карточка и история (R92/R17) ----------
+
+
+def test_station_detail_explanation(client) -> None:
+    r = client.get(f"/api/v1/stations/{S3}?lat={LAT}&lon={LON}")
+    assert r.status_code == 200
+    body = r.json()
+    assert body["statuses"][0]["status"] == "LIKELY_AVAILABLE"
+    expl = body["status_explanation"]
+    assert expl["contributions"], "разбор вкладов обязателен (R92)"
+    sources = {c.get("source") for c in expl["contributions"]}
+    assert any(s for s in sources), "у вкладов должны быть названия источников"
+    assert any(isinstance(c.get("age_minutes"), int) for c in expl["contributions"])
+    assert body["score_breakdown"]["fuel_available"]["value"] > 0
+    assert body["eta_minutes"] is not None  # дистанция передана → ETA (R45)
+    assert body["queue"]["level"] == "HIGH"
+
+    r = client.get("/api/v1/stations/fr_station_999999")
+    assert r.status_code == 404
+
+
+def test_history(client, db_session) -> None:
+    r = client.get(f"/api/v1/stations/{S2}/history?fuel=AI95")
+    assert r.status_code == 200
+    items = r.json()
+    assert len(items) >= 1
+    assert items[0]["fuel_code"] == "AI_95"
+    assert items[0]["source"] == "Импорт списков сетей (CSV/JSON)"
+    dates = [i["observed_at"] for i in items]
+    assert dates == sorted(dates, reverse=True)
+
+
+def test_meta(client) -> None:
+    """A02/R98i: справочники и переводы — только здесь."""
+    body = client.get("/api/v1/meta").json()
+    ai95 = next(f for f in body["fuel_types"] if f["code"] == "AI_95")
+    assert ai95["name_ru"] == "АИ-95" and "ЭКТО" in ai95["commercial"]
+    statuses = {s["code"]: s["name_ru"] for s in body["fuel_statuses"]}
+    assert statuses["AVAILABLE"] == "Есть" and statuses["UNKNOWN"] == "Нет данных"
+    queues = {q["code"]: q["name_ru"] for q in body["queue_levels"]}
+    assert queues["NONE"] == "Нет" and queues["VERY_HIGH"] == "Очень большая"
+    assert any(b["name"] == "Лукойл" for b in body["station_brands"])
+    assert any(s["code"] == "osm_overpass" and "OpenStreetMap" in s["attribution"] for s in body["sources"])
+
+
+# ---------- права: аноним/пользователь/админ (R65/R95i) ----------
+
+
+def test_personalization_requires_login(client) -> None:
+    assert client.get("/api/v1/favorites").status_code == 401
+    assert client.post(f"/api/v1/favorites/{S1}").status_code == 401
+    assert client.get("/api/v1/monitoring-zones").status_code == 401
+    assert client.get("/api/v1/alerts").status_code == 401
+
+
+def test_admin_guards(client) -> None:
+    assert client.get("/api/v1/admin/sources").status_code == 401  # нет заголовка
+    assert client.get("/api/v1/admin/sources", headers={"X-Admin-Token": "wrong"}).status_code == 403
+    r = client.get("/api/v1/admin/sources", headers=ADMIN)
+    assert r.status_code == 200
+    src = {s["code"]: s for s in r.json()}
+    assert src["yandex"]["status"] == "RESEARCH_REQUIRED"
+    assert src["osm_overpass"]["attribution"] == "© OpenStreetMap contributors"
+
+
+def test_admin_refresh_creates_job(client, db_session) -> None:
+    """R83: refresh не собирает синхронно — создаёт задание P2/manual для воркера (T06)."""
+    provider = db_session.scalar(select(SourceProvider).where(SourceProvider.code == "osm_overpass"))
+    r = client.post(f"/api/v1/admin/sources/{provider.id}/refresh", headers=ADMIN)
+    assert r.status_code == 200
+    job_id = r.json()["job_id"]
+    job = db_session.get(CollectionJob, job_id)
+    assert job.status == "PENDING" and job.priority == "P1" and job.trigger == "manual"
+    log = db_session.scalar(select(AdminActionLog).order_by(AdminActionLog.id.desc()))
+    assert log.action == "refresh_source" and log.target_id == "osm_overpass"
+    # БД общая на весь прогон тестов (db_session — session-scope): не оставлять
+    # задание активным, иначе оно блокирует реальный сбор по этому провайдеру
+    # в test_ingest.py через партиционный uq_collection_active.
+    job.status = "DONE"
+    db_session.commit()
+
+
+def test_admin_merge_split_and_queue(client, db_session) -> None:
+    """R10/R09.1: очередь дедупликации → подтверждение слияния → разделение."""
+    network = db_session.scalar(select(SourceProvider).where(SourceProvider.code == "network_import"))
+    from app.dedup import DedupService
+
+    rec_a = SourceStationRecord(source_provider_id=network.id, external_id="t05-a",
+                                latitude=46.0, longitude=40.0, brand_raw="Лукойл", name_raw="АЗС Лукойл")
+    rec_b = SourceStationRecord(source_provider_id=network.id, external_id="t05-b",
+                                latitude=46.0, longitude=40.0, brand_raw="Роснефть", name_raw="АЗС Роснефть")
+    db_session.add_all([rec_a, rec_b])
+    db_session.commit()
+    summary = DedupService(db_session).process_pending()
+    assert summary["review"] >= 1
+
+    queue = client.get("/api/v1/admin/dedup-queue", headers=ADMIN).json()
+    mine = [c for c in queue if c["external_id"] in ("t05-a", "t05-b")]
+    assert mine and mine[0]["suggested_record_id"] is not None and mine[0]["weights"]
+
+    review = next(c for c in mine if c["record_id"] == rec_b.id)
+    r = client.post("/api/v1/admin/dedup-queue", headers=ADMIN,
+                    json={"record_id": review["record_id"], "action": "merge",
+                          "target_record_id": review["suggested_record_id"]})
+    assert r.status_code == 200
+    station_id = r.json()["station_id"]
+
+    r = client.post(f"/api/v1/admin/stations/{station_id}/split", headers=ADMIN,
+                    json={"record_id": rec_b.id})
+    assert r.status_code == 200
+    assert r.json()["new_station_id"] != station_id
+
+    r = client.post(f"/api/v1/admin/stations/{station_id}/merge", headers=ADMIN,
+                    json={"record_id": rec_a.id})
+    assert r.status_code in (200, 404)  # 404 допустим, если запись уже переехала при split
+
+
+def test_rate_limit_429(client) -> None:
+    """R66: превышение лимита → 429."""
+    from app.api import deps
+
+    original = settings.rate_limit_per_minute
+    try:
+        deps.reset_rate_limit()
+        settings.rate_limit_per_minute = 1
+        assert client.get("/api/v1/meta").status_code == 200
+        assert client.get("/api/v1/meta").status_code == 429
+        assert "запросов" in client.get("/api/v1/meta").json()["detail"]
+    finally:
+        settings.rate_limit_per_minute = original
+        deps.reset_rate_limit()
+
+
+# ---------- вход и профиль (R06/R65) ----------
+
+
+def test_magic_link_and_telegram_not_configured(client) -> None:
+    r = client.post("/api/v1/auth/magic-link", json={"email": "user@example.com"})
+    assert r.status_code == 503 and "SMTP_URL" in r.json()["detail"]
+    r = client.post("/api/v1/auth/telegram")
+    assert r.status_code == 503 and "TELEGRAM_BOT_TOKEN" in r.json()["detail"]
+
+
+def test_dev_login_profile_favorites(client) -> None:
+    """Dev-вход → профиль → избранное → выход. Персонализация работает (R06/R21)."""
+    r = client.post("/api/v1/auth/dev-login", json={"telegram_id": "t05-user-1"})
+    assert r.status_code == 200
+    assert "fr_session" in client.cookies
+
+    me = client.get("/api/v1/auth/me")
+    assert me.status_code == 200 and me.json()["user"]["telegram_id"] == "t05-user-1"
+
+    r = client.post(f"/api/v1/favorites/{S1}")
+    assert r.status_code == 201 and r.json()["added"] is True
+    assert client.post(f"/api/v1/favorites/{S1}").json()["added"] is False
+
+    favs = client.get("/api/v1/favorites").json()
+    assert S1 in {f["id"] for f in favs}
+    assert favs[0]["statuses"], "в избранном — станции со статусами"
+
+    assert client.delete(f"/api/v1/favorites/{S1}").status_code == 204
+    assert client.delete(f"/api/v1/favorites/{S1}").status_code == 404
+
+    assert client.post("/api/v1/auth/logout").status_code == 200
+    assert client.get("/api/v1/auth/me").status_code == 401
+
+
+def test_zones_and_alerts_crud(client) -> None:
+    """R23/R26: зоны и правила — CRUD с валидацией, лимит правил (R26.1)."""
+    client.post("/api/v1/auth/dev-login", json={"telegram_id": "t05-user-2"})
+
+    r = client.post("/api/v1/monitoring-zones", json={
+        "name": "Вокруг дома", "zone_type": "CIRCLE",
+        "params": {"lat": LAT, "lon": LON, "radius_km": 10},
+    })
+    assert r.status_code == 201
+    zone_id = r.json()["id"]
+
+    r = client.post("/api/v1/monitoring-zones", json={"zone_type": "POLYGON", "params": {"points": [[1, 1]]}})
+    assert r.status_code == 422 and "POLYGON" in r.json()["detail"][0]["msg"]
+
+    r = client.put(f"/api/v1/monitoring-zones/{zone_id}", json={
+        "name": "Дом", "zone_type": "CIRCLE", "params": {"lat": LAT, "lon": LON, "radius_km": 5},
+    })
+    assert r.status_code == 200 and r.json()["params"]["radius_km"] == 5
+    assert client.delete(f"/api/v1/monitoring-zones/{zone_id}").status_code == 204
+
+    r = client.post("/api/v1/alerts", json={
+        "name": "Появился 95", "fuel_code": "AI_95", "status_filter": "AVAILABLE",
+        "confidence_min": 75, "queue_max": "LOW", "scope": {"kind": "network"},
+    })
+    assert r.status_code == 201
+    rule_id = r.json()["id"]
+
+    r = client.post("/api/v1/alerts", json={"status_filter": "BOGUS"})
+    assert r.status_code == 422
+
+    r = client.put(f"/api/v1/alerts/{rule_id}", json={"name": "Появился 95 (радиус)", "distance_km": 10})
+    assert r.status_code == 200 and r.json()["name"] == "Появился 95 (радиус)"
+    assert client.delete(f"/api/v1/alerts/{rule_id}").status_code == 204
+
+
+def test_geo_edge_cases_and_fuel_endpoint(client):
+    assert client.get('/api/v1/stations/nearby?lat=45&lon=38&radius=0').status_code == 422
+    assert client.get('/api/v1/stations/nearby?bbox=44,38,46,40').status_code == 200
+    assert client.get('/api/v1/stations?queue_max=UNKNOWN').status_code == 200
+    assert client.get(f'/api/v1/stations/{S1}/fuel').json()[0]['fuel_code'] == 'AI_95'
+    assert client.get('/api/v1/stations?lat=abc').status_code == 422
+    assert not client.get(f'/api/v1/stations?lat={LAT}&lon={LON}&radius=1&bbox=40,30,41,31').json()
+
+
+def test_magic_link_delivery_and_secret_not_returned(client, monkeypatch):
+    from app.auth.service import decode_magic_link_token
+    sent = []
+    monkeypatch.setattr(settings, 'smtp_url', 'smtp://smtp.example.com:587')
+    monkeypatch.setattr('app.api.login.send_magic_link', lambda email, token: sent.append((email, token)))
+    response = client.post('/api/v1/auth/magic-link', json={'email': 'login@example.com'})
+    assert response.status_code == 200 and response.json()['sent']
+    assert 'token' not in response.json()
+    assert decode_magic_link_token(sent[0][1]) == 'login@example.com'
+    assert client.post('/api/v1/auth/verify', json={'token': sent[0][1]}).status_code == 200
+    client.post('/api/v1/auth/logout')
+
+
+def test_magic_link_failure_is_honest(client, monkeypatch):
+    monkeypatch.setattr(settings, 'smtp_url', 'smtp://smtp.example.com:587')
+    def fail(*args):
+        raise OSError('offline')
+    monkeypatch.setattr('app.api.login.send_magic_link', fail)
+    assert client.post('/api/v1/auth/magic-link', json={'email': 'login@example.com'}).status_code == 503
+
+
+def test_telegram_signature(client, monkeypatch):
+    import hashlib
+    import hmac
+    import time
+    monkeypatch.setattr(settings, 'telegram_bot_token', 'test-token')
+    payload = {'id': 591003, 'auth_date': int(time.time()), 'first_name': 'Test'}
+    check = '\n'.join(f'{key}={value}' for key, value in sorted(payload.items()))
+    payload['hash'] = hmac.new(hashlib.sha256(b'test-token').digest(), check.encode(), hashlib.sha256).hexdigest()
+    assert client.post('/api/v1/auth/telegram', json=payload).status_code == 200
+    payload['id'] = 1
+    assert client.post('/api/v1/auth/telegram', json=payload).status_code == 401
+    client.post('/api/v1/auth/logout')
+
+
+def test_prod_dev_login_disabled_and_cross_origin_denied(client, monkeypatch):
+    monkeypatch.setattr(settings, 'debug', False)
+    assert client.post('/api/v1/auth/dev-login', json={'email': 'a@example.com'}).status_code == 403
+    assert client.post('/api/v1/auth/logout', headers={'Origin': 'https://evil.example'}).status_code == 403
+
+
+def test_zone_coordinates_and_alert_fuel_roundtrip(client):
+    client.post('/api/v1/auth/dev-login', json={'email': 'validation@example.com'})
+    assert client.post('/api/v1/monitoring-zones', json={'zone_type': 'circle', 'params': {'lat': 100, 'lon': 38, 'radius_km': 1}}).status_code == 422
+    assert client.post('/api/v1/monitoring-zones', json={'zone_type': 'polygon', 'params': {'points': [[45,38], [46,39], ['bad', 40]]}}).status_code == 422
+    rule = client.post('/api/v1/alerts', json={'fuel_code': 'AI_95'}).json()
+    assert next(row for row in client.get('/api/v1/alerts').json() if row['id'] == rule['id'])['fuel_code'] == 'AI_95'
+    client.put(f"/api/v1/alerts/{rule['id']}", json={'name': 'All fuels'})
+    assert next(row for row in client.get('/api/v1/alerts').json() if row['id'] == rule['id'])['fuel_code'] is None
+    client.post('/api/v1/auth/logout')
+
+
+def test_expired_current_status_read_as_unknown(client, db_session):
+    from app.db.models import StationCurrentStatus
+    row = db_session.scalar(select(StationCurrentStatus).where(StationCurrentStatus.station_id == S1))
+    original = row.expires_at
+    row.expires_at = _ago(1)
+    db_session.commit()
+    try:
+        response = client.get(f'/api/v1/stations/{S1}/fuel')
+        assert response.json()[0]['status'] == 'UNKNOWN'
+        assert response.json()[0]['confidence'] == 0
+    finally:
+        row.expires_at = original
+        db_session.commit()

@@ -339,6 +339,18 @@ class DedupService:
         logger.info("admin_split %s -> %s by %s", record_id, new_station.id, actor)
         return new_station.id
 
+    def admin_assign_new_station(self, record_id: int, actor: str = "admin") -> str:
+        """Отклонение предложения слияния: REVIEW-запись получает собственную станцию."""
+        record = self.session.get(SourceStationRecord, record_id)
+        if record is None:
+            raise ValueError("запись не найдена")
+        station = self._ensure_station(record, None)
+        self._assign(record, station.id)
+        self._decision("SPLIT", record, record, 0.0, {}, actor)
+        self.session.commit()
+        logger.info("admin_assign_new_station %s -> %s by %s", record_id, station.id, actor)
+        return station.id
+
     def _merge_stations(self, target_id: str, source_id: str) -> None:
         """Слияние двух станций: все записи/наблюдения/внешние ID переезжают в target."""
         for record in self.session.scalars(select(SourceStationRecord).where(SourceStationRecord.station_id == source_id)):

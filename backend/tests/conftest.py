@@ -11,6 +11,11 @@ from fastapi.testclient import TestClient
 # БД для тестов — до импорта приложения.
 _tmpdir = tempfile.mkdtemp(prefix="fuelradar_test_")
 os.environ["DATABASE_URL"] = f"sqlite:///{os.path.join(_tmpdir, 'test.db')}"
+os.environ["DEBUG"] = "true"
+# API-тесты: фиксированный админ-токен, щедрый rate-limit и живой кэш.
+os.environ.setdefault("ADMIN_TOKEN", "test-admin-token")
+os.environ.setdefault("RATE_LIMIT_PER_MINUTE", "10000")
+os.environ.setdefault("API_CACHE_TTL_SECONDS", "60")
 
 
 @pytest.fixture(scope="session")
@@ -23,7 +28,8 @@ def client():
 
 @pytest.fixture(scope="session")
 def db_session():
-    from app.db.session import SessionLocal
+    from app.db.session import SessionLocal, init_db
 
+    init_db()
     with SessionLocal() as s:
         yield s

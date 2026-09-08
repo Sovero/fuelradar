@@ -44,7 +44,7 @@
       "id": "build",
       "status": "active",
       "startedAt": "2026-09-07T20:03:10+03:00",
-      "note": "6 из 10 тасков готово"
+      "note": "7 из 10 тасков готово"
     },
     {
       "id": "review",
@@ -57,8 +57,8 @@
   ],
   "requirements": {
     "total": 98,
-    "done": 54,
-    "inTicket": 37,
+    "done": 56,
+    "inTicket": 35,
     "inSpec": 0,
     "placeholder": 1,
     "deferred": 7,
@@ -316,6 +316,7 @@
         "passed": 106,
         "failed": 0
       },
+      "commit": "5111a36",
       "concerns": [
         "R21/R23/R26/R32/R92 закрываются частично — вторая половина (UI) в тасках 09/10",
         "magic-link/Telegram-вход активируются ключами; без них — только dev-вход"
@@ -364,6 +365,7 @@
         "passed": 106,
         "failed": 0
       },
+      "commit": "a693f1a",
       "concerns": [
         "expire_stale() всё ещё вызывается сервисом confidence вручную — расписание для него не заведено отдельным job'ом воркера (было отмечено ещё в T04)"
       ]
@@ -411,9 +413,24 @@
       "zone": [
         "backend/app/analytics/"
       ],
-      "status": "in-progress",
+      "status": "done",
+      "startedAt": "2026-09-07T20:04:00+03:00",
+      "finishedAt": "2026-09-08T22:17:26+03:00",
       "retries": 0,
-      "startedAt": "2026-09-08T21:47:29.0070092+03:00"
+      "files": [
+        "backend/app/analytics/__init__.py",
+        "backend/app/analytics/models.py",
+        "backend/app/analytics/router.py",
+        "backend/app/analytics/service.py",
+        "backend/tests/test_analytics.py"
+      ],
+      "tests": {
+        "passed": 106,
+        "failed": 0
+      },
+      "concerns": [
+        "R51/R52 закрываются частично — админ-экран (UI) в таске 10"
+      ]
     },
     {
       "id": "09",

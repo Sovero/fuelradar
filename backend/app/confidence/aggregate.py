@@ -115,6 +115,8 @@ def aggregate(
         if f <= 0.0:
             continue  # протухло — не участвует (R56)
         base = _base_weight(obs, cfg)
+        if base <= 0 or obs.status == UNKNOWN:
+            continue
         fresh.append((obs, f, base, base * f))
 
     if not fresh:

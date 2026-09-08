@@ -84,6 +84,17 @@ class Settings(BaseSettings):
     admin_token: str = ""
     smtp_url: str = ""
 
+    # --- API и безопасность (T05, §14/§15) ---
+    jwt_secret: str = ""                   # R68: секрет JWT из .env; пусто → эфемерный на процесс (dev)
+    cookie_secure: bool = False            # secure-cookie — включать за HTTPS (prod)
+    cors_origins: str = ""                 # белый список CORS через запятую (R66); пусто → same-origin
+    rate_limit_per_minute: int = 120       # R66: простой per-IP лимит; 0 — выключить
+    worker_tick_seconds: int = 10
+    worker_backoff_max_minutes: int = 120
+    smtp_from: str = "noreply@localhost"
+    public_app_url: str = "http://localhost:3000"
+    api_cache_ttl_seconds: int = 30        # R82: кэш списка/карты (bbox/radius)
+
 
 @lru_cache
 def get_settings() -> Settings:

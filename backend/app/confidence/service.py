@@ -134,7 +134,16 @@ class StatusService:
             select(FuelObservation, SourceProvider.trust)
             .join(SourceProvider, FuelObservation.source_provider_id == SourceProvider.id)
             .where(FuelObservation.station_id == station_id, FuelObservation.fuel_type_id == fuel_type_id)
+            .order_by(FuelObservation.observed_at.desc(), FuelObservation.id.desc())
         ).all()
+        # One vote per independent provider or reporter; repeated polls are history,
+        # not additional independent evidence.
+        latest: dict[tuple[int, int | None], Any] = {}
+        for observation, trust in rows:
+            report = self.session.get(UserReport, observation.report_id) if observation.report_id else None
+            key = (observation.source_provider_id, report.user_id if report else None)
+            latest.setdefault(key, (observation, trust))
+        rows = list(latest.values())
         inputs = [
             ObservationInput(
                 status=row.status,
@@ -148,7 +157,12 @@ class StatusService:
             for row, trust in rows
         ]
         result = aggregate(inputs, _cfg())
-        return self._upsert_status(station_id, fuel_type_id, result)
+        row = self._upsert_status(station_id, fuel_type_id, result)
+        usable = [observation for observation, trust in rows if trust > 0 and observation.status != UNKNOWN]
+        if usable:
+            row.expires_at = max(observation.expires_at for observation in usable)
+            row.updated_at = max(observation.observed_at for observation in usable)
+        return row
 
     def recompute_station_queue(self, station_id: str) -> None:
         rows = self.session.execute(

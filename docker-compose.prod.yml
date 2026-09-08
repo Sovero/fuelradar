@@ -18,6 +18,10 @@ services:
 
   api:
     environment:
+      DEBUG: "false"
+      COOKIE_SECURE: "true"
+      JWT_SECRET: ${JWT_SECRET:?set in .env}
+      PUBLIC_APP_URL: https://${APP_DOMAIN:?set your HTTPS domain in .env}
       DATABASE_URL: postgresql+psycopg://fuelradar:${POSTGRES_PASSWORD}@db:5432/fuelradar
       REDIS_URL: redis://redis:6379/0
     depends_on:
@@ -36,6 +40,8 @@ services:
 
   proxy:
     image: caddy:2-alpine
+    environment:
+      APP_DOMAIN: ${APP_DOMAIN:?set your HTTPS domain in .env}
     ports:
       - "80:80"
       - "443:443"

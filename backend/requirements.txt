@@ -4,7 +4,10 @@ sqlalchemy>=2.0.36
 pydantic>=2.9
 pydantic-settings>=2.6
 httpx>=0.27
+PyJWT>=2.9
 
 # dev/test
 pytest>=8.3
 ruff>=0.7
+APScheduler>=3.10,<4
+psycopg[binary]>=3.2

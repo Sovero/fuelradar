@@ -19,6 +19,7 @@ from sqlalchemy import (
     String,
     Text,
     UniqueConstraint,
+    text,
 )
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -275,8 +276,17 @@ class UserReport(Base):  # §83 user_reports
 
 class CollectionJob(Base):  # §83 collection_jobs
     __tablename__ = "collection_jobs"
+    __table_args__ = (
+        Index("uq_collection_active", "source_provider_id", "job_type", text("coalesce(station_id, '')"),
+              unique=True, sqlite_where=text("status IN ('PENDING','RUNNING')"),
+              postgresql_where=text("status IN ('PENDING','RUNNING')")),
+    )
 
     id: Mapped[int] = mapped_column(primary_key=True)
+    station_id: Mapped[str | None] = mapped_column(ForeignKey("stations.id"), nullable=True)
+    next_run_at: Mapped[datetime] = mapped_column(DateTime, default=_now, index=True)
+    locked_until: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    lock_token: Mapped[str | None] = mapped_column(String(64), nullable=True)
     source_provider_id: Mapped[int] = mapped_column(ForeignKey("source_providers.id"))
     job_type: Mapped[str] = mapped_column(String(32), default="catalog")  # catalog | availability | queue
     priority: Mapped[str] = mapped_column(String(4), default="P4")  # R55: P1…P4

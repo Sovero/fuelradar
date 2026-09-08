@@ -8,6 +8,15 @@ services:
       - "8000:8000"
     environment:
       DATABASE_URL: sqlite:////data/fuelradar.db
+      DEBUG: ${DEBUG:-true}
+      ADMIN_TOKEN: ${ADMIN_TOKEN:-}
+      JWT_SECRET: ${JWT_SECRET:-}
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
+      VAPID_PUBLIC_KEY: ${VAPID_PUBLIC_KEY:-}
+      VAPID_PRIVATE_KEY: ${VAPID_PRIVATE_KEY:-}
+      SMTP_URL: ${SMTP_URL:-}
+      SMTP_FROM: ${SMTP_FROM:-noreply@localhost}
+      PUBLIC_APP_URL: ${PUBLIC_APP_URL:-http://localhost:3000}
       DEFAULT_REGION_CITY: ${DEFAULT_REGION_CITY:-Краснодар}
     volumes:
       - fuelradar-data:/data
@@ -19,12 +28,17 @@ services:
       - api
     environment:
       DATABASE_URL: sqlite:////data/fuelradar.db
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
+      VAPID_PUBLIC_KEY: ${VAPID_PUBLIC_KEY:-}
+      VAPID_PRIVATE_KEY: ${VAPID_PRIVATE_KEY:-}
       DEFAULT_REGION_CITY: ${DEFAULT_REGION_CITY:-Краснодар}
     volumes:
       - fuelradar-data:/data
 
   frontend:
     build: ./frontend
+    environment:
+      API_INTERNAL_URL: http://api:8000
     ports:
       - "3000:3000"
 

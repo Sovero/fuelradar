@@ -48,7 +48,9 @@
     },
     {
       "id": "review",
-      "status": "pending"
+      "status": "active",
+      "startedAt": "2026-09-07T20:33:50+03:00",
+      "note": "проверено 7 из 10"
     },
     {
       "id": "final",
@@ -428,6 +430,7 @@
         "passed": 106,
         "failed": 0
       },
+      "commit": "85db424",
       "concerns": [
         "R51/R52 закрываются частично — админ-экран (UI) в таске 10"
       ]

@@ -7,7 +7,7 @@
   "briefFile": "2026-09-07-brief.md",
   "memoryFile": "AGENTS.md",
   "startedAt": "2026-09-07T18:54:27+03:00",
-  "updatedAt": "2026-09-08T23:54:14+03:00",
+  "updatedAt": "2026-09-09T00:01:41+03:00",
   "finishedAt": null,
   "stages": [
     {
@@ -44,7 +44,7 @@
       "id": "build",
       "status": "active",
       "startedAt": "2026-09-07T20:03:10+03:00",
-      "note": "9 из 10 тасков готово; следующий — 10"
+      "note": "9 из 10 тасков готово; в работе 10"
     },
     {
       "id": "review",
@@ -550,7 +550,8 @@
       "zone": [
         "frontend/src/"
       ],
-      "status": "pending",
+      "status": "in-progress",
+      "startedAt": "2026-09-09T00:01:41+03:00",
       "retries": 0
     }
   ],

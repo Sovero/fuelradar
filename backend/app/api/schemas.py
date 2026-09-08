@@ -158,6 +158,8 @@ class AlertRuleBody(BaseModel):
 
 class AlertRuleOut(AlertRuleBody):
     id: int
+    trigger_count: int = 0
+    last_event_at: datetime | None = None
 
 
 class AdminMergeBody(BaseModel):

@@ -120,7 +120,8 @@ def delete_zone(zone_id: int, session: Session = Depends(get_db), user: User = D
 def list_alerts(session: Session = Depends(get_db), user: User = Depends(require_user)) -> list[AlertRuleOut]:
     return [AlertRuleOut(id=r.id, name=r.name, fuel_code=session.get(FuelType, r.fuel_type_id).code if r.fuel_type_id else None, distance_km=r.distance_km,
                          status_filter=r.status_filter, confidence_min=r.confidence_min,
-                         queue_max=r.queue_max, scope=r.scope, is_active=r.is_active)
+                         queue_max=r.queue_max, scope=r.scope, is_active=r.is_active,
+                         trigger_count=r.trigger_count, last_event_at=r.last_event_at)
             for r in session.scalars(select(AlertRule).where(AlertRule.user_id == user.id))]
 
 

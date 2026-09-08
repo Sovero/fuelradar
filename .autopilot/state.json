@@ -7,7 +7,7 @@
   "briefFile": "2026-09-07-brief.md",
   "memoryFile": "AGENTS.md",
   "startedAt": "2026-09-07T18:54:27+03:00",
-  "updatedAt": "2026-09-08T22:17:26+03:00",
+  "updatedAt": "2026-09-08T23:01:09+03:00",
   "finishedAt": null,
   "stages": [
     {
@@ -44,13 +44,13 @@
       "id": "build",
       "status": "active",
       "startedAt": "2026-09-07T20:03:10+03:00",
-      "note": "7 из 10 тасков готово"
+      "note": "8 из 10 тасков готово; в работе 09"
     },
     {
       "id": "review",
       "status": "active",
       "startedAt": "2026-09-07T20:33:50+03:00",
-      "note": "проверено 7 из 10"
+      "note": "проверено 8 из 10"
     },
     {
       "id": "final",
@@ -58,9 +58,9 @@
     }
   ],
   "requirements": {
-    "total": 98,
-    "done": 56,
-    "inTicket": 35,
+    "total": 100,
+    "done": 63,
+    "inTicket": 30,
     "inSpec": 0,
     "placeholder": 1,
     "deferred": 7,
@@ -396,8 +396,38 @@
         "backend/app/alerts/",
         "backend/app/reports/"
       ],
-      "status": "pending",
-      "retries": 0
+      "status": "done",
+      "startedAt": "2026-09-08T22:25:55+03:00",
+      "finishedAt": "2026-09-08T22:59:00+03:00",
+      "retries": 0,
+      "files": [
+        "backend/app/alerts/__init__.py",
+        "backend/app/alerts/models.py",
+        "backend/app/alerts/events.py",
+        "backend/app/alerts/channels.py",
+        "backend/app/alerts/authz.py",
+        "backend/app/alerts/service.py",
+        "backend/app/alerts/router.py",
+        "backend/app/reports/__init__.py",
+        "backend/app/reports/schemas.py",
+        "backend/app/reports/service.py",
+        "backend/app/reports/router.py",
+        "backend/app/confidence/service.py",
+        "backend/app/main.py",
+        "backend/app/api/schemas.py",
+        "backend/app/api/personal.py",
+        "backend/tests/test_alerts.py",
+        "backend/tests/test_reports.py"
+      ],
+      "tests": {
+        "passed": 137,
+        "failed": 0
+      },
+      "concerns": [
+        "Web Push реально не доставляется — нет таблицы push_subscriptions (появится, когда фронтенд заведёт запрос push-разрешения)",
+        "STATION_NEW = первая оценка движком пары станция+топливо (нет хука на создание станции в T03) — задокументированная ASSUMPTION",
+        "test_api.py оставляет активное AlertRule с scope={} (весь каталог) на общей тестовой БД — генерирует лишние (безвредные) AlertEvent в последующих тестах, ни одна проверка на их число не завязана"
+      ]
     },
     {
       "id": "08",
@@ -468,7 +498,8 @@
       "zone": [
         "frontend/src/"
       ],
-      "status": "pending",
+      "status": "in-progress",
+      "startedAt": "2026-09-08T22:25:55+03:00",
       "retries": 0
     },
     {
@@ -501,7 +532,7 @@
   ],
   "singlePass": null,
   "tests": {
-    "passed": 106,
+    "passed": 137,
     "failed": 0
   },
   "debt": {

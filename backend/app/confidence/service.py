@@ -162,6 +162,9 @@ class StatusService:
         if usable:
             row.expires_at = max(observation.expires_at for observation in usable)
             row.updated_at = max(observation.observed_at for observation in usable)
+        from ..alerts.service import evaluate_rules  # T07: события из diff состояния (R35/R37)
+
+        evaluate_rules(self.session, station_id, fuel_type_id)
         return row
 
     def recompute_station_queue(self, station_id: str) -> None:
@@ -191,12 +194,15 @@ class StatusService:
         level = max(votes, key=votes.get)
         vehicles = best.queue_vehicles if best is not None else None
         wait = estimated_wait_minutes(vehicles, level)
+        from ..alerts.service import evaluate_rules  # T07: события из diff состояния (R35/R37)
+
         for status_row in self.session.scalars(
             select(StationCurrentStatus).where(StationCurrentStatus.station_id == station_id)
         ):
             status_row.queue_level = level
             status_row.queue_vehicles = vehicles
             status_row.estimated_wait_minutes = wait
+            evaluate_rules(self.session, station_id, status_row.fuel_type_id)
 
     def recompute_station(self, station_id: str) -> None:
         fuel_ids = set(

@@ -16,11 +16,13 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from sqlalchemy import text
 
+from .alerts.router import router as alerts_router
 from .analytics.router import router as analytics_router
 from .api import api_router
 from .api.deps import rate_limit
 from .core.config import settings
 from .db.session import SessionLocal, init_db
+from .reports.router import router as reports_router
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
 logger = logging.getLogger("fuelradar")
@@ -55,6 +57,8 @@ async def validation_error(request: Request, exc: RequestValidationError):
 
 app.include_router(api_router)
 app.include_router(analytics_router, prefix="/api/v1", dependencies=[Depends(rate_limit)])
+app.include_router(alerts_router, prefix="/api/v1", dependencies=[Depends(rate_limit)])
+app.include_router(reports_router, prefix="/api/v1", dependencies=[Depends(rate_limit)])
 
 
 @app.get("/health")

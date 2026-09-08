@@ -7,7 +7,7 @@
   "briefFile": "2026-09-07-brief.md",
   "memoryFile": "AGENTS.md",
   "startedAt": "2026-09-07T18:54:27+03:00",
-  "updatedAt": "2026-09-08T23:01:09+03:00",
+  "updatedAt": "2026-09-08T23:54:14+03:00",
   "finishedAt": null,
   "stages": [
     {
@@ -44,13 +44,13 @@
       "id": "build",
       "status": "active",
       "startedAt": "2026-09-07T20:03:10+03:00",
-      "note": "8 из 10 тасков готово; в работе 09"
+      "note": "9 из 10 тасков готово; следующий — 10"
     },
     {
       "id": "review",
       "status": "active",
       "startedAt": "2026-09-07T20:33:50+03:00",
-      "note": "проверено 8 из 10"
+      "note": "проверено 9 из 10"
     },
     {
       "id": "final",
@@ -58,9 +58,9 @@
     }
   ],
   "requirements": {
-    "total": 100,
-    "done": 63,
-    "inTicket": 30,
+    "total": 104,
+    "done": 84,
+    "inTicket": 12,
     "inSpec": 0,
     "placeholder": 1,
     "deferred": 7,
@@ -498,9 +498,33 @@
       "zone": [
         "frontend/src/"
       ],
-      "status": "in-progress",
+      "status": "done",
       "startedAt": "2026-09-08T22:25:55+03:00",
-      "retries": 0
+      "finishedAt": "2026-09-08T23:54:14+03:00",
+      "retries": 0,
+      "files": [
+        "frontend/lib/",
+        "frontend/components/",
+        "frontend/app/layout.tsx",
+        "frontend/app/page.tsx",
+        "frontend/app/globals.css",
+        "frontend/public/manifest.json",
+        "frontend/public/icon.svg",
+        "frontend/public/sw.js",
+        "frontend/.env.example",
+        "frontend/vitest.config.ts",
+        "frontend/vitest.setup.ts",
+        "frontend/package.json"
+      ],
+      "tests": {
+        "passed": 46,
+        "failed": 0
+      },
+      "concerns": [
+        "Яндекс-провайдер карты не проверен вживую (нет API-ключа в этой среде) — только typecheck/build и путь «без ключа»",
+        "нет подсветки выбранной станции для Яндекс-карты (есть для MapLibre) — визуальный паритет",
+        "счётчик уведомлений отказоустойчив к недоступности T07, но не проверен против реального ответа (T07 landed отдельно) — стоит один живой прогон"
+      ]
     },
     {
       "id": "10",

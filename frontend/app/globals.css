@@ -1,1 +1,21 @@
 @import "tailwindcss";
+
+/* R99: тёмная тема переключается атрибутом data-theme на <html> (см. lib/hooks/useTheme.tsx),
+   а не только системной настройкой — поэтому свой custom-variant, а не только prefers-color-scheme. */
+@custom-variant dark (&:where([data-theme="dark"], [data-theme="dark"] *));
+
+:root {
+  --fr-bg: #f9fafb;
+  --fr-fg: #111827;
+}
+
+[data-theme="dark"] {
+  --fr-bg: #0b1220;
+  --fr-fg: #e5e7eb;
+  color-scheme: dark;
+}
+
+body {
+  background: var(--fr-bg);
+  color: var(--fr-fg);
+}

@@ -1,5 +1,7 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import "./globals.css";
+import { AppProviders } from "@/components/providers/AppProviders";
+import { ServiceWorkerRegister } from "@/components/providers/ServiceWorkerRegister";
 
 export const metadata: Metadata = {
   title: "FuelRadar — где есть бензин",
@@ -7,10 +9,21 @@ export const metadata: Metadata = {
   manifest: "/manifest.json",
 };
 
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  themeColor: "#15803d",
+};
+
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="ru">
-      <body>{children}</body>
+      <body>
+        <AppProviders>
+          {children}
+          <ServiceWorkerRegister />
+        </AppProviders>
+      </body>
     </html>
   );
 }

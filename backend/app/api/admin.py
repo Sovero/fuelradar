@@ -8,11 +8,13 @@
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from ..db.models import (
     AdminActionLog,
+    CollectionJob,
+    CollectionLog,
     SourceHealth,
     SourceProvider,
     SourceStationRecord,
@@ -91,6 +93,59 @@ def refresh_source(provider_id: int, session: Session = Depends(get_db)) -> dict
     _journal(session, "refresh_source", provider.code, {"job_id": job.id})
     session.commit()
     return {"job_id": job.id, "provider": provider.code, "status": job.status, "priority": job.priority}
+
+
+@router.get("/collection-log")
+def collection_log(
+    provider_id: int | None = None,
+    limit: int = 50,
+    offset: int = 0,
+    session: Session = Depends(get_db),
+) -> dict:
+    """R58/пользовательский запрос: журнал загрузок каталога/наблюдений —
+    и ручных (refresh), и по расписанию воркера (T06), а не только текущий
+    снимок health. Не путать с /sources/{id}/health — это история запусков.
+    """
+    limit = max(1, min(limit, 200))
+    query = select(CollectionJob).order_by(CollectionJob.id.desc())
+    if provider_id is not None:
+        query = query.where(CollectionJob.source_provider_id == provider_id)
+    total = session.scalar(select(func.count()).select_from(query.subquery()))
+    jobs = session.scalars(query.offset(offset).limit(limit)).all()
+    providers = {p.id: p for p in session.scalars(select(SourceProvider))}
+    return {
+        "total": total,
+        "items": [
+            {
+                "id": j.id,
+                "provider_code": providers[j.source_provider_id].code if j.source_provider_id in providers else None,
+                "provider_name": providers[j.source_provider_id].name if j.source_provider_id in providers else None,
+                "station_id": j.station_id,
+                "job_type": j.job_type,
+                "trigger": j.trigger,  # schedule | manual | seed
+                "priority": j.priority,
+                "status": j.status,
+                "records_count": j.records_count,
+                "error_count": j.error_count,
+                "error_message": j.error_message,
+                "started_at": j.started_at,
+                "finished_at": j.finished_at,
+            }
+            for j in jobs
+        ],
+    }
+
+
+@router.get("/collection-log/{job_id}/details")
+def collection_log_details(job_id: int, session: Session = Depends(get_db)) -> list[dict]:
+    """Построчные сообщения конкретного запуска (collection_logs, R84)."""
+    job = session.get(CollectionJob, job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail="Задание не найдено")
+    logs = session.scalars(
+        select(CollectionLog).where(CollectionLog.job_id == job_id).order_by(CollectionLog.id)
+    )
+    return [{"level": entry.level, "message": entry.message, "created_at": entry.created_at} for entry in logs]
 
 
 def _station_or_404(session: Session, station_id: str) -> Station:

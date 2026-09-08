@@ -12,6 +12,7 @@ from app.core.config import settings
 from app.db.models import (
     AdminActionLog,
     CollectionJob,
+    CollectionLog,
     SourceProvider,
     SourceStationRecord,
     Station,
@@ -216,6 +217,29 @@ def test_admin_refresh_creates_job(client, db_session) -> None:
     # в test_ingest.py через партиционный uq_collection_active.
     job.status = "DONE"
     db_session.commit()
+
+
+def test_admin_collection_log_lists_jobs_and_details(client, db_session) -> None:
+    """Журнал загрузок (не снимок health) — ручные и плановые запуски, с деталями по одному."""
+    assert client.get("/api/v1/admin/collection-log").status_code == 401
+    provider = db_session.scalar(select(SourceProvider).where(SourceProvider.code == "osm_overpass"))
+    job = CollectionJob(source_provider_id=provider.id, job_type="catalog", trigger="schedule",
+                        priority="P4", status="DONE", records_count=4, error_count=0)
+    db_session.add(job)
+    db_session.flush()
+    db_session.add(CollectionLog(job_id=job.id, source_provider_id=provider.id, level="INFO", message="собрано 4 записи"))
+    db_session.commit()
+
+    r = client.get("/api/v1/admin/collection-log", params={"provider_id": provider.id, "limit": 1}, headers=ADMIN)
+    assert r.status_code == 200
+    body = r.json()
+    assert body["total"] >= 1
+    row = body["items"][0]
+    assert row["provider_code"] == "osm_overpass" and row["records_count"] >= 0
+
+    details = client.get(f"/api/v1/admin/collection-log/{job.id}/details", headers=ADMIN)
+    assert details.status_code == 200
+    assert any("собрано" in entry["message"] for entry in details.json())
 
 
 def test_admin_merge_split_and_queue(client, db_session) -> None:

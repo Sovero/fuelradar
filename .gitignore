@@ -11,6 +11,7 @@ venv/
 .pytest_cache/
 *.db
 *.sqlite3
+*.worker.lock
 
 # node / next
 node_modules/

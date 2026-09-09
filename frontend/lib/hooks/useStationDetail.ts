@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { apiGet, ApiError } from "@/lib/api";
-import type { HistoryItem, StationDetail } from "@/lib/types";
+import type { HistoryItem, QueueHistoryItem, StationDetail } from "@/lib/types";
 
 export function useStationDetail(stationId: string | null, lat: number | null, lon: number | null) {
   const [station, setStation] = useState<StationDetail | null>(null);
@@ -33,6 +33,37 @@ export function useStationDetail(stationId: string | null, lat: number | null, l
   }, [stationId, lat, lon]);
 
   return { station, loading, error };
+}
+
+export function useQueueHistory(stationId: string | null) {
+  const [history, setHistory] = useState<QueueHistoryItem[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!stationId) {
+      setHistory([]);
+      return;
+    }
+    let cancelled = false;
+    setLoading(true);
+    setError(null);
+    apiGet<QueueHistoryItem[]>(`/stations/${encodeURIComponent(stationId)}/queue-history`)
+      .then((data) => {
+        if (!cancelled) setHistory(data);
+      })
+      .catch((err: unknown) => {
+        if (!cancelled) setError(err instanceof ApiError ? err.message : "Не удалось загрузить историю очереди");
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [stationId]);
+
+  return { history, loading, error };
 }
 
 export function useStationHistory(stationId: string | null, fuelCode: string | null) {

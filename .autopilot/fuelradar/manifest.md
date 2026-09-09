@@ -53,7 +53,7 @@
 | R43 | «FuelRadar Score… fuel_available, confidence, freshness, distance, travel_time, queue, user_preferences» | in-ticket: 04 | — | spec §10 |
 | R44 | «Система должна рекомендовать Б» (не ближайшую) | in-ticket: 04 | — | spec §10 |
 | R45 | «ETA = travel_time + estimated_queue_time» | in-ticket: 04 | ASSUMPTION: travel_time оценивается по расстоянию и средней скорости, без платного routing-API | spec §10 |
-| R46 | Графики истории: «Наличие топлива / Очередь / Достоверность по времени» | in-ticket: 09 | — | spec §16 |
+| R46 | Графики истории: «Наличие топлива / Очередь / Достоверность по времени» | in-ticket: 09 | доведено координатором после слепой приёмки: T09 сдал только совмещённый график наличия+достоверности, график очереди backend уже отдавал (`/stations/{id}/queue-history`), но фронтенд его не показывал — добавлен второй `Sparkline` в `HistoryChart.tsx` | spec §16 |
 | R47 | Аналитика дефицита: «какие виды топлива исчезают чаще; какие сети стабильнее…» | in-ticket: 08 | базовые агрегаты; глубокая BI — вне MVP (см. R77) | spec §14 |
 | R48 | «Fuel Availability Index… AI92 82/100…» | in-ticket: 08 | — | spec §14 |
 | R49 | Прогноз: «вероятность появления топлива в ближайшие 3 часа» | deferred | бриф: «Не входит в обязательный MVP» (§62) | — |

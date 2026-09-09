@@ -6,8 +6,12 @@ install:
 	pip install -r backend/requirements.txt
 	cd frontend && npm install
 
+# DEBUG включает dev-вход без пароля; CORS_ORIGINS нужен, только пока
+# backend (:8000) и frontend (:3000) — разные origin для браузера (proxy
+# Next.js форвардит их Origin как есть). В проде оба идут за одним Caddy —
+# один origin, переменная не нужна (R66/R95i).
 dev:
-	cd backend && uvicorn app.main:app --reload --port 8000
+	cd backend && DEBUG=true CORS_ORIGINS=http://localhost:3000 uvicorn app.main:app --reload --port 8000
 
 test:
 	cd backend && pytest

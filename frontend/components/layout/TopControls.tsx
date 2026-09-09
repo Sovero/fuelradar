@@ -3,19 +3,31 @@
 import { useEffect, useState } from "react";
 import { useFilters } from "@/lib/hooks/useFilters";
 import { useGeolocation } from "@/lib/hooks/useGeolocation";
+import { usePrivacy } from "@/lib/hooks/usePrivacy";
 import { useI18n } from "@/lib/hooks/useI18n";
 import { DEFAULT_RADIUS_KM } from "@/lib/filters";
 
 const RADIUS_PRESETS = [5, 10, 20, 30, 50];
 
-/** Выбор топлива/радиуса и кнопка «Найти топливо рядом» (R73, §104). */
+/** Выбор топлива/радиуса и кнопка «Найти топливо рядом» (R73, §104). GPS — только если разрешено в приватности (R24). */
 export function TopControls() {
   const { filters, setFilters } = useFilters();
   const geo = useGeolocation();
+  const privacy = usePrivacy();
   const { t } = useI18n();
   const [customRadius, setCustomRadius] = useState(false);
+  const [privacyNotice, setPrivacyNotice] = useState(false);
 
   function findNearby() {
+    if (!privacy.gpsEnabled) {
+      if (privacy.manualPoint) {
+        setFilters({ lat: privacy.manualPoint.lat, lon: privacy.manualPoint.lon });
+      } else {
+        setPrivacyNotice(true);
+      }
+      return;
+    }
+    setPrivacyNotice(false);
     geo.request();
   }
 
@@ -24,6 +36,7 @@ export function TopControls() {
       if (filters.lat !== geo.position.lat || filters.lon !== geo.position.lon) {
         setFilters({ lat: geo.position.lat, lon: geo.position.lon });
       }
+      privacy.setLastKnownPosition(geo.position);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [geo.status, geo.position?.lat, geo.position?.lon]);
@@ -76,6 +89,7 @@ export function TopControls() {
         {geo.status === "loading" ? t("findNearby.loading") : t("findNearby.idle")}
       </button>
       {geo.error && <p className="text-sm text-red-600 dark:text-red-400">{geo.error}</p>}
+      {privacyNotice && <p className="text-sm text-amber-700 dark:text-amber-400">{t("privacy.gps.blockedNotice")}</p>}
     </div>
   );
 }

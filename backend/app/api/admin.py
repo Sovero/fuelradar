@@ -8,6 +8,7 @@
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
@@ -19,17 +20,27 @@ from ..db.models import (
     SourceProvider,
     SourceStationRecord,
     Station,
+    User,
+    UserReport,
 )
 from ..db.session import get_db
 from ..dedup import DedupService
 from .deps import require_admin
 from .schemas import AdminMergeBody, DedupQueueAction
 
+
+class BlockUserBody(BaseModel):
+    blocked: bool = True
+
 router = APIRouter(prefix="/admin", tags=["admin"], dependencies=[Depends(require_admin)])
 
 
+_TARGET_TYPE_BY_ACTION = {"refresh_source": "source", "block_user": "user", "unblock_user": "user"}
+
+
 def _journal(session: Session, action: str, target_id: str, payload: dict) -> None:
-    session.add(AdminActionLog(actor="admin", action=action, target_type="station" if action != "refresh_source" else "source", target_id=target_id, payload=payload))
+    target_type = _TARGET_TYPE_BY_ACTION.get(action, "station")
+    session.add(AdminActionLog(actor="admin", action=action, target_type=target_type, target_id=target_id, payload=payload))
 
 
 def _provider_or_404(session: Session, provider_id: int) -> SourceProvider:
@@ -146,6 +157,55 @@ def collection_log_details(job_id: int, session: Session = Depends(get_db)) -> l
         select(CollectionLog).where(CollectionLog.job_id == job_id).order_by(CollectionLog.id)
     )
     return [{"level": entry.level, "message": entry.message, "created_at": entry.created_at} for entry in logs]
+
+
+@router.get("/reports")
+def list_reports(
+    user_id: int | None = None,
+    limit: int = 50,
+    offset: int = 0,
+    session: Session = Depends(get_db),
+) -> dict:
+    """Отчёты всех пользователей (не только свои, в отличие от `/reports/mine`, T07) —
+    иначе администратору неоткуда узнать, кого блокировать (бриф: «блокировать
+    недостоверные пользовательские сообщения»)."""
+    limit = max(1, min(limit, 200))
+    query = select(UserReport).order_by(UserReport.id.desc())
+    if user_id is not None:
+        query = query.where(UserReport.user_id == user_id)
+    total = session.scalar(select(func.count()).select_from(query.subquery()))
+    rows = session.scalars(query.offset(offset).limit(limit)).all()
+    users = {u.id: u for u in session.scalars(select(User))}
+    return {
+        "total": total,
+        "items": [
+            {
+                "id": r.id,
+                "user_id": r.user_id,
+                "user_reliability_score": users[r.user_id].reliability_score if r.user_id in users else None,
+                "user_is_blocked": users[r.user_id].is_blocked if r.user_id in users else None,
+                "station_id": r.station_id,
+                "gps_confirmed": r.gps_confirmed,
+                "distance_to_station_m": r.distance_to_station_m,
+                "created_at": r.created_at,
+            }
+            for r in rows
+        ],
+    }
+
+
+@router.post("/users/{user_id}/block")
+def block_user(user_id: int, body: BlockUserBody = BlockUserBody(), session: Session = Depends(get_db)) -> dict:
+    """R41.1: блокировка недостоверного пользователя — закрывает доступ к новым
+    отчётам сразу (`deps.require_user`/`current_active_user`), история остаётся видимой.
+    `blocked: false` — снять блокировку (тот же эндпоинт, без отдельного /unblock)."""
+    user = session.get(User, user_id)
+    if user is None:
+        raise HTTPException(status_code=404, detail="Пользователь не найден")
+    user.is_blocked = body.blocked
+    _journal(session, "block_user" if body.blocked else "unblock_user", str(user_id), {"blocked": body.blocked})
+    session.commit()
+    return {"id": user.id, "is_blocked": user.is_blocked}
 
 
 def _station_or_404(session: Session, station_id: str) -> Station:

@@ -14,6 +14,12 @@ interface AuthState {
   loading: boolean;
   /** dev-вход (см. backend/app/api/login.py) — для пилота, пока не настроены SMTP/Telegram. */
   devLogin: (email: string) => Promise<void>;
+  /** R66: письмо со ссылкой (POST /auth/magic-link) — активно только при заданном SMTP_URL. */
+  requestMagicLink: (email: string) => Promise<void>;
+  /** Обмен токена из ссылки на cookie-сессию (POST /auth/verify) — вызывается со страницы /auth/verify. */
+  verifyMagicLink: (token: string) => Promise<void>;
+  /** R66: вход через Telegram Login Widget (POST /auth/telegram) — активен только при TELEGRAM_BOT_TOKEN. */
+  telegramLogin: (payload: Record<string, string | number>) => Promise<void>;
   logout: () => Promise<void>;
   refresh: () => Promise<void>;
 }
@@ -64,12 +70,29 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     [],
   );
 
+  const requestMagicLink = useCallback(async (email: string) => {
+    await apiPost("/auth/magic-link", { email });
+  }, []);
+
+  const verifyMagicLink = useCallback(async (token: string) => {
+    const res = await apiPost<{ user: AuthUser }>("/auth/verify", { token });
+    setUser(res.user);
+  }, []);
+
+  const telegramLogin = useCallback(async (payload: Record<string, string | number>) => {
+    const res = await apiPost<{ user: AuthUser }>("/auth/telegram", payload);
+    setUser(res.user);
+  }, []);
+
   const logout = useCallback(async () => {
     await apiPost("/auth/logout");
     setUser(null);
   }, []);
 
-  const value = useMemo<AuthState>(() => ({ user, loading, devLogin, logout, refresh }), [user, loading, devLogin, logout, refresh]);
+  const value = useMemo<AuthState>(
+    () => ({ user, loading, devLogin, requestMagicLink, verifyMagicLink, telegramLogin, logout, refresh }),
+    [user, loading, devLogin, requestMagicLink, verifyMagicLink, telegramLogin, logout, refresh],
+  );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }

@@ -17,6 +17,8 @@ from app.db.models import (
     SourceStationRecord,
     Station,
     StationBrand,
+    User,
+    UserReport,
 )
 from app.db.session import init_db
 
@@ -240,6 +242,34 @@ def test_admin_collection_log_lists_jobs_and_details(client, db_session) -> None
     details = client.get(f"/api/v1/admin/collection-log/{job.id}/details", headers=ADMIN)
     assert details.status_code == 200
     assert any("собрано" in entry["message"] for entry in details.json())
+
+
+def test_admin_can_block_and_list_reports(client, db_session) -> None:
+    """Бриф: «блокировать недостоверные пользовательские сообщения» — админ
+    должен и увидеть отчёты чужих пользователей, и заблокировать автора."""
+    reporter = User(email="unreliable@example.com", reliability_score=0.1)
+    db_session.add(reporter)
+    db_session.commit()
+    db_session.add(UserReport(user_id=reporter.id, station_id=None, idempotency_key=f"admintest-{reporter.id}"))
+    db_session.commit()
+
+    r = client.get("/api/v1/admin/reports", params={"user_id": reporter.id}, headers=ADMIN)
+    assert r.status_code == 200
+    body = r.json()
+    assert body["total"] >= 1
+    assert body["items"][0]["user_id"] == reporter.id
+    assert body["items"][0]["user_is_blocked"] is False
+
+    block = client.post(f"/api/v1/admin/users/{reporter.id}/block", headers=ADMIN)
+    assert block.status_code == 200 and block.json()["is_blocked"] is True
+    db_session.refresh(reporter)
+    assert reporter.is_blocked is True
+
+    unblock = client.post(f"/api/v1/admin/users/{reporter.id}/block", json={"blocked": False}, headers=ADMIN)
+    assert unblock.status_code == 200 and unblock.json()["is_blocked"] is False
+
+    assert client.post(f"/api/v1/admin/users/{reporter.id}/block").status_code == 401
+    assert client.post("/api/v1/admin/users/999999/block", headers=ADMIN).status_code == 404
 
 
 def test_admin_merge_split_and_queue(client, db_session) -> None:

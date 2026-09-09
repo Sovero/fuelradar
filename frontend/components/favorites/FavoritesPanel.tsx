@@ -7,6 +7,7 @@ import { useFilters } from "@/lib/hooks/useFilters";
 import { useI18n } from "@/lib/hooks/useI18n";
 import { StationList } from "@/components/station/StationList";
 import { LoginPanel } from "@/components/layout/LoginPanel";
+import { FavoriteRulesBar } from "@/components/favorites/FavoriteRulesBar";
 
 /** Вкладка «Избранное» (R26) — требует профиль; пустое избранное подсказывает найти станцию (R26.1). */
 export function FavoritesPanel({ onSelect }: { onSelect: (id: string) => void }) {
@@ -52,5 +53,12 @@ export function FavoritesPanel({ onSelect }: { onSelect: (id: string) => void })
     );
   }
 
-  return <StationList stations={favorites} onSelect={onSelect} />;
+  return (
+    <div className="flex h-full flex-col">
+      <FavoriteRulesBar favorites={favorites} />
+      <div className="flex-1 overflow-hidden">
+        <StationList stations={favorites} onSelect={onSelect} />
+      </div>
+    </div>
+  );
 }

@@ -66,7 +66,11 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   return body as T;
 }
 
-export function apiGet<T>(path: string, params?: Record<string, string | number | boolean | undefined | null>): Promise<T> {
+export function apiGet<T>(
+  path: string,
+  params?: Record<string, string | number | boolean | undefined | null>,
+  init?: RequestInit,
+): Promise<T> {
   let query = "";
   if (params) {
     const usp = new URLSearchParams();
@@ -77,17 +81,17 @@ export function apiGet<T>(path: string, params?: Record<string, string | number 
     const qs = usp.toString();
     if (qs) query = `?${qs}`;
   }
-  return request<T>(`${path}${query}`, { method: "GET" });
+  return request<T>(`${path}${query}`, { ...init, method: "GET" });
 }
 
-export function apiPost<T>(path: string, body?: unknown): Promise<T> {
-  return request<T>(path, { method: "POST", body: body !== undefined ? JSON.stringify(body) : undefined });
+export function apiPost<T>(path: string, body?: unknown, init?: RequestInit): Promise<T> {
+  return request<T>(path, { ...init, method: "POST", body: body !== undefined ? JSON.stringify(body) : undefined });
 }
 
-export function apiPut<T>(path: string, body?: unknown): Promise<T> {
-  return request<T>(path, { method: "PUT", body: body !== undefined ? JSON.stringify(body) : undefined });
+export function apiPut<T>(path: string, body?: unknown, init?: RequestInit): Promise<T> {
+  return request<T>(path, { ...init, method: "PUT", body: body !== undefined ? JSON.stringify(body) : undefined });
 }
 
-export function apiDelete<T>(path: string): Promise<T> {
-  return request<T>(path, { method: "DELETE" });
+export function apiDelete<T>(path: string, init?: RequestInit): Promise<T> {
+  return request<T>(path, { ...init, method: "DELETE" });
 }

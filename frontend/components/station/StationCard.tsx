@@ -10,6 +10,7 @@ import { useEffect, useState } from "react";
 import { useStationDetail } from "@/lib/hooks/useStationDetail";
 import { useMeta } from "@/lib/hooks/useMeta";
 import { useI18n } from "@/lib/hooks/useI18n";
+import { useObservationMode } from "@/lib/hooks/useObservationMode";
 import { StatusBadge } from "@/components/station/StatusBadge";
 import { WhyExplanation } from "@/components/station/WhyExplanation";
 import { HistoryChart } from "@/components/station/HistoryChart";
@@ -33,6 +34,7 @@ export function StationCard({
   const { station, loading, error } = useStationDetail(stationId, lat, lon);
   const { fuelLabel, queueLabel } = useMeta();
   const { t } = useI18n();
+  const { settings: observationSettings, toggleExcluded, isExcluded } = useObservationMode();
   const [historyFuel, setHistoryFuel] = useState<string | null>(null);
   const [loginOpen, setLoginOpen] = useState(false);
 
@@ -128,8 +130,23 @@ export function StationCard({
           <div className="flex gap-2 pt-2">
             <RouteButton lat={station.latitude} lon={station.longitude} />
             <FavoriteButton stationId={station.id} onRequireLogin={() => setLoginOpen(true)} />
-            <ReportButton />
+            <ReportButton
+              stationId={station.id}
+              stationLat={station.latitude}
+              stationLon={station.longitude}
+              onRequireLogin={() => setLoginOpen(true)}
+            />
           </div>
+
+          {observationSettings.mode === "exclude" && (
+            <button
+              type="button"
+              onClick={() => toggleExcluded(station.id)}
+              className="text-xs text-gray-400 underline hover:text-gray-600 dark:hover:text-gray-200"
+            >
+              {isExcluded(station.id) ? t("observation.exclude.include") : t("observation.exclude.exclude")}
+            </button>
+          )}
         </div>
       )}
 

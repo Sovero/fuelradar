@@ -7,7 +7,7 @@
   "briefFile": "2026-09-07-brief.md",
   "memoryFile": "AGENTS.md",
   "startedAt": "2026-09-07T18:54:27+03:00",
-  "updatedAt": "2026-09-09T18:30:27+03:00",
+  "updatedAt": "2026-09-09T19:22:38+03:00",
   "finishedAt": null,
   "stages": [
     {
@@ -42,15 +42,16 @@
     },
     {
       "id": "build",
-      "status": "active",
+      "status": "done",
       "startedAt": "2026-09-07T20:03:10+03:00",
-      "note": "9 из 10 тасков готово; в работе 10 (повторный запуск)"
+      "finishedAt": "2026-09-09T19:22:38+03:00",
+      "note": "10 из 10 тасков готово"
     },
     {
       "id": "review",
       "status": "active",
       "startedAt": "2026-09-07T20:33:50+03:00",
-      "note": "проверено 9 из 10"
+      "note": "проверено 10 из 10 по возврату; идёт финальный сквозной проход"
     },
     {
       "id": "final",
@@ -58,9 +59,9 @@
     }
   ],
   "requirements": {
-    "total": 104,
-    "done": 84,
-    "inTicket": 12,
+    "total": 106,
+    "done": 98,
+    "inTicket": 0,
     "inSpec": 0,
     "placeholder": 1,
     "deferred": 7,
@@ -550,14 +551,50 @@
       "zone": [
         "frontend/src/"
       ],
-      "status": "in-progress",
+      "status": "done",
       "startedAt": "2026-09-09T18:30:27+03:00",
-      "retries": 1
+      "finishedAt": "2026-09-09T19:22:38+03:00",
+      "retries": 1,
+      "files": [
+        "frontend/lib/adminApi.ts",
+        "frontend/lib/geo.ts",
+        "frontend/lib/personalization.ts",
+        "frontend/lib/offlineReports.ts",
+        "frontend/lib/telegram.ts",
+        "frontend/lib/hooks/usePrivacy.tsx",
+        "frontend/lib/hooks/useObservationMode.tsx",
+        "frontend/lib/hooks/useNetworkPreferences.tsx",
+        "frontend/lib/hooks/useMonitoringZones.ts",
+        "frontend/lib/hooks/useAlertRules.ts",
+        "frontend/lib/hooks/useFollowMeZone.ts",
+        "frontend/lib/hooks/useAdminAuth.tsx",
+        "frontend/components/station/ReportForm.tsx",
+        "frontend/components/layout/NotificationsPanel.tsx",
+        "frontend/components/layout/TelegramLoginButton.tsx",
+        "frontend/components/settings/",
+        "frontend/components/admin/",
+        "frontend/app/settings/page.tsx",
+        "frontend/app/admin/page.tsx",
+        "frontend/app/auth/verify/page.tsx",
+        "backend/app/api/admin.py",
+        "backend/tests/test_api.py"
+      ],
+      "tests": {
+        "passed": 76,
+        "failed": 0
+      },
+      "commit": null,
+      "concerns": [
+        "R25/R77 (сети в правилах наблюдения/сортировке) — клиентский компромисс: backend не отдаёт числовой id бренда и не хранит персональные приоритеты (см. manifest.md)",
+        "R24 (удалить историю геопозиции) — сервер не хранит трек вообще (осознанно, спецификация §11), очищается только локальный кэш последней позиции",
+        "полигон зоны — ввод координат текстом, не рисование по карте (нет инструмента в MapProvider-абстракции, было бы непропорционально тикету)",
+        "Telegram-вход не проверен вживую — нет настроенного бота в этой среде"
+      ]
     }
   ],
   "singlePass": null,
   "tests": {
-    "passed": 137,
+    "passed": 139,
     "failed": 0
   },
   "debt": {

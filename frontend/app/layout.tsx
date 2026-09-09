@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from "next";
 import "./globals.css";
 import { AppProviders } from "@/components/providers/AppProviders";
 import { ServiceWorkerRegister } from "@/components/providers/ServiceWorkerRegister";
+import { OfflineReportsSync } from "@/components/providers/OfflineReportsSync";
 
 export const metadata: Metadata = {
   title: "FuelRadar — где есть бензин",
@@ -22,6 +23,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <AppProviders>
           {children}
           <ServiceWorkerRegister />
+          <OfflineReportsSync />
         </AppProviders>
       </body>
     </html>

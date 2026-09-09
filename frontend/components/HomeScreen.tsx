@@ -6,7 +6,11 @@ import { useMeta } from "@/lib/hooks/useMeta";
 import { useAuth } from "@/lib/hooks/useAuth";
 import { useI18n } from "@/lib/hooks/useI18n";
 import { useStations } from "@/lib/hooks/useStations";
+import { useFavorites } from "@/lib/hooks/useFavorites";
+import { useObservationMode } from "@/lib/hooks/useObservationMode";
+import { useNetworkPreferences } from "@/lib/hooks/useNetworkPreferences";
 import { countConfirmed } from "@/lib/availability";
+import { applyObservationMode, applyPreferredBrandsOrder } from "@/lib/personalization";
 import { apiPost, ApiError } from "@/lib/api";
 import { Header } from "@/components/layout/Header";
 import { TopControls } from "@/components/layout/TopControls";
@@ -57,6 +61,9 @@ function HomeScreenBody() {
   );
 
   const { stations, loading, error, isStale } = useStations(query);
+  const { favorites } = useFavorites();
+  const { settings: observationSettings } = useObservationMode();
+  const { preferredBrands } = useNetworkPreferences();
 
   const searched = useMemo(() => {
     const q = filters.search.trim().toLowerCase();
@@ -65,6 +72,14 @@ function HomeScreenBody() {
       (s) => s.name.toLowerCase().includes(q) || s.address.toLowerCase().includes(q) || (s.brand ?? "").toLowerCase().includes(q),
     );
   }, [stations, filters.search]);
+
+  // Режим наблюдения (R25) + предпочтения сетей (R77) — персональные настройки
+  // поверх уже отфильтрованного/отсортированного API-ответа (см. lib/personalization.ts).
+  const favoriteIds = useMemo(() => new Set(favorites.map((f) => f.id)), [favorites]);
+  const personalized = useMemo(() => {
+    const observed = applyObservationMode(searched, observationSettings, favoriteIds);
+    return applyPreferredBrandsOrder(observed, preferredBrands);
+  }, [searched, observationSettings, favoriteIds, preferredBrands]);
 
   const confirmedCount = countConfirmed(searched, filters.fuels, filters.includeLikely);
   const isSearchingFuel = filters.fuels.length > 0;
@@ -127,14 +142,14 @@ function HomeScreenBody() {
           <>
             {filters.tab === "map" && (
               <MapView
-                stations={searched}
+                stations={personalized}
                 selectedFuelCodes={filters.fuels}
                 selectedStationId={filters.station}
                 onSelectStation={(id) => setFilters({ station: id })}
                 focus={focus}
               />
             )}
-            {filters.tab === "list" && <StationList stations={searched} onSelect={(id) => setFilters({ station: id })} />}
+            {filters.tab === "list" && <StationList stations={personalized} onSelect={(id) => setFilters({ station: id })} />}
             {filters.tab === "favorites" && <FavoritesPanel onSelect={(id) => setFilters({ station: id })} />}
             {loading && (
               <p className="absolute left-1/2 top-2 -translate-x-1/2 rounded-full bg-white/90 px-3 py-1 text-xs text-gray-500 shadow dark:bg-gray-800/90 dark:text-gray-300">

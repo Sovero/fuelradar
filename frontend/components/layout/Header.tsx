@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 import { NotificationBell } from "@/components/layout/NotificationBell";
 import { LoginPanel } from "@/components/layout/LoginPanel";
 import { ThemeToggle } from "@/components/layout/ThemeToggle";
@@ -28,6 +29,24 @@ export function Header() {
         <ThemeToggle />
         <TourRestartButton />
         <NotificationBell />
+        {user && (
+          <Link
+            href="/settings"
+            className="rounded-full p-2 text-xl hover:bg-black/5 dark:hover:bg-white/10"
+            aria-label={t("header.settings")}
+            title={t("header.settings")}
+          >
+            ⚙️
+          </Link>
+        )}
+        <Link
+          href="/admin"
+          className="rounded-full p-2 text-xl hover:bg-black/5 dark:hover:bg-white/10"
+          aria-label={t("header.admin")}
+          title={t("header.admin")}
+        >
+          🛠️
+        </Link>
         <button
           type="button"
           onClick={() => setLoginOpen(true)}
@@ -35,7 +54,7 @@ export function Header() {
           aria-label={user ? t("header.profile") : t("header.login")}
           title={user ? user.email ?? user.telegram_id ?? t("header.profile") : t("header.login")}
         >
-          {user ? "👤" : "⚙️"}
+          {user ? "👤" : "🔑"}
         </button>
       </div>
       {loginOpen && <LoginPanel onClose={() => setLoginOpen(false)} />}

@@ -9,7 +9,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useMapProviderPreference } from "@/lib/hooks/useMapProviderPreference";
-import type { MapViewport } from "@/lib/map/types";
+import type { MapPoint, MapViewport } from "@/lib/map/types";
 import { buildStationMarkers } from "@/lib/map/markerData";
 import { DEFAULT_MAP_CENTER, DEFAULT_MAP_ZOOM, NEARBY_ZOOM } from "@/lib/map/config";
 import { Legend } from "@/components/map/Legend";
@@ -21,6 +21,8 @@ export function MapView({
   selectedStationId,
   onSelectStation,
   focus,
+  routePolyline,
+  onMapClick,
 }: {
   stations: StationBrief[];
   selectedFuelCodes: string[];
@@ -28,6 +30,8 @@ export function MapView({
   onSelectStation: (id: string) => void;
   /** Точка, к которой нужно перелететь (геолокация/центр по умолчанию) — меняется редко. */
   focus: { lat: number; lon: number } | null;
+  routePolyline?: MapPoint[];
+  onMapClick?: (point: MapPoint) => void;
 }) {
   const { ProviderComponent: Provider } = useMapProviderPreference();
   const markers = useMemo(() => buildStationMarkers(stations, selectedFuelCodes), [stations, selectedFuelCodes]);
@@ -56,6 +60,8 @@ export function MapView({
         selectedStationId={selectedStationId}
         onMarkerClick={onSelectStation}
         userLocation={focus}
+        routePolyline={routePolyline}
+        onMapClick={onMapClick}
       />
       <Legend />
     </div>

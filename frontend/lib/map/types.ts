@@ -24,6 +24,11 @@ export interface MapViewport {
   zoom: number;
 }
 
+export interface MapPoint {
+  lat: number;
+  lon: number;
+}
+
 export interface MapProviderProps {
   markers: StationMarker[];
   initialViewport: MapViewport;
@@ -33,6 +38,10 @@ export interface MapProviderProps {
   onMarkerClick: (stationId: string) => void;
   /** Позиция пользователя (геолокация) — отдельная точка на карте, не StationMarker. */
   userLocation?: { lat: number; lon: number } | null;
+  /** Линия Route Mode, построенная строго по выбранным пользователем точкам. */
+  routePolyline?: MapPoint[];
+  /** Клик по фону карты; Route Mode использует его для добавления точки. */
+  onMapClick?: (point: MapPoint) => void;
   /** Вызывается когда пользователь подвинул карту (для «показать в этой области» и т.п.) */
   onViewportChange?: (viewport: MapViewport & { bounds: [number, number, number, number] }) => void;
   className?: string;

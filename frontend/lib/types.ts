@@ -45,6 +45,10 @@ export interface StationBrief {
   score: number | null;
 }
 
+export interface RouteStation extends StationBrief {
+  distance_from_route_km: number;
+}
+
 export interface ScoreComponent {
   value: number;
   weight: number;

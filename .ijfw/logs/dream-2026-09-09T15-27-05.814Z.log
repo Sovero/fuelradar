@@ -1,0 +1,7 @@
+[2026-09-09T15:27:05.820Z] start: host=claude-code, reason=session_end, project=C:/Projects/Python/fuelradar
+[2026-09-09T15:27:05.823Z] journal: 1 entries across 1 sessions
+[2026-09-09T15:27:05.829Z] tier-promotion: db open skipped (Cannot find package 'better-sqlite3' imported from C:\Users\Sovero\.ijfw\mcp-server\src\memory\fts5.js)
+[2026-09-09T15:27:05.832Z] wiki-compile: db open skipped (Cannot find package 'better-sqlite3' imported from C:\Users\Sovero\.ijfw\mcp-server\src\memory\fts5.js)
+[2026-09-09T15:27:05.850Z] profile_derive: merged delta (style=1 feedback=0 inferences=2)
+[2026-09-09T15:27:05.854Z] mark-completed: ok
+[2026-09-09T15:27:05.855Z] end: completed=5 failed=0

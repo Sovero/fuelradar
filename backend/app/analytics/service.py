@@ -7,6 +7,13 @@ Coverage uses the fuel types tracked for each station, not every fuel in the glo
 dictionary: all tracked readings known = complete, some = partial, none = no data.
 Deficit statistics describe individual source observation streams, not inferred
 historical consensus. Unknowns and TTL gaps censor outages, never imply recovery.
+
+T15/R79: `deficit_by_region()` regroups the same deficit arithmetic by city/region
+instead of brand ("районы дефицита") -- honest on a small pilot catalog, not yet
+statistically meaningful until the catalog grows (spec §61), by brief design.
+T15/R49: `deficit_statistics(..., now=...)` additionally reports
+`current_outage_minutes` for a still-open outage, consumed by `analytics.forecast`
+to produce an explainable probability heuristic -- see that module's docstring.
 """
 
 from __future__ import annotations
@@ -33,11 +40,18 @@ DEFINITIVE = {"AVAILABLE", "LOW_STOCK", "UNAVAILABLE"}
 PRESENT = {"AVAILABLE", "LOW_STOCK"}
 
 
-def deficit_statistics(observations: list[dict[str, Any]]) -> dict[str, Any]:
+def deficit_statistics(
+    observations: list[dict[str, Any]], *, now: datetime | None = None,
+) -> dict[str, Any]:
     """Count source-reported transitions and completed, continuously observed outages.
 
     Streams must describe one station/fuel/source. Duplicate readings and repeated
     UNAVAILABLE do not count as new outages. Initial UNAVAILABLE is left censored.
+
+    When `now` is given, also reports `current_outage_minutes` (R49): the elapsed
+    time of a still-open outage as of `now`, but only when the last observation's
+    TTL still covers `now` (an expired trailing episode is left censored, same as
+    any other TTL gap -- we don't claim to know the station is still unavailable).
     """
     ordered = sorted(observations, key=lambda item: item["observed_at"])
     previous: str | None = None
@@ -63,11 +77,15 @@ def deficit_statistics(observations: list[dict[str, Any]]) -> dict[str, Any]:
                 start = None
             previous = status
         expires = row["expires_at"]
+    current_outage_minutes: float | None = None
+    if start is not None and now is not None and (expires is None or now <= expires):
+        current_outage_minutes = (now - start).total_seconds() / 60
     return {
         "unavailable_transitions": transitions,
         "completed_outages": completed,
         "censored_outages": censored + int(start is not None),
         "duration_minutes": durations,
+        "current_outage_minutes": current_outage_minutes,
     }
 
 
@@ -99,7 +117,7 @@ def refresh_analytics(db: Session, *, now: datetime | None = None) -> dict[str, 
                 "expires_at": row.expires_at,
             })
     for (station_id, fuel_id, source_id), observations in streams.items():
-        statistics = deficit_statistics(observations)
+        statistics = deficit_statistics(observations, now=now)
         statistics["total_absence_minutes"] = sum(statistics.pop("duration_minutes"))
         stations[station_id]["deficits"].append({
             "fuel": fuels[fuel_id], "source_id": source_id,
@@ -129,18 +147,82 @@ def refresh_analytics(db: Session, *, now: datetime | None = None) -> dict[str, 
     return {"computed_at": now.isoformat(), **summarize(payload)}
 
 
+def _within_bbox(row: dict[str, Any], bbox: tuple[float, float, float, float] | None) -> bool:
+    return bbox is None or (bbox[0] <= row["longitude"] <= bbox[2]
+                           and bbox[1] <= row["latitude"] <= bbox[3])
+
+
+def _filter_stations(
+    payload: dict[str, Any], *, city: str | None = None, region: str | None = None,
+    bbox: tuple[float, float, float, float] | None = None,
+) -> list[dict[str, Any]]:
+    return [row for row in payload["stations"]
+            if (not city or row["city"].casefold() == city.casefold())
+            and (not region or row["region"].casefold() == region.casefold())
+            and _within_bbox(row, bbox)]
+
+
+def _deficit_group_totals(rows: list[dict[str, Any]]) -> dict[str, Any]:
+    completed = sum(row["completed_outages"] for row in rows)
+    duration = sum(row["total_absence_minutes"] for row in rows)
+    average = round(duration / completed, 2) if completed else None
+    return {
+        "observed_source_streams": len(rows),
+        "unavailable_transitions": sum(row["unavailable_transitions"] for row in rows),
+        "completed_outages": completed,
+        "censored_outages": sum(row["censored_outages"] for row in rows),
+        "mean_absence_minutes": average,
+        "mean_recovery_minutes": average,
+    }
+
+
+def deficit_by_region(
+    payload: dict[str, Any], *, dimension: str = "region",
+    city: str | None = None, region: str | None = None,
+    bbox: tuple[float, float, float, float] | None = None,
+) -> dict[str, Any]:
+    """R79: same deficit arithmetic as the per-network view in `summarize()`
+    (R47 -- source observation streams, TTL gaps censored not invented), grouped
+    by city/region instead of brand, to compare where fuel deficits are more
+    frequent or longer-lasting ("районы дефицита").
+
+    Honest limitation (spec §61, brief: "после накопления данных"): on a small
+    pilot-scale catalog most groups will hold only one or two stations, so the
+    numbers are correct but not yet statistically meaningful -- this is expected,
+    not a bug, and improves automatically as the catalog and history grow.
+    """
+    if dimension not in {"city", "region"}:
+        raise ValueError("dimension must be 'city' or 'region'")
+    stations = _filter_stations(payload, city=city, region=region, bbox=bbox)
+    grouped: dict[tuple[str, str], list[dict[str, Any]]] = defaultdict(list)
+    station_ids: dict[tuple[str, str], set[str]] = defaultdict(set)
+    for station in stations:
+        area = station.get(dimension) or "UNKNOWN"
+        for row in station["deficits"]:
+            key = (area, row["fuel"])
+            grouped[key].append(row)
+            station_ids[key].add(station["id"])
+    items = [
+        {dimension: area, "fuel": fuel, "stations_observed": len(station_ids[(area, fuel)]),
+         **_deficit_group_totals(rows)}
+        for (area, fuel), rows in sorted(grouped.items())
+    ]
+    return {
+        "items": items,
+        "dimension": dimension,
+        "basis": "source observation streams grouped by city/region instead of network; "
+                 "same TTL-censoring semantics as deficit_stats (R47)",
+        "note": "small groups on a pilot-scale catalog are honest but not yet "
+                "statistically meaningful -- expected per brief §61 until data accumulates",
+    }
+
+
 def summarize(
     payload: dict[str, Any], *, city: str | None = None, region: str | None = None,
     bbox: tuple[float, float, float, float] | None = None,
 ) -> dict[str, Any]:
     """Filter compact cached station aggregates; never query history from the API."""
-    def inside(row: dict[str, Any]) -> bool:
-        return bbox is None or (bbox[0] <= row["longitude"] <= bbox[2]
-                               and bbox[1] <= row["latitude"] <= bbox[3])
-
-    stations = [row for row in payload["stations"]
-                if (not city or row["city"].casefold() == city.casefold())
-                and (not region or row["region"].casefold() == region.casefold()) and inside(row)]
+    stations = _filter_stations(payload, city=city, region=region, bbox=bbox)
     ids = {row["id"] for row in stations}
     complete = partial = 0
     for row in stations:
@@ -171,7 +253,7 @@ def summarize(
     for source in payload["sources"]:
         records = [row for row in payload["source_records"] if row["code"] == source["code"]
                    and (row["station_id"] in ids or
-                        (not city and not region and row["station_id"] is None and inside(row)))]
+                        (not city and not region and row["station_id"] is None and _within_bbox(row, bbox)))]
         source_rows.append({**source, "records_before_dedup": len(records),
                             "unique_stations": len({row["station_id"] for row in records
                                                     if row["station_id"] in ids}),
@@ -180,20 +262,8 @@ def summarize(
     for station in stations:
         for row in station["deficits"]:
             grouped[(station["brand"], row["fuel"])].append(row)
-    deficits = []
-    for (brand, fuel), rows in sorted(grouped.items()):
-        completed = sum(row["completed_outages"] for row in rows)
-        duration = sum(row["total_absence_minutes"] for row in rows)
-        average = round(duration / completed, 2) if completed else None
-        deficits.append({
-            "brand": brand, "fuel": fuel,
-            "observed_source_streams": len(rows),
-            "unavailable_transitions": sum(row["unavailable_transitions"] for row in rows),
-            "completed_outages": completed,
-            "censored_outages": sum(row["censored_outages"] for row in rows),
-            "mean_absence_minutes": average,
-            "mean_recovery_minutes": average,
-        })
+    deficits = [{"brand": brand, "fuel": fuel, **_deficit_group_totals(rows)}
+                for (brand, fuel), rows in sorted(grouped.items())]
     return {
         "coverage": coverage,
         "coverage_by_source": {"sources": source_rows, "unique_stations_after_dedup": total,

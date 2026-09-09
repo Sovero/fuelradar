@@ -1,0 +1,207 @@
+<!-- ijfw schema:1 codebase-index -->
+# Codebase index
+
+Generated: 2026-09-09T15:22:38Z
+Root: .
+
+Files: 190
+
+## By file
+
+- `./.autopilot/README.md` (10 lines, .md) -- - `dashboard.html` — открывается сам в начале сборки; можно и двойным клик
+- `./.autopilot/fuelradar/2026-09-07-brief.md` (2652 lines, .md) -- > Записано 2026-09-07. Этот файл не редактируется — он эталон, с которы�
+- `./.autopilot/fuelradar/manifest.md` (128 lines, .md) -- Источник: `2026-09-07-brief.md`. Строку из этого списка может снять **только 
+- `./.autopilot/fuelradar/research-sources.md` (162 lines, .md) -- Статус артефакта: **черновик-основа на 07.09.2026**. Даты и условия API ме�
+- `./.autopilot/fuelradar/spec.md` (967 lines, .md) -- Задача и решение — ниже. Полный список требований — в `manifest.md`; каж
+- `./.autopilot/fuelradar/tickets/T01-каркас-схема.md` (42 lines, .md) -- Одна команда поднимает скелет системы: FastAPI-приложение с `/health` и `/r
+- `./.autopilot/fuelradar/tickets/T02-адаптеры-сбор-каталога.md` (46 lines, .md) -- Конвейер «источник → нормализация записей → source_records» с адаптерн
+- `./.autopilot/fuelradar/tickets/T03-нормализация-дедупликация.md` (45 lines, .md) -- Из source_records — **мастер-каталог станций** с собственными `fr_station_*` ID.
+- `./.autopilot/fuelradar/tickets/T04-статусы-confidence-score.md` (52 lines, .md) -- Агрегация наблюдений (station, fuel) в итоговый статус + confidence 0–100% + раз�
+- `./.autopilot/fuelradar/tickets/T05-публичный-api-безопасность.md` (47 lines, .md) -- FastAPI, namespace `/api/v1`: `GET /stations` (список с фильтрами: lat/lon/radius, city,
+- `./.autopilot/fuelradar/tickets/T06-планировщик-воркер.md` (45 lines, .md) -- Фоновый воркер (APScheduler, отдельный процесс — compose-сервис `worker`): регу
+- `./.autopilot/fuelradar/tickets/T07-уведомления-отчёты.md` (49 lines, .md) -- События из diff состояния (FUEL_APPEARED, FUEL_DISAPPEARED, FUEL_LOW, QUEUE_INCREASED,
+- `./.autopilot/fuelradar/tickets/T08-аналитика-покрытие.md` (41 lines, .md) -- Покрытие данных по региону (АЗС обнаружено; с данными о топливе; ч�
+- `./.autopilot/fuelradar/tickets/T09-frontend-ядро-карта.md` (51 lines, .md) -- Next.js + React + TypeScript + Tailwind, слой карты абстрагирован (MapLibre GL + OSM tiles,
+- `./.autopilot/fuelradar/tickets/T10-frontend-персонализация-админка.md` (47 lines, .md) -- Вход (dev; при ключах — magic-link и подписка на push, R66/R97i), вкладка «Избра�
+- `./.autopilot/fuelradar/tickets/interfaces.md` (141 lines, .md) -- Единая точка сверки между тасками. Таск, который ломает контракт, 
+- `./.pytest_cache/README.md` (8 lines, .md) -- This directory contains data from the pytest's cache plugin,
+- `./AGENTS.md` (59 lines, .md) -- ijfw_version: 1.3.2
+- `./CLAUDE.md` (7 lines, .md) -- См. @AGENTS.md
+- `./README.md` (38 lines, .md) -- PWA-система независимой агрегации данных о наличии топлива на АЗС (
+- `./backend/.pytest_cache/README.md` (8 lines, .md) -- This directory contains data from the pytest's cache plugin,
+- `./backend/app/__init__.py` (0 lines, .py) -- <empty>
+- `./backend/app/alerts/__init__.py` (7 lines, .py) -- CRUD правил (`/alerts`) — уже в `backend/app/api/personal.py` (T05); этот пакет
+- `./backend/app/alerts/authz.py` (38 lines, .py) -- Не переиспользует `api.deps.require_user` намеренно: тот «проглатывает»
+- `./backend/app/alerts/channels.py` (91 lines, .py) -- Секреты никогда не логируются и не возвращаются (R68) — только имен
+- `./backend/app/alerts/events.py` (102 lines, .py) -- Событие производно от ИЗМЕНЕНИЯ состояния (station, fuel), не от самого �
+- `./backend/app/alerts/models.py` (34 lines, .py) -- `AlertStateSnapshot` хранит последнее состояние (station, fuel), которое уже
+- `./backend/app/alerts/router.py` (108 lines, .py) -- CRUD правил (`/alerts`) — уже реализован в `backend/app/api/personal.py` (T05);
+- `./backend/app/alerts/service.py` (231 lines, .py) -- Точка входа — `evaluate_rules(session, station_id, fuel_type_id)`, вызывается
+- `./backend/app/analytics/__init__.py` (1 lines, .py) -- <empty>
+- `./backend/app/analytics/models.py` (19 lines, .py) -- from datetime import datetime
+- `./backend/app/analytics/router.py` (67 lines, .py) -- from datetime import UTC, datetime
+- `./backend/app/analytics/service.py` (203 lines, .py) -- Index assumption (brief supplies examples but no formula): AVAILABLE / definitive
+- `./backend/app/api/__init__.py` (18 lines, .py) -- from __future__ import annotations
+- `./backend/app/api/admin.py` (221 lines, .py) -- Доступ — только по заголовку X-Admin-Token (R95i). Все действия журналирую
+- `./backend/app/api/cache.py` (46 lines, .py) -- Ключ — путь + отсортированные непустые параметры. TTL из конфигура�
+- `./backend/app/api/deps.py` (91 lines, .py) -- from __future__ import annotations
+- `./backend/app/api/login.py` (100 lines, .py) -- from __future__ import annotations
+- `./backend/app/api/meta.py` (101 lines, .py) -- from __future__ import annotations
+- `./backend/app/api/personal.py` (181 lines, .py) -- Оценка правил и события — таск 07; здесь CRUD с валидацией и лимитом �
+- `./backend/app/api/schemas.py` (179 lines, .py) -- from __future__ import annotations
+- `./backend/app/api/stations.py` (474 lines, .py) -- Список с фильтрами (lat/lon/radius, bbox, city, brand, fuel, status,
+- `./backend/app/auth/__init__.py` (25 lines, .py) -- from .service import (
+- `./backend/app/auth/service.py` (127 lines, .py) -- Карта и поиск анонимны (R65); персонализация — только с профилем. Ка
+- `./backend/app/confidence/__init__.py` (21 lines, .py) -- from .aggregate import (
+- `./backend/app/confidence/aggregate.py` (185 lines, .py) -- Модель — взвешенное голосование, а не «последнее сообщение» (R19):
+- `./backend/app/confidence/service.py` (352 lines, .py) --   - запись наблюдения = новая строка FuelObservation/QueueObservation (R17 —
+- `./backend/app/core/__init__.py` (0 lines, .py) -- <empty>
+- `./backend/app/core/config.py` (104 lines, .py) -- Секреты — только переменные окружения (R68). Регион — данные из .env, 
+- `./backend/app/core/metrics.py` (30 lines, .py) -- In-memory счётчики на процесс. Наполняются воркером (T06): запросы/ошибк
+- `./backend/app/db/__init__.py` (0 lines, .py) -- <empty>
+- `./backend/app/db/base.py` (7 lines, .py) -- from sqlalchemy.orm import DeclarativeBase
+- `./backend/app/db/migrations.py` (55 lines, .py) -- from sqlalchemy import Engine, inspect, text
+- `./backend/app/db/models.py` (349 lines, .py) -- SQLite (dev) / PostgreSQL+PostGIS (prod): координаты хранятся числами (dev) и
+- `./backend/app/db/session.py` (92 lines, .py) -- from __future__ import annotations
+- `./backend/app/dedup/__init__.py` (12 lines, .py) -- from .compare import CompareInput, CompareResult, compare_records, distance_km
+- `./backend/app/dedup/compare.py` (124 lines, .py) -- Веса — из конфигурации §11 брифа: координаты 50%, бренд 20%, адрес 15%,
+- `./backend/app/dedup/service.py` (394 lines, .py) -- Из source_station_records строит stations с собственными ID `fr_station_*` (R07).
+- `./backend/app/fuel_status/__init__.py` (43 lines, .py) -- from .statuses import (
+- `./backend/app/fuel_status/statuses.py` (71 lines, .py) -- Один набор значений в модели, агрегации, UI (переводы — /meta, A02), прав
+- `./backend/app/main.py` (86 lines, .py) -- CORS — белый список из .env (R66); сбор источников никогда не синхронный
+- `./backend/app/normalization/__init__.py` (20 lines, .py) -- from .fuel import NormalizedFuel, normalize_fuel
+- `./backend/app/normalization/fuel.py` (83 lines, .py) -- «95», «АИ-95», «AI95», «95 Экто», «95 G-Drive», «Premium 95» → base_fuel AI_95 +
+- `./backend/app/normalization/names.py` (87 lines, .py) -- «Лукойл» / «ЛУКОЙЛ» / «АЗС Лукойл №47» / «Lukoil» → канонический бренд
+- `./backend/app/ranking/__init__.py` (27 lines, .py) -- from .score import (
+- `./backend/app/ranking/score.py` (166 lines, .py) -- Score — сумма взвешенных нормализованных компонент (веса — конфигу
+- `./backend/app/reports/__init__.py` (6 lines, .py) -- `POST /reports` сохраняет отчёт и делегирует запись наблюдений
+- `./backend/app/reports/router.py` (57 lines, .py) -- from __future__ import annotations
+- `./backend/app/reports/schemas.py` (62 lines, .py) -- from __future__ import annotations
+- `./backend/app/reports/service.py` (101 lines, .py) -- Записью наблюдений заведует `confidence.service.StatusService` (T04) — этот
+- `./backend/app/sources/__init__.py` (24 lines, .py) -- from .base import (
+- `./backend/app/sources/base.py` (99 lines, .py) -- Интерфейс `SourceAdapter` — единственная точка входа для любого внешнег
+- `./backend/app/sources/network_import.py` (129 lines, .py) -- Источник файловый: оператор/администратор кладёт файл, адаптер ч�
+- `./backend/app/sources/overpass.py` (133 lines, .py) -- Discovery-источник: `amenity=fuel` по bbox региона. Availability не выдаёт —
+- `./backend/app/sources/registry.py` (60 lines, .py) -- Ингест (T02) и воркер (T06) берут адаптеры отсюда. RESEARCH_REQUIRED-адаптеры
+- `./backend/app/sources/research.py` (83 lines, .py) -- Яндекс, 2ГИС, сети, Т-Банк, Telegram: исследование — research-sources.md, статус
+- `./backend/app/sources/user_reports.py` (27 lines, .py) -- Структура-адаптер: канал уже активен, но сами отчёты приходят чер�
+- `./backend/app/stations/__init__.py` (5 lines, .py) -- from .ingest import CatalogIngest
+- `./backend/app/stations/ingest.py` (192 lines, .py) -- Пайплайн: адаптер → нормализованная запись → source_station_records (без се
+- `./backend/app/worker.py` (16 lines, .py) -- Настоящий планировщик с приоритетами P1–P4, backoff и метриками — тас�
+- `./backend/app/worker/__init__.py` (5 lines, .py) -- from .service import Worker, schedule_priority_job
+- `./backend/app/worker/__main__.py` (32 lines, .py) -- import logging
+- `./backend/app/worker/locking.py` (63 lines, .py) -- from __future__ import annotations
+- `./backend/app/worker/service.py` (343 lines, .py) -- from __future__ import annotations
+- `./backend/cli/__init__.py` (1 lines, .py) -- <empty>
+- `./backend/cli/regions.py` (46 lines, .py) -- Данные, а не код: новый регион добавляется строкой в словарь (или п
+- `./backend/cli/seed.py` (129 lines, .py) -- Примеры:
+- `./backend/tests/__init__.py` (0 lines, .py) -- <empty>
+- `./backend/tests/conftest.py` (35 lines, .py) -- from __future__ import annotations
+- `./backend/tests/test_alerts.py` (388 lines, .py) -- БД общая на весь прогон тестов (db_session — session-scope): станции/провайде�
+- `./backend/tests/test_analytics.py` (168 lines, .py) -- from datetime import UTC, datetime, timedelta
+- `./backend/tests/test_api.py` (438 lines, .py) -- from __future__ import annotations
+- `./backend/tests/test_confidence.py` (275 lines, .py) -- Числовые примеры — из брифа: единогласие свежих источников → AVAILA
+- `./backend/tests/test_confidence_freshness.py` (42 lines, .py) -- from datetime import UTC, datetime, timedelta
+- `./backend/tests/test_dedup.py` (261 lines, .py) -- Unit: взвешенное сравнение по §11. Интеграция: auto-merge → одна станция с
+- `./backend/tests/test_fuel_status.py` (48 lines, .py) -- from __future__ import annotations
+- `./backend/tests/test_health.py` (27 lines, .py) -- def test_health_ok(client):
+- `./backend/tests/test_ingest.py` (174 lines, .py) -- from __future__ import annotations
+- `./backend/tests/test_migrations.py` (19 lines, .py) -- from sqlalchemy import create_engine, inspect, text
+- `./backend/tests/test_normalization.py` (71 lines, .py) -- from __future__ import annotations
+- `./backend/tests/test_ranking.py` (84 lines, .py) -- from __future__ import annotations
+- `./backend/tests/test_reports.py` (197 lines, .py) -- from __future__ import annotations
+- `./backend/tests/test_schema.py` (31 lines, .py) -- from sqlalchemy import inspect
+- `./backend/tests/test_seed_cli.py` (78 lines, .py) -- БД общая на сессию тестов, поэтому проверки — по уникальным внешн
+- `./backend/tests/test_sources.py` (144 lines, .py) -- from __future__ import annotations
+- `./backend/tests/test_worker.py` (224 lines, .py) -- from datetime import UTC, datetime, timedelta
+- `./frontend/app/layout.tsx` (29 lines, .tsx) -- import type { Metadata, Viewport } from \"next\";
+- `./frontend/app/page.tsx` (10 lines, .tsx) -- import { Suspense } from \"react\";
+- `./frontend/components/HomeScreen.tsx` (156 lines, .tsx) -- \"use client\";
+- `./frontend/components/favorites/FavoritesPanel.tsx` (56 lines, .tsx) -- \"use client\";
+- `./frontend/components/filters/FiltersPanel.tsx` (140 lines, .tsx) -- \"use client\";
+- `./frontend/components/layout/FuelQuickFilters.tsx` (49 lines, .tsx) -- \"use client\";
+- `./frontend/components/layout/Header.tsx` (44 lines, .tsx) -- \"use client\";
+- `./frontend/components/layout/LocaleToggle.test.tsx` (26 lines, .tsx) -- import { afterEach, beforeEach, describe, expect, it } from \"vitest\";
+- `./frontend/components/layout/LocaleToggle.tsx` (20 lines, .tsx) -- \"use client\";
+- `./frontend/components/layout/LoginPanel.tsx` (83 lines, .tsx) -- \"use client\";
+- `./frontend/components/layout/MapProviderToggle.test.tsx` (41 lines, .tsx) -- import { afterEach, beforeEach, describe, expect, it, vi } from \"vitest\";
+- `./frontend/components/layout/MapProviderToggle.tsx` (26 lines, .tsx) -- \"use client\";
+- `./frontend/components/layout/NotificationBell.tsx` (26 lines, .tsx) -- \"use client\";
+- `./frontend/components/layout/Tabs.tsx` (38 lines, .tsx) -- \"use client\";
+- `./frontend/components/layout/ThemeToggle.test.tsx` (36 lines, .tsx) -- import { afterEach, beforeEach, describe, expect, it } from \"vitest\";
+- `./frontend/components/layout/ThemeToggle.tsx` (22 lines, .tsx) -- \"use client\";
+- `./frontend/components/layout/TopControls.tsx` (81 lines, .tsx) -- \"use client\";
+- `./frontend/components/layout/TourRestartButton.test.tsx` (29 lines, .tsx) -- import { afterEach, beforeEach, describe, expect, it } from \"vitest\";
+- `./frontend/components/layout/TourRestartButton.tsx` (22 lines, .tsx) -- \"use client\";
+- `./frontend/components/map/Legend.tsx` (31 lines, .tsx) -- \"use client\";
+- `./frontend/components/map/MapView.tsx` (62 lines, .tsx) -- \"use client\";
+- `./frontend/components/onboarding/OnboardingTour.test.tsx` (58 lines, .tsx) -- import { afterEach, beforeEach, describe, expect, it } from \"vitest\";
+- `./frontend/components/onboarding/OnboardingTour.tsx` (140 lines, .tsx) -- \"use client\";
+- `./frontend/components/providers/AppProviders.tsx` (25 lines, .tsx) -- \"use client\";
+- `./frontend/components/providers/ServiceWorkerRegister.tsx` (14 lines, .tsx) -- \"use client\";
+- `./frontend/components/station/FavoriteButton.tsx` (72 lines, .tsx) -- \"use client\";
+- `./frontend/components/station/HistoryChart.test.tsx` (56 lines, .tsx) -- import { afterEach, describe, expect, it, vi } from \"vitest\";
+- `./frontend/components/station/HistoryChart.tsx` (39 lines, .tsx) -- \"use client\";
+- `./frontend/components/station/ReportButton.tsx` (41 lines, .tsx) -- \"use client\";
+- `./frontend/components/station/RouteButton.tsx` (19 lines, .tsx) -- \"use client\";
+- `./frontend/components/station/Sparkline.tsx` (37 lines, .tsx) -- \"use client\";
+- `./frontend/components/station/StationCard.tsx` (139 lines, .tsx) -- \"use client\";
+- `./frontend/components/station/StationList.tsx` (54 lines, .tsx) -- \"use client\";
+- `./frontend/components/station/StationListItem.tsx` (54 lines, .tsx) -- \"use client\";
+- `./frontend/components/station/StatusBadge.tsx` (24 lines, .tsx) -- \"use client\";
+- `./frontend/components/station/WhyExplanation.test.tsx` (28 lines, .tsx) -- import { describe, expect, it } from \"vitest\";
+- `./frontend/components/station/WhyExplanation.tsx` (41 lines, .tsx) -- \"use client\";
+- `./frontend/components/ui/EmptyState.test.tsx` (40 lines, .tsx) -- import { describe, expect, it, vi } from \"vitest\";
+- `./frontend/components/ui/EmptyState.tsx` (73 lines, .tsx) -- \"use client\";
+- `./frontend/lib/api.ts` (93 lines, .ts) -- export class ApiError extends Error {
+- `./frontend/lib/availability.test.ts` (46 lines, .ts) -- import { describe, expect, it } from \"vitest\";
+- `./frontend/lib/availability.ts` (17 lines, .ts) -- import type { StationBrief } from \"@/lib/types\";
+- `./frontend/lib/filters.test.ts` (40 lines, .ts) -- import { describe, expect, it } from \"vitest\";
+- `./frontend/lib/filters.ts` (90 lines, .ts) -- export type TabKey = \"map\" | \"list\" | \"favorites\";
+- `./frontend/lib/format.test.ts` (36 lines, .ts) -- import { describe, expect, it } from \"vitest\";
+- `./frontend/lib/format.ts` (43 lines, .ts) -- export function formatDistance(km: number | null | undefined): string {
+- `./frontend/lib/fuel.test.ts` (16 lines, .ts) -- import { describe, expect, it } from \"vitest\";
+- `./frontend/lib/fuel.ts` (10 lines, .ts) -- import type { MetaFuelType } from \"@/lib/types\";
+- `./frontend/lib/hooks/useAuth.tsx` (81 lines, .tsx) -- \"use client\";
+- `./frontend/lib/hooks/useFavorites.ts` (31 lines, .ts) -- \"use client\";
+- `./frontend/lib/hooks/useFilters.tsx` (56 lines, .tsx) -- \"use client\";
+- `./frontend/lib/hooks/useGeolocation.ts` (45 lines, .ts) -- \"use client\";
+- `./frontend/lib/hooks/useI18n.tsx` (68 lines, .tsx) -- \"use client\";
+- `./frontend/lib/hooks/useMapProviderPreference.tsx` (74 lines, .tsx) -- \"use client\";
+- `./frontend/lib/hooks/useMeta.tsx` (75 lines, .tsx) -- \"use client\";
+- `./frontend/lib/hooks/useNotifications.test.ts` (14 lines, .ts) -- import { describe, expect, it } from \"vitest\";
+- `./frontend/lib/hooks/useNotifications.ts` (69 lines, .ts) -- \"use client\";
+- `./frontend/lib/hooks/useOnboarding.tsx` (56 lines, .tsx) -- \"use client\";
+- `./frontend/lib/hooks/useStationDetail.ts` (67 lines, .ts) -- \"use client\";
+- `./frontend/lib/hooks/useStations.ts` (85 lines, .ts) -- \"use client\";
+- `./frontend/lib/hooks/useTheme.tsx` (69 lines, .tsx) -- \"use client\";
+- `./frontend/lib/i18n.test.ts` (23 lines, .ts) -- import { describe, expect, it } from \"vitest\";
+- `./frontend/lib/i18n.ts` (205 lines, .ts) -- export type Locale = \"ru\" | \"en\";
+- `./frontend/lib/map/brandColor.test.ts` (25 lines, .ts) -- import { describe, expect, it } from \"vitest\";
+- `./frontend/lib/map/brandColor.ts` (37 lines, .ts) -- const PALETTE = [
+- `./frontend/lib/map/cluster.test.ts` (9 lines, .ts) -- import { describe, expect, it } from \"vitest\";
+- `./frontend/lib/map/cluster.ts` (8 lines, .ts) -- export function clusterLabel(count: number): string {
+- `./frontend/lib/map/config.ts` (18 lines, .ts) -- function envFloat(name: string, fallback: number): number {
+- `./frontend/lib/map/index.ts` (24 lines, .ts) -- import { MapLibreProvider } from \"@/lib/map/maplibre-provider\";
+- `./frontend/lib/map/maplibre-provider.tsx` (242 lines, .tsx) -- \"use client\";
+- `./frontend/lib/map/markerData.test.ts` (85 lines, .ts) -- import { describe, expect, it } from \"vitest\";
+- `./frontend/lib/map/markerData.ts` (48 lines, .ts) -- import type { StationBrief } from \"@/lib/types\";
+- `./frontend/lib/map/markerIcon.ts` (93 lines, .ts) -- import type { MarkerBadge } from \"@/lib/map/types\";
+- `./frontend/lib/map/osmStyle.ts` (35 lines, .ts) -- import type { StyleSpecification } from \"maplibre-gl\";
+- `./frontend/lib/map/statusColor.test.ts` (35 lines, .ts) -- import { describe, expect, it } from \"vitest\";
+- `./frontend/lib/map/statusColor.ts` (46 lines, .ts) -- import type { FuelStatusCode } from \"@/lib/types\";
+- `./frontend/lib/map/types.ts` (40 lines, .ts) -- import type { FuelStatusCode } from \"@/lib/types\";
+- `./frontend/lib/map/yandex-provider.tsx` (193 lines, .tsx) -- \"use client\";
+- `./frontend/lib/map/yandexLoader.ts` (58 lines, .ts) -- export type YMapsNamespace = any;
+- `./frontend/lib/types.ts` (173 lines, .ts) -- export type FuelStatusCode =
+- `./frontend/next-env.d.ts` (6 lines, .ts) -- <empty>
+- `./frontend/public/sw.js` (116 lines, .js) -- const SHELL_CACHE = \"fr-shell-v1\";
+- `./frontend/vitest.config.ts` (17 lines, .ts) -- import react from \"@vitejs/plugin-react\";
+- `./frontend/vitest.setup.ts` (7 lines, .ts) -- import { afterEach } from \"vitest\";
+
+## By language
+- .py: 85
+- .tsx: 48
+- .ts: 35
+- .md: 21
+- .js: 1

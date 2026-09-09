@@ -322,6 +322,23 @@ class SourceHealth(Base):  # §83 source_health
     last_error: Mapped[str] = mapped_column(Text, default="")
 
 
+# ---------- интеграции, настраиваемые из админки (T17) ----------
+
+class TelegramIntegration(Base):
+    """Единственная строка (id=1): токен бота, введённый администратором через
+    /admin (а не только .env) — R36/R97i. Значение из БД имеет приоритет над
+    TELEGRAM_BOT_TOKEN из окружения, см. app/integrations/telegram.py."""
+
+    __tablename__ = "telegram_integration"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    bot_token: Mapped[str] = mapped_column(Text)
+    bot_username: Mapped[str] = mapped_column(String(64), default="")
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=_now, onupdate=_now)
+    last_verified_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    last_error: Mapped[str] = mapped_column(Text, default="")
+
+
 # ---------- служебные журналы ----------
 
 class AdminActionLog(Base):  # R67 — журналирование действий администратора

@@ -1,0 +1,2 @@
+{"ts":"2026-09-09T19:43:54Z","error":"    except Exception as exc:  # noqa: BLE001 — сбой канала не должен ронять пересчёт (R84-подобная изоляция)","fail":null}
+{"ts":"2026-09-09T19:44:12Z","error":"        except Exception as exc:  # noqa: BLE001 — одно кривое правило не должно рушить оценку остальных","fail":null}

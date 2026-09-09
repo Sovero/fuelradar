@@ -47,6 +47,8 @@ export function YandexMapProvider({
   onMarkerClick,
   onViewportChange,
   userLocation,
+  routePolyline = [],
+  onMapClick,
   className,
 }: MapProviderProps) {
   const apiKey = process.env.NEXT_PUBLIC_YANDEX_MAPS_API_KEY;
@@ -54,11 +56,14 @@ export function YandexMapProvider({
   const mapRef = useRef<InstanceType<YMapsNamespace["Map"]> | null>(null);
   const clustererRef = useRef<InstanceType<YMapsNamespace["Clusterer"]> | null>(null);
   const userPlacemarkRef = useRef<InstanceType<YMapsNamespace["Placemark"]> | null>(null);
+  const routePolylineRef = useRef<InstanceType<YMapsNamespace["Polyline"]> | null>(null);
   const ymapsRef = useRef<YMapsNamespace | null>(null);
   const onMarkerClickRef = useRef(onMarkerClick);
   const onViewportChangeRef = useRef(onViewportChange);
+  const onMapClickRef = useRef(onMapClick);
   onMarkerClickRef.current = onMarkerClick;
   onViewportChangeRef.current = onViewportChange;
+  onMapClickRef.current = onMapClick;
 
   const [state, setState] = useState<LoadState>(apiKey ? "loading" : "no-key");
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -100,6 +105,10 @@ export function YandexMapProvider({
             zoom: map.getZoom(),
             bounds: [bounds[0][0], bounds[0][1], bounds[1][0], bounds[1][1]],
           });
+        });
+        map.events.add("click", (event: { get: (key: string) => [number, number] }) => {
+          const [lat, lon] = event.get("coords");
+          onMapClickRef.current?.({ lat, lon });
         });
 
         setState("ready");
@@ -147,13 +156,34 @@ export function YandexMapProvider({
           iconImageOffset: [-MARKER_ICON_SIZE / 2, -MARKER_ICON_SIZE / 2],
         },
       );
-      placemark.events.add("click", () => onMarkerClickRef.current(m.id));
+      placemark.events.add("click", (event: { stopPropagation: () => void }) => {
+        event.stopPropagation();
+        onMarkerClickRef.current(m.id);
+      });
       return placemark;
     });
 
     clusterer.removeAll();
     clusterer.add(placemarks);
   }, [markers, iconCache]);
+
+  useEffect(() => {
+    const ymaps = ymapsRef.current;
+    const map = mapRef.current;
+    if (!ymaps || !map) return;
+    if (routePolylineRef.current) {
+      map.geoObjects.remove(routePolylineRef.current);
+      routePolylineRef.current = null;
+    }
+    if (routePolyline.length < 2) return;
+    const polyline = new ymaps.Polyline(
+      routePolyline.map((point) => [point.lat, point.lon]),
+      {},
+      { strokeColor: "#2563eb", strokeWidth: 4, strokeOpacity: 0.9 },
+    );
+    map.geoObjects.add(polyline);
+    routePolylineRef.current = polyline;
+  }, [routePolyline, state]);
 
   // Программный перелёт — только по явному действию (геолокация, выбор станции из списка).
   useEffect(() => {

@@ -6,6 +6,7 @@ import { useMeta } from "@/lib/hooks/useMeta";
 import { useAuth } from "@/lib/hooks/useAuth";
 import { useI18n } from "@/lib/hooks/useI18n";
 import { useStations } from "@/lib/hooks/useStations";
+import { useRouteStations } from "@/lib/hooks/useRouteStations";
 import { useFavorites } from "@/lib/hooks/useFavorites";
 import { useObservationMode } from "@/lib/hooks/useObservationMode";
 import { useNetworkPreferences } from "@/lib/hooks/useNetworkPreferences";
@@ -24,6 +25,8 @@ import { StationCard } from "@/components/station/StationCard";
 import { FavoritesPanel } from "@/components/favorites/FavoritesPanel";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { OnboardingTour } from "@/components/onboarding/OnboardingTour";
+import { RouteModePanel } from "@/components/route/RouteModePanel";
+import type { MapPoint } from "@/lib/map/types";
 import type { StationListQuery } from "@/lib/types";
 
 export function HomeScreen() {
@@ -43,6 +46,9 @@ function HomeScreenBody() {
   const [alertBusy, setAlertBusy] = useState(false);
   const [alertCreated, setAlertCreated] = useState(false);
   const [alertError, setAlertError] = useState<string | null>(null);
+  const [routeActive, setRouteActive] = useState(false);
+  const [routePoints, setRoutePoints] = useState<MapPoint[]>([]);
+  const [routeCorridorKm, setRouteCorridorKm] = useState(5);
 
   const { preferredBrandIds } = useNetworkPreferences();
   const preferredBrandsParam = preferredBrandIds.length ? [...preferredBrandIds].sort((a, b) => a - b).join(",") : undefined;
@@ -65,6 +71,25 @@ function HomeScreenBody() {
   );
 
   const { stations, loading, error, isStale } = useStations(query);
+  const routeReady = routeActive && routePoints.length >= 2;
+  const routeQuery = useMemo(
+    () => ({
+      polyline: routePoints,
+      corridor_km: routeCorridorKm,
+      brand: filters.brand ?? undefined,
+      fuel: filters.fuels.length === 1 ? filters.fuels[0] : undefined,
+      status: filters.status ?? undefined,
+      confidence_min: filters.confidenceMin ?? undefined,
+      queue_max: filters.queueMax ?? undefined,
+      limit: 100,
+      preferred_brands: preferredBrandsParam,
+    }),
+    [routePoints, routeCorridorKm, filters.brand, filters.fuels, filters.status, filters.confidenceMin, filters.queueMax, preferredBrandsParam],
+  );
+  const { stations: routeStations, loading: routeLoading, error: routeError } = useRouteStations(routeReady, routeQuery);
+  const visibleStations = routeReady ? routeStations : stations;
+  const visibleLoading = routeReady ? routeLoading : loading;
+  const visibleError = routeReady ? routeError : error;
   const { favorites } = useFavorites();
   const { settings: observationSettings } = useObservationMode();
   // Backend уже учёл preferred_brands в score (см. query выше) — этот буст остаётся
@@ -77,11 +102,11 @@ function HomeScreenBody() {
 
   const searched = useMemo(() => {
     const q = filters.search.trim().toLowerCase();
-    if (!q) return stations;
-    return stations.filter(
+    if (!q) return visibleStations;
+    return visibleStations.filter(
       (s) => s.name.toLowerCase().includes(q) || s.address.toLowerCase().includes(q) || (s.brand ?? "").toLowerCase().includes(q),
     );
-  }, [stations, filters.search]);
+  }, [visibleStations, filters.search]);
 
   // Режим наблюдения (R25) + предпочтения сетей (R77) — персональные настройки
   // поверх уже отфильтрованного/отсортированного API-ответа (см. lib/personalization.ts).
@@ -93,7 +118,8 @@ function HomeScreenBody() {
 
   const confirmedCount = countConfirmed(searched, filters.fuels, filters.includeLikely);
   const isSearchingFuel = filters.fuels.length > 0;
-  const isEmpty = isSearchingFuel && !loading && confirmedCount === 0;
+  const isEmpty = !routeReady && isSearchingFuel && !visibleLoading && confirmedCount === 0;
+  const routeIsEmpty = routeReady && !visibleLoading && !visibleError && personalized.length === 0;
 
   async function handleCreateAlert() {
     if (!user) {
@@ -129,9 +155,21 @@ function HomeScreenBody() {
       <FuelQuickFilters />
       <Tabs />
       <FiltersPanel />
+      <RouteModePanel
+        active={routeActive}
+        points={routePoints}
+        corridorKm={routeCorridorKm}
+        onActiveChange={(active) => {
+          setRouteActive(active);
+          if (active) setFilters({ tab: "map" });
+        }}
+        onCorridorChange={setRouteCorridorKm}
+        onRemovePoint={(index) => setRoutePoints((current) => current.filter((_, itemIndex) => itemIndex !== index))}
+        onClear={() => setRoutePoints([])}
+      />
 
-      {error && !isStale && <p className="px-4 py-2 text-sm text-red-600 dark:text-red-400">{error}</p>}
-      {isStale && <p className="bg-amber-50 px-4 py-1 text-xs text-amber-700 dark:bg-amber-950 dark:text-amber-300">{t("error.stale")}</p>}
+      {visibleError && (!isStale || routeReady) && <p className="px-4 py-2 text-sm text-red-600 dark:text-red-400">{visibleError}</p>}
+      {isStale && !routeReady && <p className="bg-amber-50 px-4 py-1 text-xs text-amber-700 dark:bg-amber-950 dark:text-amber-300">{t("error.stale")}</p>}
 
       <main className="relative flex-1 overflow-hidden" data-tour="map">
         {isEmpty ? (
@@ -157,13 +195,27 @@ function HomeScreenBody() {
                 selectedStationId={filters.station}
                 onSelectStation={(id) => setFilters({ station: id })}
                 focus={focus}
+                routePolyline={routeActive ? routePoints : undefined}
+                onMapClick={routeActive ? (point) => setRoutePoints((current) => [...current, point].slice(0, 100)) : undefined}
               />
             )}
             {filters.tab === "list" && <StationList stations={personalized} onSelect={(id) => setFilters({ station: id })} />}
             {filters.tab === "favorites" && <FavoritesPanel onSelect={(id) => setFilters({ station: id })} />}
-            {loading && (
+            {routeIsEmpty && (
+              <div className="absolute left-1/2 top-2 z-20 flex -translate-x-1/2 items-center gap-2 rounded-lg bg-white/95 px-3 py-2 text-xs text-gray-700 shadow dark:bg-gray-900/95 dark:text-gray-200">
+                <span>{t("route.empty")}</span>
+                <button
+                  type="button"
+                  onClick={() => setRouteCorridorKm((value) => Math.min(50, value + 5))}
+                  className="rounded bg-blue-600 px-2 py-1 font-semibold text-white"
+                >
+                  {t("route.expand")}
+                </button>
+              </div>
+            )}
+            {visibleLoading && (
               <p className="absolute left-1/2 top-2 -translate-x-1/2 rounded-full bg-white/90 px-3 py-1 text-xs text-gray-500 shadow dark:bg-gray-800/90 dark:text-gray-300">
-                {t("loading")}
+                {routeReady ? t("route.loading") : t("loading")}
               </p>
             )}
           </>

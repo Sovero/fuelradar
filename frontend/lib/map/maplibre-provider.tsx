@@ -21,6 +21,7 @@ import { drawMarkerIcon, markerIconKey, shortFuelLabel } from "@/lib/map/markerI
 import type { MapProviderProps, StationMarker } from "@/lib/map/types";
 
 const SOURCE_ID = "fr-stations";
+const ROUTE_SOURCE_ID = "fr-route";
 
 function toFeatureCollection(markers: StationMarker[]): GeoJSON.FeatureCollection {
   return {
@@ -60,6 +61,8 @@ export function MapLibreProvider({
   onMarkerClick,
   onViewportChange,
   userLocation,
+  routePolyline = [],
+  onMapClick,
   className,
 }: MapProviderProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -68,8 +71,10 @@ export function MapLibreProvider({
   const iconKeysRef = useRef<Set<string>>(new Set());
   const onMarkerClickRef = useRef(onMarkerClick);
   const onViewportChangeRef = useRef(onViewportChange);
+  const onMapClickRef = useRef(onMapClick);
   onMarkerClickRef.current = onMarkerClick;
   onViewportChangeRef.current = onViewportChange;
+  onMapClickRef.current = onMapClick;
 
   // Инициализация карты — один раз.
   useEffect(() => {
@@ -86,6 +91,20 @@ export function MapLibreProvider({
     map.addControl(new maplibregl.GeolocateControl({ positionOptions: { enableHighAccuracy: true } }), "top-right");
 
     map.on("load", () => {
+      map.addSource(ROUTE_SOURCE_ID, {
+        type: "geojson",
+        data: { type: "FeatureCollection", features: [] },
+      });
+      map.addLayer({
+        id: "route-line",
+        type: "line",
+        source: ROUTE_SOURCE_ID,
+        paint: {
+          "line-color": "#2563eb",
+          "line-width": 4,
+          "line-opacity": 0.9,
+        },
+      });
       map.addSource(SOURCE_ID, {
         type: "geojson",
         data: { type: "FeatureCollection", features: [] },
@@ -183,6 +202,16 @@ export function MapLibreProvider({
       map.on("mouseleave", "unclustered-point", () => (map.getCanvas().style.cursor = ""));
     });
 
+    map.on("click", (event) => {
+      const interactiveLayers = ["clusters", "unclustered-point"].filter((layer) => map.getLayer(layer));
+      const hits = interactiveLayers.length
+        ? map.queryRenderedFeatures(event.point, { layers: interactiveLayers })
+        : [];
+      if (hits.length === 0) {
+        onMapClickRef.current?.({ lat: event.lngLat.lat, lon: event.lngLat.lng });
+      }
+    });
+
     const emitViewport = () => {
       const bounds = map.getBounds();
       onViewportChangeRef.current?.({
@@ -226,6 +255,28 @@ export function MapLibreProvider({
       map.once("load", apply);
     }
   }, [markers]);
+
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+    const apply = () => {
+      const source = map.getSource(ROUTE_SOURCE_ID) as GeoJSONSource | undefined;
+      source?.setData(
+        routePolyline.length >= 2
+          ? {
+              type: "Feature",
+              properties: {},
+              geometry: {
+                type: "LineString",
+                coordinates: routePolyline.map((point) => [point.lon, point.lat]),
+              },
+            }
+          : { type: "FeatureCollection", features: [] },
+      );
+    };
+    if (map.isStyleLoaded() && map.getSource(ROUTE_SOURCE_ID)) apply();
+    else map.once("load", apply);
+  }, [routePolyline]);
 
   // Программный перелёт (например, геолокация «Найти рядом»), НЕ на каждое обновление маркеров.
   useEffect(() => {

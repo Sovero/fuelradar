@@ -95,6 +95,37 @@ def test_nearby_anonymous_with_status_and_score(client) -> None:
     assert r2.headers["X-Cache"] == "HIT"
 
 
+def test_station_list_cache_invalidates_after_new_observation(client, db_session) -> None:
+    """R82/§12 №5: новая запись наблюдения не должна ждать истечения TTL кэша."""
+    station_id = "fr_station_950098"
+    if db_session.get(Station, station_id) is None:
+        db_session.add(
+            Station(
+                id=station_id,
+                canonical_name="АЗС тест инвалидации кэша",
+                latitude=49.0,
+                longitude=45.0,
+                city="Кэшоград",
+            )
+        )
+        db_session.commit()
+
+    provider = db_session.scalar(select(SourceProvider).where(SourceProvider.code == "network_import"))
+    service = StatusService(db_session)
+    service.record_fuel_observation(station_id, "AI_95", "AVAILABLE", provider.id)
+
+    first = client.get("/api/v1/stations", params={"city": "Кэшоград"})
+    assert first.headers["X-Cache"] == "MISS"
+    assert first.json()[0]["statuses"][0]["status"] == "AVAILABLE"
+    assert client.get("/api/v1/stations", params={"city": "Кэшоград"}).headers["X-Cache"] == "HIT"
+
+    service.record_fuel_observation(station_id, "AI_95", "UNAVAILABLE", provider.id)
+
+    refreshed = client.get("/api/v1/stations", params={"city": "Кэшоград"})
+    assert refreshed.headers["X-Cache"] == "MISS"
+    assert refreshed.json()[0]["statuses"][0]["status"] == "UNAVAILABLE"
+
+
 def test_filters_and_sort(client) -> None:
     r = client.get(f"/api/v1/stations?lat={LAT}&lon={LON}&status=AVAILABLE&fuel=AI_95")
     ids = {i["id"] for i in r.json()}
@@ -227,6 +258,9 @@ def test_personalization_requires_login(client) -> None:
 
 def test_admin_guards(client) -> None:
     assert client.get("/api/v1/admin/sources").status_code == 401  # нет заголовка
+    client.post("/api/v1/auth/dev-login", json={"email": "ordinary-user@example.com"})
+    assert client.get("/api/v1/admin/sources").status_code == 401  # user-cookie не даёт admin-доступ
+    client.post("/api/v1/auth/logout")
     assert client.get("/api/v1/admin/sources", headers={"X-Admin-Token": "wrong"}).status_code == 403
     r = client.get("/api/v1/admin/sources", headers=ADMIN)
     assert r.status_code == 200

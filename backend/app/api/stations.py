@@ -292,7 +292,7 @@ def _list_stations(
 
 
 def _cached_list(request: Request, response: Response, session: Session, **params) -> list[StationBrief]:
-    key = cache.cache_key(request.url.path, params)
+    key = cache.cache_key(request.url.path, params, cache.data_revision(session))
     ttl = settings.api_cache_ttl_seconds
     hit, value = cache.get_cached(key, ttl)
     if hit and not any(status.expires_at and status.expires_at.replace(tzinfo=None) <= datetime.now(UTC).replace(tzinfo=None) and status.status != UNKNOWN for station in value for status in station.statuses):

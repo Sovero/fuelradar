@@ -55,6 +55,7 @@ export function MapView({
         flyTo={flyTo}
         selectedStationId={selectedStationId}
         onMarkerClick={onSelectStation}
+        userLocation={focus}
       />
       <Legend />
     </div>

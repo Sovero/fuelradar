@@ -46,12 +46,14 @@ export function YandexMapProvider({
   flyTo,
   onMarkerClick,
   onViewportChange,
+  userLocation,
   className,
 }: MapProviderProps) {
   const apiKey = process.env.NEXT_PUBLIC_YANDEX_MAPS_API_KEY;
   const containerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<InstanceType<YMapsNamespace["Map"]> | null>(null);
   const clustererRef = useRef<InstanceType<YMapsNamespace["Clusterer"]> | null>(null);
+  const userPlacemarkRef = useRef<InstanceType<YMapsNamespace["Placemark"]> | null>(null);
   const ymapsRef = useRef<YMapsNamespace | null>(null);
   const onMarkerClickRef = useRef(onMarkerClick);
   const onViewportChangeRef = useRef(onViewportChange);
@@ -158,6 +160,25 @@ export function YandexMapProvider({
     if (!flyTo || !mapRef.current) return;
     mapRef.current.setCenter([flyTo.center[1], flyTo.center[0]], flyTo.zoom, { duration: 300 });
   }, [flyTo]);
+
+  // Позиция пользователя — отдельный Placemark вне кластеризатора станций.
+  useEffect(() => {
+    const ymaps = ymapsRef.current;
+    const map = mapRef.current;
+    if (!ymaps || !map) return;
+    if (userPlacemarkRef.current) {
+      map.geoObjects.remove(userPlacemarkRef.current);
+      userPlacemarkRef.current = null;
+    }
+    if (!userLocation) return;
+    const placemark = new ymaps.Placemark(
+      [userLocation.lat, userLocation.lon],
+      { hintContent: "Ваше местоположение" },
+      { preset: "islands#blueCircleIcon", zIndex: 1000 },
+    );
+    map.geoObjects.add(placemark);
+    userPlacemarkRef.current = placemark;
+  }, [userLocation]);
 
   if (state === "no-key") {
     // На практике getMapProvider() уже не выбирает Yandex без ключа (см. lib/map/index.ts) —

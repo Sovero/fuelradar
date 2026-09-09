@@ -31,6 +31,8 @@ export interface MapProviderProps {
   flyTo?: MapViewport | null;
   selectedStationId?: string | null;
   onMarkerClick: (stationId: string) => void;
+  /** Позиция пользователя (геолокация) — отдельная точка на карте, не StationMarker. */
+  userLocation?: { lat: number; lon: number } | null;
   /** Вызывается когда пользователь подвинул карту (для «показать в этой области» и т.п.) */
   onViewportChange?: (viewport: MapViewport & { bounds: [number, number, number, number] }) => void;
   className?: string;

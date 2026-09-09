@@ -59,10 +59,12 @@ export function MapLibreProvider({
   selectedStationId,
   onMarkerClick,
   onViewportChange,
+  userLocation,
   className,
 }: MapProviderProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<maplibregl.Map | null>(null);
+  const userMarkerRef = useRef<maplibregl.Marker | null>(null);
   const iconKeysRef = useRef<Set<string>>(new Set());
   const onMarkerClickRef = useRef(onMarkerClick);
   const onViewportChangeRef = useRef(onViewportChange);
@@ -237,6 +239,29 @@ export function MapLibreProvider({
     if (!map || !map.getLayer("selected-halo")) return;
     map.setFilter("selected-halo", ["==", ["get", "id"], selectedStationId ?? "__none__"]);
   }, [selectedStationId]);
+
+  // Позиция пользователя — отдельный DOM-маркер (не станция, не кластеризуется).
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+    if (!userLocation) {
+      userMarkerRef.current?.remove();
+      userMarkerRef.current = null;
+      return;
+    }
+    if (!userMarkerRef.current) {
+      const el = document.createElement("div");
+      el.setAttribute("aria-label", "Ваше местоположение");
+      el.style.width = "18px";
+      el.style.height = "18px";
+      el.style.borderRadius = "50%";
+      el.style.background = "#2563eb";
+      el.style.border = "3px solid #ffffff";
+      el.style.boxShadow = "0 0 0 2px #2563eb, 0 1px 4px rgba(0,0,0,0.4)";
+      userMarkerRef.current = new maplibregl.Marker({ element: el });
+    }
+    userMarkerRef.current.setLngLat([userLocation.lon, userLocation.lat]).addTo(map);
+  }, [userLocation]);
 
   return <div ref={containerRef} className={className ?? "h-full w-full"} data-testid="maplibre-container" />;
 }

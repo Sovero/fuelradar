@@ -81,8 +81,6 @@ def telegram_login(response: Response, body: dict[str, str | int] | None = None,
     user = get_or_create_user(session, telegram_id=telegram_id)
     if user.is_blocked:
         raise HTTPException(status_code=403, detail="Профиль заблокирован")
-    if user.is_blocked:
-        raise HTTPException(status_code=403, detail="Профиль заблокирован")
     set_auth_cookie(response.set_cookie, create_access_token(user.id))
     return {"user": _user_payload(user)}
 

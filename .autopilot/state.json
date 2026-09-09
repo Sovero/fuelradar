@@ -7,7 +7,7 @@
   "briefFile": "2026-09-07-brief.md",
   "memoryFile": "AGENTS.md",
   "startedAt": "2026-09-07T18:54:27+03:00",
-  "updatedAt": "2026-09-09T20:03:44+03:00",
+  "updatedAt": "2026-09-09T20:53:56+03:00",
   "finishedAt": "2026-09-09T20:03:44+03:00",
   "stages": [
     {
@@ -598,7 +598,7 @@
   ],
   "singlePass": null,
   "tests": {
-    "passed": 139,
+    "passed": 142,
     "failed": 0
   },
   "debt": {
@@ -643,7 +643,12 @@
       {
         "severity": "low",
         "finding": "/metrics пуст в реальной топологии (API и воркер — разные процессы, счётчики in-memory не расшарены).",
-        "resolution": "не исправлено — прямое следствие уже принятого ASSUMPTION «Redis опционален, иначе in-memory»; требует Redis-бэкенда для метрик, отдельная задача."
+        "resolution": "fixed по запросу пользователя («реши все проблемы») — core/metrics.py получил опциональный Redis-бэкенд (REDIS_URL); без него поведение прежнее (in-memory, недоступный Redis не роняет приложение)."
+      },
+      {
+        "severity": "medium",
+        "finding": "R77/R25: предпочтения сетей и правило-по-сети влияли только на клиенте — /meta не отдавал id сети, GET /stations не принимал preferred_brands, AlertRulesPanel не предлагал scope «сеть».",
+        "resolution": "fixed по запросу пользователя («реши все проблемы») — /meta отдаёт id, GET /stations[/{id}] принимают preferred_brands и персонализируют Score.user_preferences для запроса, AlertRulesPanel предлагает scope network (brand_id). Побочно найден и исправлен реальный баг: station_detail дублировал вычисление score_breakdown и терял его для станций без наблюдений (_station_brief теперь единственное место расчёта Score, list/detail/favorites делят один код)."
       },
       {
         "severity": "info",

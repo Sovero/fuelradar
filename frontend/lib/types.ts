@@ -99,6 +99,7 @@ export interface MetaFuelType {
 }
 
 export interface MetaBrand {
+  id: number;
   name: string;
   priority: number;
 }
@@ -363,4 +364,6 @@ export interface StationListQuery {
   sort?: SortKey;
   limit?: number;
   offset?: number;
+  /** R77: ID сетей из /meta через запятую — персональный буст user_preferences в Score. */
+  preferred_brands?: string;
 }

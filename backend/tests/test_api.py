@@ -119,6 +119,36 @@ def test_filters_and_sort(client) -> None:
     assert S4 not in {i["id"] for i in r.json()}  # 20 км — вне bbox
 
 
+def test_preferred_brands_boosts_user_preferences_score(client, db_session) -> None:
+    """R77: личное предпочтение сети поднимает user_preferences в Score для ЭТОГО запроса,
+    не меняя общий (station_brands.priority) приоритет сети для остальных пользователей."""
+    low_priority_brand = StationBrand(name="Тест-Сеть-Низкий-Приоритет", canonical_name="Тест-Сеть", priority=5)
+    db_session.add(low_priority_brand)
+    db_session.flush()
+    sid = "fr_station_950099"
+    db_session.add(Station(id=sid, canonical_name="АЗС тест preferred_brands", brand_id=low_priority_brand.id,
+                            latitude=LAT, longitude=LON, city="Краснодар"))
+    db_session.commit()
+
+    baseline = client.get(f"/api/v1/stations/{sid}").json()
+    assert baseline["score_breakdown"]["user_preferences"]["value"] == pytest.approx(0.5)  # priority=5 -> нейтрально
+
+    boosted = client.get(f"/api/v1/stations/{sid}", params={"preferred_brands": str(low_priority_brand.id)}).json()
+    assert boosted["score_breakdown"]["user_preferences"]["value"] == pytest.approx(1.0)  # предпочтено -> максимум
+    assert boosted["score"] > baseline["score"]
+
+    # Тот же эффект и в списке (не только в карточке одной станции).
+    listed = client.get(
+        "/api/v1/stations", params={"lat": LAT, "lon": LON, "radius_km": 1, "preferred_brands": str(low_priority_brand.id)}
+    ).json()
+    listed_station = next(s for s in listed if s["id"] == sid)
+    assert listed_station["score"] > baseline["score"]
+
+    # Общий приоритет сети (для тех, кто её не предпочёл) не изменился.
+    db_session.refresh(low_priority_brand)
+    assert low_priority_brand.priority == 5
+
+
 def test_validation_422_russian(client) -> None:
     r = client.get("/api/v1/stations/nearby?lat=95&lon=38")
     assert r.status_code == 422 and "широта" in r.json()["detail"]
@@ -180,7 +210,8 @@ def test_meta(client) -> None:
     assert statuses["AVAILABLE"] == "Есть" and statuses["UNKNOWN"] == "Нет данных"
     queues = {q["code"]: q["name_ru"] for q in body["queue_levels"]}
     assert queues["NONE"] == "Нет" and queues["VERY_HIGH"] == "Очень большая"
-    assert any(b["name"] == "Лукойл" for b in body["station_brands"])
+    lukoil = next(b for b in body["station_brands"] if b["name"] == "Лукойл")
+    assert isinstance(lukoil["id"], int)  # R77: id нужен фронту для preferred_brands
     assert any(s["code"] == "osm_overpass" and "OpenStreetMap" in s["attribution"] for s in body["sources"])
 
 

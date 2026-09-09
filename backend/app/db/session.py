@@ -59,7 +59,19 @@ SOURCE_PROVIDERS: list[dict] = [
 
 
 def init_db() -> None:
-    """Создаёт таблицы и сидит словари (идемпотентно)."""
+    """Создаёт таблицы и сидит словари (идемпотентно).
+
+    `Base.metadata.create_all()` создаёт таблицы только для уже импортированных
+    моделей. Большинство живёт в `db/models.py` (импортирован выше), но
+    `AlertStateSnapshot` (T07) и `AnalyticsSnapshot` (T08) объявлены в своих
+    модулях и без явного импорта здесь регистрируются только «повезло если» —
+    случайно, через цепочку импортов роутеров (main.py). Импортируем явно,
+    чтобы `init_db()` был самодостаточным независимо от того, что ещё успело
+    загрузиться (важно для изолированного запуска одного тестового файла).
+    """
+    from ..alerts.models import AlertStateSnapshot  # noqa: F401
+    from ..analytics.models import AnalyticsSnapshot  # noqa: F401
+
     Base.metadata.create_all(_engine)
     upgrade_worker_jobs(_engine)
     upgrade_spatial_index(_engine)

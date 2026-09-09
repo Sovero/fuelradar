@@ -51,7 +51,8 @@ def list_favorites(session: Session = Depends(get_db), user: User = Depends(requ
         queue = None
         if top is not None:
             queue = QueueBrief(level=top[0].queue_level, vehicles=top[0].queue_vehicles, estimated_wait_minutes=top[0].estimated_wait_minutes)
-        result.append(_station_brief(station, brand, briefs, queue, None, brand.priority if brand else None))
+        brief, _ = _station_brief(station, brand, briefs, queue, None, brand.priority if brand else None)
+        result.append(brief)
     return result
 
 

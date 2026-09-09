@@ -2,69 +2,71 @@
 
 /**
  * Предпочтения сетей (R77) — персональная настройка (не URL-фильтр), хранится
- * в localStorage. `/meta` не отдаёт числовой id сети и `GET /stations` не
- * принимает `preferred_brands` (см. CONCERNS отчёта T10) — поэтому влияние на
- * порядок списка ограничено клиентским бустом (`lib/personalization.ts`), а
- * не персонализацией серверного Score.
+ * в localStorage по числовому id сети (`/meta` отдаёт его с T10-доводки).
+ * Отправляется на backend как `?preferred_brands=id1,id2` — Score.user_preferences
+ * для этого запроса считает выбранные сети высшим приоритетом, независимо от
+ * общего (одинакового для всех) `station_brands.priority` (`lib/api.ts`,
+ * `HomeScreen.tsx`). Клиентский буст порядка (`lib/personalization.ts`) —
+ * запасной путь для сортировок, где сервер не пересчитывает score.
  */
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
 
 interface NetworkPreferencesState {
-  preferredBrands: string[];
-  toggleBrand: (name: string) => void;
-  isPreferred: (name: string) => boolean;
-  setPreferredBrands: (names: string[]) => void;
+  preferredBrandIds: number[];
+  toggleBrand: (id: number) => void;
+  isPreferred: (id: number) => boolean;
+  setPreferredBrandIds: (ids: number[]) => void;
 }
 
 const Ctx = createContext<NetworkPreferencesState | null>(null);
-const STORAGE_KEY = "fr_preferred_brands";
+const STORAGE_KEY = "fr_preferred_brand_ids";
 
-function readBrands(): string[] {
+function readBrandIds(): number[] {
   if (typeof window === "undefined") return [];
   try {
     const raw = window.localStorage.getItem(STORAGE_KEY);
     const parsed = raw ? JSON.parse(raw) : [];
-    return Array.isArray(parsed) ? parsed.filter((v): v is string => typeof v === "string") : [];
+    return Array.isArray(parsed) ? parsed.filter((v): v is number => typeof v === "number") : [];
   } catch {
     return [];
   }
 }
 
-function writeBrands(names: string[]): void {
+function writeBrandIds(ids: number[]): void {
   if (typeof window === "undefined") return;
   try {
-    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(names));
+    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(ids));
   } catch {
     // не критично
   }
 }
 
 export function NetworkPreferencesProvider({ children }: { children: React.ReactNode }) {
-  const [preferredBrands, setPreferredBrandsState] = useState<string[]>([]);
+  const [preferredBrandIds, setPreferredBrandIdsState] = useState<number[]>([]);
 
   useEffect(() => {
-    setPreferredBrandsState(readBrands());
+    setPreferredBrandIdsState(readBrandIds());
   }, []);
 
-  const setPreferredBrands = useCallback((names: string[]) => {
-    setPreferredBrandsState(names);
-    writeBrands(names);
+  const setPreferredBrandIds = useCallback((ids: number[]) => {
+    setPreferredBrandIdsState(ids);
+    writeBrandIds(ids);
   }, []);
 
-  const toggleBrand = useCallback((name: string) => {
-    setPreferredBrandsState((prev) => {
-      const next = prev.includes(name) ? prev.filter((n) => n !== name) : [...prev, name];
-      writeBrands(next);
+  const toggleBrand = useCallback((id: number) => {
+    setPreferredBrandIdsState((prev) => {
+      const next = prev.includes(id) ? prev.filter((v) => v !== id) : [...prev, id];
+      writeBrandIds(next);
       return next;
     });
   }, []);
 
-  const isPreferred = useCallback((name: string) => preferredBrands.includes(name), [preferredBrands]);
+  const isPreferred = useCallback((id: number) => preferredBrandIds.includes(id), [preferredBrandIds]);
 
   const value = useMemo<NetworkPreferencesState>(
-    () => ({ preferredBrands, toggleBrand, isPreferred, setPreferredBrands }),
-    [preferredBrands, toggleBrand, isPreferred, setPreferredBrands],
+    () => ({ preferredBrandIds, toggleBrand, isPreferred, setPreferredBrandIds }),
+    [preferredBrandIds, toggleBrand, isPreferred, setPreferredBrandIds],
   );
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;

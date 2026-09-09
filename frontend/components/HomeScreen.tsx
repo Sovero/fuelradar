@@ -37,12 +37,15 @@ export function HomeScreen() {
 function HomeScreenBody() {
   const { filters, setFilters } = useFilters();
   const { user } = useAuth();
-  const { fuelLabel } = useMeta();
+  const { fuelLabel, meta } = useMeta();
   const { t } = useI18n();
   const [loginOpen, setLoginOpen] = useState(false);
   const [alertBusy, setAlertBusy] = useState(false);
   const [alertCreated, setAlertCreated] = useState(false);
   const [alertError, setAlertError] = useState<string | null>(null);
+
+  const { preferredBrandIds } = useNetworkPreferences();
+  const preferredBrandsParam = preferredBrandIds.length ? [...preferredBrandIds].sort((a, b) => a - b).join(",") : undefined;
 
   const query: StationListQuery = useMemo(
     () => ({
@@ -56,14 +59,21 @@ function HomeScreenBody() {
       queue_max: filters.queueMax ?? undefined,
       sort: filters.sort ?? undefined,
       limit: 100,
+      preferred_brands: preferredBrandsParam,
     }),
-    [filters.lat, filters.lon, filters.radiusKm, filters.brand, filters.fuels, filters.status, filters.confidenceMin, filters.queueMax, filters.sort],
+    [filters.lat, filters.lon, filters.radiusKm, filters.brand, filters.fuels, filters.status, filters.confidenceMin, filters.queueMax, filters.sort, preferredBrandsParam],
   );
 
   const { stations, loading, error, isStale } = useStations(query);
   const { favorites } = useFavorites();
   const { settings: observationSettings } = useObservationMode();
-  const { preferredBrands } = useNetworkPreferences();
+  // Backend уже учёл preferred_brands в score (см. query выше) — этот буст остаётся
+  // запасным для сортировок, где score не участвует (напр. sort=distance).
+  const preferredBrandNames = useMemo(() => {
+    if (preferredBrandIds.length === 0 || !meta) return [];
+    const ids = new Set(preferredBrandIds);
+    return meta.station_brands.filter((b) => ids.has(b.id)).map((b) => b.name);
+  }, [preferredBrandIds, meta]);
 
   const searched = useMemo(() => {
     const q = filters.search.trim().toLowerCase();
@@ -78,8 +88,8 @@ function HomeScreenBody() {
   const favoriteIds = useMemo(() => new Set(favorites.map((f) => f.id)), [favorites]);
   const personalized = useMemo(() => {
     const observed = applyObservationMode(searched, observationSettings, favoriteIds);
-    return applyPreferredBrandsOrder(observed, preferredBrands);
-  }, [searched, observationSettings, favoriteIds, preferredBrands]);
+    return applyPreferredBrandsOrder(observed, preferredBrandNames);
+  }, [searched, observationSettings, favoriteIds, preferredBrandNames]);
 
   const confirmedCount = countConfirmed(searched, filters.fuels, filters.includeLikely);
   const isSearchingFuel = filters.fuels.length > 0;

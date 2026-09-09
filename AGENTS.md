@@ -26,7 +26,7 @@ PWA-система независимой агрегации данных о н�
 ```
 make install                              # pip install backend + npm install frontend
 make dev                                  # backend: uvicorn app.main:app --reload --port 8000 (dev — SQLite, без Docker)
-cd backend && pytest                      # 139 passed
+cd backend && pytest                      # 142 passed
 cd backend && pytest tests/test_api.py    # один файл
 cd backend && pytest -k dedup             # по имени
 cd backend && ruff check .                # линт, "All checks passed!"
@@ -126,6 +126,7 @@ Frontend не ходит в backend напрямую — `next.config.mjs` рё�
 
 `.env.example` (backend, читается из корня `backend/` через `env_file=".env"`):
 - `DEBUG`, `DATABASE_URL` — SQLite (dev) / PostgreSQL+PostGIS (prod)
+- `REDIS_URL` — пусто → метрики in-memory на процесс (`/metrics` у api не увидит счётчики воркера); задать — оба процесса делят один хэш (`core/metrics.py`), недоступный Redis тихо откатывается на in-memory
 - `DEFAULT_REGION_CITY`, `DEFAULT_REGION_RADIUS_KM` — регион (данные, не код)
 - `OVERPASS_ENDPOINT`, `NETWORK_IMPORT_PATH` — источники каталога
 - `DEDUP_AUTO_MERGE`, `DEDUP_NEEDS_REVIEW`, `DEDUP_WEIGHTS` — пороги/веса дедупликации
@@ -145,7 +146,7 @@ Frontend не ходит в backend напрямую — `next.config.mjs` рё�
 
 ## Тесты
 
-- Backend: `backend/tests/test_<module>.py`, один файл на модуль/API-поверхность (`test_api.py`, `test_dedup.py`, `test_worker.py`, `test_alerts.py`, `test_reports.py`, `test_analytics.py`, `test_confidence.py`, `test_confidence_freshness.py`, `test_ranking.py`, `test_normalization.py`, `test_fuel_status.py`, `test_sources.py`, `test_ingest.py`, `test_seed_cli.py`, `test_migrations.py`, `test_schema.py`, `test_health.py`). Гонять один файл: `pytest tests/test_dedup.py`; по имени теста: `pytest -k merge`. 139 passed.
+- Backend: `backend/tests/test_<module>.py`, один файл на модуль/API-поверхность (`test_api.py`, `test_dedup.py`, `test_worker.py`, `test_alerts.py`, `test_reports.py`, `test_analytics.py`, `test_confidence.py`, `test_confidence_freshness.py`, `test_ranking.py`, `test_normalization.py`, `test_fuel_status.py`, `test_sources.py`, `test_ingest.py`, `test_seed_cli.py`, `test_migrations.py`, `test_schema.py`, `test_health.py`). Гонять один файл: `pytest tests/test_dedup.py`; по имени теста: `pytest -k merge`. 142 passed.
 - Frontend: рядом с модулем как `*.test.ts(x)` (например `frontend/lib/geo.test.ts`, `frontend/components/station/ReportForm.test.tsx`). Один файл/маска: `npm test -- ReportForm`. 76 passed (24 файла).
 - Офлайн-фикстуры для `seed`: `backend/tests/fixtures/`.
 
@@ -189,6 +190,11 @@ https://github.com/Sovero/fuelradar.git (ветка `main`). Коммиты — 
 - T10 (последний): персонализация — зоны мониторинга (CRUD + «следить вокруг меня»), приватность (GPS off/ручная точка/забыть позицию), реальная форма «Сообщить» с офлайн-очередью, полная лента уведомлений, вход magic-link/Telegram. Админка (`app/admin`) — источники + журнал загрузок (R104), покрытие/индекс, очередь слияний, пользователи и отчёты (админ-токен — вводится человеком, `sessionStorage`, не `.env`). По ходу таска на backend добавлены `GET /admin/reports` и `POST /admin/users/{id}/block` — значились в контракте, но не были реализованы. R25/R77 (сети в правилах/сортировке) — клиентский компромисс: backend не отдаёт числовой id бренда и не хранит персональные приоритеты, см. interfaces.md. Тесты: 76 passed (frontend), 139 passed (backend).
 
 Сборка завершена (10/10 тасков). Все требования брифа закрыты, отложены (роадмап) или помечены как заглушка/клиентский компромисс — детали в `.autopilot/fuelradar/manifest.md`.
+
+Пост-приёмочная доводка (по прямому запросу пользователя «реши все проблемы» — оба открытых пункта из отчёта приёмки):
+- `/metrics` был пуст у api-процесса (счётчики писал только воркер) — `core/metrics.py` получил опциональный Redis-бэкенд (`REDIS_URL`), без него поведение прежнее.
+- R77/R25: `/meta` теперь отдаёт `id` сети, `GET /stations[/{id}]` принимают `preferred_brands=<id,...>` и персонализируют `Score.user_preferences`, `AlertRulesPanel` предлагает scope «Сеть» (`brand_id`). Побочно найдены и исправлены два реальных бага: `station_detail` дублировал расчёт Score и терял `score_breakdown` для станций без наблюдений (теперь `_station_brief` — единственное место расчёта); `init_db()` создавал таблицы только для уже импортированных моделей — `AlertStateSnapshot`/`AnalyticsSnapshot` регистрировались «повезло если», что ломало изолированный запуск одного тестового файла.
+Тесты: 142 passed (backend), 76 passed (frontend).
 <!-- autopilot:end -->
 
 <!-- IJFW-MEMORY-START -->

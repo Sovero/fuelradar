@@ -53,6 +53,16 @@ def _fail(message: str) -> None:
     raise HTTPException(status_code=422, detail=message)
 
 
+def _parse_preferred_brands(raw: str | None) -> tuple[int, ...]:
+    """R77: «предпочтения сетей» — ID брендов из `/meta`, через запятую (`?preferred_brands=3,7`)."""
+    if not raw:
+        return ()
+    try:
+        return tuple(sorted({int(part) for part in raw.split(",") if part.strip()}))
+    except ValueError:
+        _fail("preferred_brands должен быть списком числовых ID через запятую")
+
+
 def _validate_geo(lat: float | None, lon: float | None, radius_km: float | None, bbox: str | None):
     """Валидация гео-параметров с русскими сообщениями (R67)."""
     if lat is not None and not -90 <= lat <= 90:
@@ -147,7 +157,11 @@ def _station_brief(
     queue: QueueBrief | None,
     distance: float | None,
     priority: int | None,
-) -> StationBrief:
+) -> tuple[StationBrief, dict]:
+    """Возвращает (карточка, score_breakdown) — единственное место, где считается
+    Score, чтобы список и карточка станции никогда не могли разойтись (было:
+    `station_detail` пересчитывал Score второй раз с похожим, но не тем же
+    набором параметров, и терял разбор для станций без наблюдений)."""
     best = max(fuel_statuses, key=lambda s: FUEL_STATUS_VALUE.get(s.status, 0.0), default=None)
     age = None
     if best is not None and best.updated_at is not None:
@@ -165,7 +179,7 @@ def _station_brief(
     )
     wait = queue.estimated_wait_minutes if queue else None
     eta = eta_minutes(distance, wait) if distance is not None else None
-    return StationBrief(
+    brief = StationBrief(
         id=station.id,
         name=station.canonical_name,
         brand=brand.name if brand else None,
@@ -179,6 +193,7 @@ def _station_brief(
         queue=queue,
         score=score_result.score,
     )
+    return brief, score_result.breakdown
 
 
 def _list_stations(
@@ -197,6 +212,7 @@ def _list_stations(
     sort: str | None,
     limit: int,
     offset: int,
+    preferred_brands: tuple[int, ...] = (),
 ) -> list[StationBrief]:
     _validate_geo(lat, lon, radius_km, bbox)
     fuel_code = _validate_filters(fuel, status, confidence_min, queue_max)
@@ -254,7 +270,11 @@ def _list_stations(
             if not (s <= station.latitude <= n and w <= station.longitude <= e):
                 continue
 
-        items.append(_station_brief(station, brand_row, briefs, queue, distance, brand_row.priority if brand_row else None))
+        priority = brand_row.priority if brand_row else None
+        if preferred_brands and brand_row is not None and brand_row.id in preferred_brands:
+            priority = 1  # R77: личное предпочтение сети — как высший приоритет для этого запроса
+        brief, _ = _station_brief(station, brand_row, briefs, queue, distance, priority)
+        items.append(brief)
 
     sort_key = sort or ("distance" if lat is not None and lon is not None else "score")
     if sort_key in ("distance", "travel_time"):
@@ -302,6 +322,7 @@ def nearby(
     sort: str | None = None,
     limit: int = Query(50, ge=1, le=100),
     offset: int = Query(0, ge=0),
+    preferred_brands: str | None = None,
     session: Session = Depends(get_db),
     _: object = Depends(optional_user),
 ) -> list[StationBrief]:
@@ -316,6 +337,7 @@ def nearby(
         lat=lat, lon=lon, radius_km=selected_radius, bbox=bbox,
         city=city, brand=brand, fuel=fuel, status=status, confidence_min=confidence_min,
         queue_max=queue_max, sort=sort, limit=limit, offset=offset,
+        preferred_brands=_parse_preferred_brands(preferred_brands),
     )
 
 
@@ -337,6 +359,7 @@ def list_stations(
     sort: str | None = None,
     limit: int = Query(50, ge=1, le=100),
     offset: int = Query(0, ge=0),
+    preferred_brands: str | None = None,
     session: Session = Depends(get_db),
     _: object = Depends(optional_user),
 ) -> list[StationBrief]:
@@ -345,6 +368,7 @@ def list_stations(
         lat=lat, lon=lon, radius_km=radius_km if radius_km is not None else radius, bbox=bbox,
         city=city, brand=brand, fuel=fuel, status=status, confidence_min=confidence_min,
         queue_max=queue_max, sort=sort, limit=limit, offset=offset,
+        preferred_brands=_parse_preferred_brands(preferred_brands),
     )
 
 
@@ -354,6 +378,7 @@ def station_detail(
     lat: float | None = None,
     lon: float | None = None,
     fuel: str | None = None,
+    preferred_brands: str | None = None,
     session: Session = Depends(get_db),
     _: object = Depends(optional_user),
 ) -> StationDetail:
@@ -386,7 +411,11 @@ def station_detail(
         queue = QueueBrief(level=r.queue_level, vehicles=r.queue_vehicles, estimated_wait_minutes=r.estimated_wait_minutes)
 
     distance = distance_km(lat, lon, station.latitude, station.longitude) if lat is not None and lon is not None else None
-    brief = _station_brief(station, brand, briefs, queue, distance, brand.priority if brand else None)
+    priority = brand.priority if brand else None
+    preferred = _parse_preferred_brands(preferred_brands)
+    if preferred and brand is not None and brand.id in preferred:
+        priority = 1  # R77: см. то же правило в _list_stations
+    brief, breakdown = _station_brief(station, brand, briefs, queue, distance, priority)
 
     explanation: dict = {}
     if top is not None:
@@ -401,15 +430,6 @@ def station_detail(
         if top[0].status_explanation:
             explanation.setdefault("status", top[0].status)
             explanation.setdefault("note", "разбор вкладов источников (R71/R92)")
-
-    breakdown = {}
-    if top is not None:
-        chosen = max(briefs, key=lambda row: FUEL_STATUS_VALUE.get(row.status, 0), default=None)
-        breakdown = compute_score(ScoreInput(fuel_status=chosen.status if chosen else UNKNOWN,
-            confidence=chosen.confidence if chosen else 0,
-            observed_age_minutes=max(0, int((datetime.now(UTC).replace(tzinfo=None)-chosen.updated_at.replace(tzinfo=None)).total_seconds()/60)) if chosen and chosen.updated_at else None,
-            distance_km=brief.distance_km, queue_level=queue.level if queue else UNKNOWN,
-            network_priority=brand.priority if brand else None)).breakdown
 
     ext_ids = session.execute(
         select(SourceProvider.code, StationExternalId.external_id)

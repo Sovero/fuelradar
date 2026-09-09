@@ -177,7 +177,7 @@ const dict = {
     "observation.exclude.exclude": "Исключить из наблюдения",
     "observation.exclude.include": "Вернуть в наблюдение",
 
-    "networkPrefs.description": "Отмеченные сети поднимаются выше в списке (влияет только на порядок на этом устройстве — см. пояснение в отчёте задачи о серверном Score).",
+    "networkPrefs.description": "Отмеченные сети получают приоритет в оценке FuelRadar Score и поднимаются выше в списке.",
     "networkPrefs.empty": "Справочник сетей пуст",
 
     "zones.followMe.title": "Следить вокруг меня",
@@ -210,6 +210,8 @@ const dict = {
     "rules.form.defaultName": "Новое правило",
     "rules.form.scope": "Что отслеживать",
     "rules.form.pickZone": "Выберите зону",
+    "rules.form.pickNetwork": "Выберите сеть",
+    "rules.form.needNetwork": "Выберите сеть",
     "rules.form.useCurrentPosition": "Использовать текущее местоположение",
     "rules.form.needPosition": "Определите местоположение для этого правила",
     "rules.form.needZone": "Выберите зону",
@@ -219,6 +221,7 @@ const dict = {
     "rules.scope.all": "Весь регион",
     "rules.scope.favorites": "Избранное",
     "rules.scope.zone": "Зона",
+    "rules.scope.network": "Сеть",
     "rules.scope.point": "Радиус вокруг точки",
     "rules.scope.station": "Станция",
     "rules.pause": "Пауза",
@@ -478,7 +481,7 @@ const dict = {
     "observation.exclude.exclude": "Exclude from monitoring",
     "observation.exclude.include": "Include again",
 
-    "networkPrefs.description": "Marked networks are boosted to the top of the list (affects ordering on this device only — see the task report note about server-side Score).",
+    "networkPrefs.description": "Marked networks get priority in the FuelRadar Score and rise to the top of the list.",
     "networkPrefs.empty": "No networks in the directory",
 
     "zones.followMe.title": "Follow my location",
@@ -511,6 +514,8 @@ const dict = {
     "rules.form.defaultName": "New rule",
     "rules.form.scope": "What to watch",
     "rules.form.pickZone": "Pick a zone",
+    "rules.form.pickNetwork": "Pick a network",
+    "rules.form.needNetwork": "Pick a network",
     "rules.form.useCurrentPosition": "Use current location",
     "rules.form.needPosition": "Get a location for this rule",
     "rules.form.needZone": "Pick a zone",
@@ -519,6 +524,7 @@ const dict = {
     "rules.form.saveError": "Could not save the rule",
     "rules.scope.all": "Whole region",
     "rules.scope.favorites": "Favorites",
+    "rules.scope.network": "Network",
     "rules.scope.zone": "Zone",
     "rules.scope.point": "Radius around a point",
     "rules.scope.station": "Station",

@@ -1,11 +1,9 @@
 "use client";
 
 /**
- * Предпочтения сетей (R77). CONCERN (см. отчёт T10): backend `/meta` не
- * отдаёт id сети и `GET /stations` не принимает `preferred_brands` — влияние
- * на порядок списка это клиентский буст (`lib/personalization.ts`), а не
- * персонализация серверного Score (тот использует только статический
- * `station_brands.priority`, одинаковый для всех пользователей).
+ * Предпочтения сетей (R77) — теперь настоящая персонализация Score: выбранная
+ * сеть уходит в backend как `?preferred_brands=<id>` (см. `HomeScreen.tsx`),
+ * а не только клиентский буст порядка.
  */
 
 import { useMeta } from "@/lib/hooks/useMeta";
@@ -14,7 +12,7 @@ import { useI18n } from "@/lib/hooks/useI18n";
 
 export function NetworkPreferences() {
   const { meta } = useMeta();
-  const { preferredBrands, toggleBrand } = useNetworkPreferences();
+  const { preferredBrandIds, toggleBrand } = useNetworkPreferences();
   const { t } = useI18n();
   const brands = meta?.station_brands ?? [];
 
@@ -24,17 +22,17 @@ export function NetworkPreferences() {
       <div className="flex flex-wrap gap-1">
         {brands.map((b) => (
           <button
-            key={b.name}
+            key={b.id}
             type="button"
-            onClick={() => toggleBrand(b.name)}
-            aria-pressed={preferredBrands.includes(b.name)}
+            onClick={() => toggleBrand(b.id)}
+            aria-pressed={preferredBrandIds.includes(b.id)}
             className={`rounded-full border px-2.5 py-1 text-xs font-medium ${
-              preferredBrands.includes(b.name)
+              preferredBrandIds.includes(b.id)
                 ? "border-amber-500 bg-amber-50 text-amber-700 dark:bg-amber-950 dark:text-amber-300"
                 : "border-gray-300 text-gray-600 hover:bg-gray-50 dark:border-gray-700 dark:text-gray-300 dark:hover:bg-gray-800"
             }`}
           >
-            {preferredBrands.includes(b.name) ? "★ " : "☆ "}
+            {preferredBrandIds.includes(b.id) ? "★ " : "☆ "}
             {b.name}
           </button>
         ))}

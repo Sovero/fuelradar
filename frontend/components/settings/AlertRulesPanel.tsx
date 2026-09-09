@@ -1,11 +1,10 @@
 "use client";
 
 /**
- * Правила уведомлений (R26/R34/R77) — CRUD поверх `/alerts`. Скоуп ограничен
- * тем, что реально понимает backend (`backend/app/alerts/service.py::_scope_matches`):
- * весь регион / зона / избранное / конкретная станция / радиус вокруг точки.
- * «Сеть» как отдельный скоуп НЕ предлагается — `/meta` не отдаёт числовой id
- * сети, а backend понимает сеть только по `brand_id` (см. CONCERNS отчёта).
+ * Правила уведомлений (R26/R34/R77) — CRUD поверх `/alerts`. Скоуп — то, что
+ * понимает backend (`backend/app/alerts/service.py::_scope_matches`): весь
+ * регион / зона / избранное / конкретная станция / радиус вокруг точки /
+ * сеть (`brand_id`, с доводки после слепой приёмки — `/meta` теперь отдаёт id).
  */
 
 import { useState } from "react";
@@ -18,7 +17,7 @@ import { formatUpdatedAt } from "@/lib/format";
 import { ApiError } from "@/lib/api";
 import type { AlertRuleBody } from "@/lib/types";
 
-type ScopeKind = "all" | "zone" | "favorites" | "point";
+type ScopeKind = "all" | "zone" | "favorites" | "point" | "network";
 
 export function AlertRulesPanel() {
   const { rules, loading, error, create, update, remove } = useAlertRules();
@@ -36,12 +35,14 @@ export function AlertRulesPanel() {
   const [queueMax, setQueueMax] = useState("");
   const [scopeKind, setScopeKind] = useState<ScopeKind>("all");
   const [zoneId, setZoneId] = useState<number | null>(null);
+  const [brandId, setBrandId] = useState<number | null>(null);
   const [formError, setFormError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
   function buildScope(): Record<string, unknown> {
     if (scopeKind === "favorites") return { type: "favorites" };
     if (scopeKind === "zone" && zoneId !== null) return { type: "zone", zone_id: zoneId };
+    if (scopeKind === "network" && brandId !== null) return { type: "network", brand_id: brandId };
     if (scopeKind === "point" && geo.position) return { lat: geo.position.lat, lon: geo.position.lon };
     return {};
   }
@@ -55,6 +56,7 @@ export function AlertRulesPanel() {
     setQueueMax("");
     setScopeKind("all");
     setZoneId(null);
+    setBrandId(null);
     setFormError(null);
     setFormOpen(false);
   }
@@ -67,6 +69,10 @@ export function AlertRulesPanel() {
     }
     if (scopeKind === "zone" && zoneId === null) {
       setFormError(t("rules.form.needZone"));
+      return;
+    }
+    if (scopeKind === "network" && brandId === null) {
+      setFormError(t("rules.form.needNetwork"));
       return;
     }
     const body: AlertRuleBody = {
@@ -95,6 +101,11 @@ export function AlertRulesPanel() {
     const kind = String(scope.type ?? "");
     if (kind === "favorites" || scope.favorites) return t("rules.scope.favorites");
     if (scope.zone_id !== undefined) return `${t("rules.scope.zone")} #${scope.zone_id}`;
+    const brand = scope.brand_id ?? scope.network_id;
+    if (brand !== undefined) {
+      const found = (meta?.station_brands ?? []).find((b) => b.id === brand);
+      return `${t("rules.scope.network")}: ${found?.name ?? `#${brand}`}`;
+    }
     if (scope.lat !== undefined && scope.lon !== undefined) return t("rules.scope.point");
     return t("rules.scope.all");
   }
@@ -164,8 +175,20 @@ export function AlertRulesPanel() {
             <option value="all">{t("rules.scope.all")}</option>
             <option value="favorites">{t("rules.scope.favorites")}</option>
             <option value="zone">{t("rules.scope.zone")}</option>
+            <option value="network">{t("rules.scope.network")}</option>
             <option value="point">{t("rules.scope.point")}</option>
           </select>
+
+          {scopeKind === "network" && (
+            <select value={brandId ?? ""} onChange={(e) => setBrandId(e.target.value ? Number(e.target.value) : null)} className="rounded-md border border-gray-300 px-2 py-1.5 text-sm dark:border-gray-700 dark:bg-gray-800">
+              <option value="">{t("rules.form.pickNetwork")}</option>
+              {(meta?.station_brands ?? []).map((b) => (
+                <option key={b.id} value={b.id}>
+                  {b.name}
+                </option>
+              ))}
+            </select>
+          )}
 
           {scopeKind === "zone" && (
             <select value={zoneId ?? ""} onChange={(e) => setZoneId(e.target.value ? Number(e.target.value) : null)} className="rounded-md border border-gray-300 px-2 py-1.5 text-sm dark:border-gray-700 dark:bg-gray-800">

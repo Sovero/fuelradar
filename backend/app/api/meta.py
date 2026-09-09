@@ -80,7 +80,7 @@ def meta(session: Session = Depends(get_db)) -> dict:
         })
 
     brands = [
-        {"name": b.name, "priority": b.priority}
+        {"id": b.id, "name": b.name, "priority": b.priority}
         for b in session.scalars(select(StationBrand).order_by(StationBrand.priority))
     ]
     sources = [

@@ -16,6 +16,7 @@ class Settings(BaseSettings):
     app_name: str = "FuelRadar"
     debug: bool = False
     database_url: str = "sqlite:///./fuelradar.db"
+    redis_url: str = ""  # пусто -> метрики in-memory на процесс (R70); задать для общих метрик api+worker
 
     # --- регион (R04/R81): город по умолчанию — данные, не код ---
     default_region_city: str = ""  # пример значения — в .env.example: Краснодар

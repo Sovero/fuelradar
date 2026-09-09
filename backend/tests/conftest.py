@@ -12,6 +12,11 @@ from fastapi.testclient import TestClient
 _tmpdir = tempfile.mkdtemp(prefix="fuelradar_test_")
 os.environ["DATABASE_URL"] = f"sqlite:///{os.path.join(_tmpdir, 'test.db')}"
 os.environ["DEBUG"] = "true"
+# Герметичность: реальный .env разработчика (setup.ps1, docker и т.п.) не должен
+# влиять на тесты — иначе один прогон даёт разный результат на разных машинах
+# (см. app/core/config.py::_ROOT_ENV_FILE). Всё нужное тестам — только явные
+# os.environ ниже, дефолты Settings — для того, что не выставлено явно.
+os.environ["FUELRADAR_NO_ENV_FILE"] = "1"
 # API-тесты: фиксированный админ-токен, щедрый rate-limit и живой кэш.
 os.environ.setdefault("ADMIN_TOKEN", "test-admin-token")
 os.environ.setdefault("RATE_LIMIT_PER_MINUTE", "10000")

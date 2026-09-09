@@ -8,6 +8,16 @@ PWA-система независимой агрегации данных о н�
 
 Стек: FastAPI (Python) + SQLite (dev) / PostgreSQL+PostGIS (prod) + Next.js (React, TypeScript, Tailwind) + MapLibre GL.
 
+## Быстрый старт на новой машине (Windows)
+
+```
+powershell -ExecutionPolicy Bypass -File .\setup.ps1
+```
+Или просто дважды кликнуть `setup.cmd`. Создаст venv и `.env`/`frontend/.env.local`,
+поставит все зависимости, нальёт демо-каталог АЗС (офлайн, без сети) и запустит
+backend (новое окно) и frontend (текущее окно) — откроется на http://localhost:3000.
+Тот же скрипт безопасно перезапускать позже для обновления (`git pull` + зависимости).
+
 ## Команды
 
 | Команда | Что делает |

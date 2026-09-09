@@ -4,13 +4,30 @@
 Значения по умолчанию — из спецификации (TTL §18, интервалы §12, пороги/веса §7–§8/§10).
 """
 
+import os
 from functools import lru_cache
+from pathlib import Path
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+# Абсолютный путь до .env в корне репозитория (не backend/.env — .env.example
+# и вся документация подразумевают единый .env в корне). Раньше здесь стояло
+# просто ".env", которое pydantic-settings резолвит относительно CWD процесса,
+# а не расположения этого файла — при обычном запуске (`cd backend && uvicorn
+# ...`, ровно так делает Makefile/setup.ps1) CWD оказывается backend/, где
+# .env нет, и весь файл в корне молча игнорировался: DEBUG/CORS_ORIGINS/
+# ADMIN_TOKEN и всё остальное откатывались на дефолты без единого предупреждения.
+#
+# Тесты обязаны быть герметичными: реальный .env разработчика (например,
+# DEFAULT_REGION_CITY=Краснодар от setup.ps1) не должен влиять на то, что
+# видят тесты — иначе один и тот же прогон даёт разный результат в зависимости
+# от того, у кого на машине что лежит в .env. conftest.py выставляет
+# FUELRADAR_NO_ENV_FILE=1 до первого импорта приложения именно поэтому.
+_ROOT_ENV_FILE = None if os.environ.get("FUELRADAR_NO_ENV_FILE") else Path(__file__).resolve().parents[3] / ".env"
+
 
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
+    model_config = SettingsConfigDict(env_file=_ROOT_ENV_FILE, env_file_encoding="utf-8", extra="ignore")
 
     # --- приложение ---
     app_name: str = "FuelRadar"

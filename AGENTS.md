@@ -23,6 +23,8 @@ PWA-система независимой агрегации данных о н�
 
 ## Команды (проверены 09.09.2026)
 
+Новая машина (Windows) — один скрипт вместо всего списка ниже: `powershell -ExecutionPolicy Bypass -File .\setup.ps1` (или двойной клик `setup.cmd`). Создаёт venv, ставит зависимости backend+frontend, генерирует `.env`/`frontend/.env.local`, сеет демо-каталог, запускает оба сервера. Идемпотентен — тот же скрипт обновляет уже развёрнутое окружение (`git pull` + переустановка зависимостей).
+
 ```
 make install                              # pip install backend + npm install frontend
 make dev                                  # backend: uvicorn app.main:app --reload --port 8000 (dev — SQLite, без Docker)
@@ -152,7 +154,8 @@ Frontend не ходит в backend напрямую — `next.config.mjs` рё�
 
 ## Подводные камни
 
-- `make dev` сам выставляет `DEBUG=true CORS_ORIGINS=http://localhost:3000` — без них при раздельном запуске (`uvicorn` напрямую) любой POST/PUT/PATCH/DELETE через прокси Next.js получает `403 Недопустимый источник запроса` (browser Origin ≠ адрес backend), а dev-вход отдельно требует `DEBUG=true` (`api/login.py`). В проде оба идут за одним Caddy — один origin, переменные не нужны.
+- `make dev` сам выставляет `DEBUG=true CORS_ORIGINS=http://localhost:3000` — без них при раздельном запуске (`uvicorn` напрямую) любой POST/PUT/PATCH/DELETE через прокси Next.js получает `403 Недопустимый источник запроса` (browser Origin ≠ адрес backend), а dev-вход отдельно требует `DEBUG=true` (`api/login.py`). В проде оба идут за одним Caddy — один origin, переменные не нужны. Отдельно: `Settings.model_config.env_file` (`core/config.py`) раньше был относительным (`".env"`) — pydantic-settings резолвит его от CWD процесса, а при `cd backend && uvicorn ...` CWD оказывается `backend/`, где `.env` нет, и корневой `.env` молча игнорировался целиком (не только DEBUG/CORS_ORIGINS). Исправлено на абсолютный путь до корня репозитория. Тесты при этом обязаны оставаться герметичными — `conftest.py` выставляет `FUELRADAR_NO_ENV_FILE=1`, чтобы реальный `.env` разработчика не тёк в прогон тестов.
+- `setup.ps1` (корень репозитория) — разворачивает окружение на новой машине с нуля: venv, зависимости, `.env`/`frontend/.env.local` из примеров (с автосгенерированным локальным `ADMIN_TOKEN`), демо-данные офлайн, запуск обоих серверов. Идемпотентен, `git pull` внутри — годится и для обновления уже развёрнутого окружения. Двойной клик — `setup.cmd`.
 - `backend/tests/conftest.py::db_session` — `scope="session"`, одна SQLite-БД на весь прогон backend-тестов; тест, оставляющий "висящую" запись (например PENDING `CollectionJob`), может задеть партиционный уникальный индекс `uq_collection_active` в другом файле теста — уже случалось между `test_api.py` и `test_ingest.py`, лечится доведением job до терминального статуса в тесте, который его создал.
 - Next.js читает `.env*` только из `frontend/`, не из корня репозитория — переменные `NEXT_PUBLIC_*` в корневом `.env.example` там только для докера/справки, реальный источник для `npm run dev` — `frontend/.env.local`.
 - `MapProviderProps` (`frontend/lib/map/types.ts`) — единственный контракт между `MapView.tsx` и обеими реализациями; добавление поля ломает вторую реализацию молча, если не обновить обе.

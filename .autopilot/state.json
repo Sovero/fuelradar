@@ -7,8 +7,8 @@
   "briefFile": "2026-09-07-brief.md",
   "memoryFile": "AGENTS.md",
   "startedAt": "2026-09-07T18:54:27+03:00",
-  "updatedAt": "2026-09-09T19:22:38+03:00",
-  "finishedAt": null,
+  "updatedAt": "2026-09-09T20:03:44+03:00",
+  "finishedAt": "2026-09-09T20:03:44+03:00",
   "stages": [
     {
       "id": "preflight",
@@ -49,13 +49,17 @@
     },
     {
       "id": "review",
-      "status": "active",
+      "status": "done",
       "startedAt": "2026-09-07T20:33:50+03:00",
-      "note": "проверено 10 из 10 по возврату; идёт финальный сквозной проход"
+      "finishedAt": "2026-09-09T20:03:44+03:00",
+      "note": "10 из 10 тасков проверено; финальный сквозной проход — слепая приёмка, см. blind"
     },
     {
       "id": "final",
-      "status": "pending"
+      "status": "done",
+      "startedAt": "2026-09-09T19:22:38+03:00",
+      "finishedAt": "2026-09-09T20:03:44+03:00",
+      "note": "слепая приёмка пройдена, 2 находки исправлены, AGENTS.md переписан по коду"
     }
   ],
   "requirements": {
@@ -623,5 +627,34 @@
     "A02 — /api/v1/meta со справочниками",
     "A03 — бейдж непрочитанных уведомлений"
   ],
-  "blind": null
+  "blind": {
+    "ranAt": "2026-09-09T20:03:44+03:00",
+    "drift": [
+      {
+        "severity": "critical",
+        "finding": "С командами запуска из README/Makefile (uvicorn напрямую, без переменных) вход не работал вообще ни для одного пользователя: любой POST через прокси Next.js получал 403 (CORS-проверка origin), а dev-вход дополнительно требовал DEBUG=true.",
+        "resolution": "fixed — `make dev` теперь сам выставляет DEBUG=true и CORS_ORIGINS=http://localhost:3000; задокументировано в .env.example/AGENTS.md."
+      },
+      {
+        "severity": "medium",
+        "finding": "R46 (манифест: in-ticket 09, ожидался done) — график очереди по времени отсутствовал на фронтенде, хотя backend его уже отдавал (/stations/{id}/queue-history).",
+        "resolution": "fixed — второй Sparkline добавлен в HistoryChart.tsx."
+      },
+      {
+        "severity": "low",
+        "finding": "/metrics пуст в реальной топологии (API и воркер — разные процессы, счётчики in-memory не расшарены).",
+        "resolution": "не исправлено — прямое следствие уже принятого ASSUMPTION «Redis опционален, иначе in-memory»; требует Redis-бэкенда для метрик, отдельная задача."
+      },
+      {
+        "severity": "info",
+        "finding": "ROUTE_CORRIDOR (§27) полностью отсутствует.",
+        "resolution": "ожидаемо — R22 в манифесте уже deferred по собственному роадмапу брифа (Этап 7, после MVP), не drift."
+      },
+      {
+        "severity": "info",
+        "finding": "Web Push фактически не доставляется (backend только логирует).",
+        "resolution": "ожидаемо — R97i уже placeholder в манифесте (нет VAPID-ключей), не drift."
+      }
+    ]
+  }
 }

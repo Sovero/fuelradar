@@ -19,7 +19,144 @@ signals:
 <!-- autopilot:start -->
 # FuelRadar
 
-PWA-система независимой агрегации данных о наличии топлива на АЗС (пилот — Краснодар), модульный монолит: FastAPI + PostgreSQL/PostGIS + Redis, фронт Next.js.
+PWA-система независимой агрегации данных о наличии топлива на АЗС (пилот — Краснодар). Для агента, впервые открывшего репозиторий: сборка полностью завершена (10/10 тасков), это готовая кодовая база для доработок, не черновик.
+
+## Команды (проверены 09.09.2026)
+
+```
+make install                              # pip install backend + npm install frontend
+make dev                                  # backend: uvicorn app.main:app --reload --port 8000 (dev — SQLite, без Docker)
+cd backend && pytest                      # 139 passed
+cd backend && pytest tests/test_api.py    # один файл
+cd backend && pytest -k dedup             # по имени
+cd backend && ruff check .                # линт, "All checks passed!"
+cd backend && python -m cli.seed --region krasnodar --offline   # наполнить каталог из фикстур, без сети
+cd frontend && npm install
+cd frontend && npm run dev                # localhost:3000, проксирует /api/* на API_INTERNAL_URL
+cd frontend && npm run typecheck          # tsc --noEmit, чисто
+cd frontend && npm run build              # успешно, ~331 kB First Load JS
+cd frontend && npm test                   # vitest run — 76 passed (24 файла)
+cd frontend && npm test -- ReportForm     # один файл/маска
+make compose-up                           # полный docker-compose: api+worker+db(Postgres/PostGIS)+redis+frontend+caddy
+```
+
+`make test` = `pytest` (backend) + `npm run typecheck` (frontend) — не гоняет frontend-тесты, гонять `npm test` отдельно.
+
+## Структура
+
+```
+backend/app/
+  main.py            — точка входа FastAPI: /health /ready /metrics, монтирует api_router + alerts/analytics/reports роутеры, CORS, обработчик 422
+  core/               — config.py (Settings — pydantic-settings, единственный источник дефолтов), metrics.py (in-memory счётчики)
+  db/                 — models.py (все таблицы), session.py (SessionLocal/get_db/init_db), migrations.py (идемпотентные post-init миграции), base.py (Base)
+  sources/            — SourceAdapter (base.py) + overpass/network_import/user_reports (ACTIVE), research.py (RESEARCH_REQUIRED-заглушки без сети), registry.py
+  stations/           — ingest.py: source_station_records → мастер-каталог
+  normalization/      — fuel.py, names.py — нормализация топлива/брендов/названий
+  dedup/              — compare.py (compare_records — чистая функция), service.py (DedupService: авто-слияние/REVIEW/admin_merge/admin_split)
+  fuel_status/        — наборы статусов топлива/очереди, инвариант UNKNOWN≠UNAVAILABLE
+  confidence/         — aggregate.py (aggregate — чистая функция), service.py (StatusService: запись наблюдений + пересчёт + expire_stale)
+  ranking/            — score.py — FuelRadar Score, 7 компонент + ETA
+  alerts/             — events.py (diff_event), service.py (evaluate_rules), channels.py (in-app/Web Push/Telegram), router.py, authz.py, models.py
+  reports/            — router.py (POST /reports), service.py (поверх StatusService), schemas.py
+  analytics/          — service.py (summarize/deficit_statistics — читают кэш AnalyticsSnapshot), models.py, router.py
+  auth/               — service.py — JWT/httpOnly-cookie, dev-вход, magic-link, Telegram
+  api/                — stations.py, meta.py, personal.py (favorites/monitoring-zones/alerts — требуют профиль), admin.py, login.py, deps.py (rate_limit), cache.py, schemas.py
+  worker/             — Worker/run_once, schedule_priority_job, locking.py (advisory/файловый лок); __main__.py — точка входа `python -m app.worker`
+backend/cli/          — seed.py (`python -m cli.seed --region <regions.py> [--offline]`), regions.py
+backend/tests/        — по одному файлу на модуль (test_<module>.py) + fixtures/ (офлайн-данные для seed), conftest.py (client/db_session — session-scope)
+
+frontend/app/          — Next.js App Router: page.tsx (главный экран), admin/, settings/, auth/verify/, stations/
+frontend/components/
+  HomeScreen.tsx        — главный экран (шапка, топливо/радиус, табы Карта/Список/Избранное)
+  map/                  — MapView.tsx, Legend.tsx
+  station/              — StationCard/StationList/ReportForm/HistoryChart/WhyExplanation/StatusBadge
+  filters/, favorites/  — FiltersPanel, FavoritesPanel/FavoriteRulesBar
+  layout/               — Header, LoginPanel, NotificationsPanel, MapProviderToggle, ThemeToggle, LocaleToggle
+  settings/             — SettingsScreen + Privacy/MonitoringZones/ObservationMode/NetworkPreferences/AlertRules панели
+  admin/                — AdminScreen + SourcesTable/CollectionLog/Coverage/DedupQueue/UsersBlock, AdminTokenGate
+  onboarding/, providers/, ui/ — OnboardingTour, AppProviders/ServiceWorkerRegister/OfflineReportsSync, EmptyState
+frontend/lib/
+  api.ts, adminApi.ts   — fetch-обёртки (adminApi добавляет X-Admin-Token из sessionStorage)
+  types.ts, filters.ts, format.ts, fuel.ts, availability.ts, geo.ts, i18n.ts, personalization.ts, offlineReports.ts, telegram.ts
+  map/                  — types.ts (MapProviderProps — единый контракт), maplibre-provider.tsx, yandex-provider.tsx, index.ts (выбор провайдера), statusColor/brandColor/markerIcon/markerData/cluster/config/osmStyle/yandexLoader
+  hooks/                — useMeta, useAuth, useFilters, useStations, useStationDetail, useFavorites, useNotifications, useTheme, useI18n, useOnboarding, useMapProviderPreference, usePrivacy, useObservationMode, useNetworkPreferences, useMonitoringZones, useAlertRules, useFollowMeZone, useAdminAuth
+frontend/public/       — manifest.json, icon.svg, sw.js (PWA, network-first для навигации)
+deploy/Caddyfile        — прод-реверс-прокси: /api/* → api:8000, остальное → frontend:3000
+.claude/launch.json     — дев-превью (`npm run dev --prefix frontend`), не код приложения
+```
+
+## Ключевые файлы
+
+- `backend/app/main.py` — все роутеры монтируются здесь; новый роутер добавлять тем же паттерном (`app.include_router(x_router, prefix="/api/v1", dependencies=[Depends(rate_limit)])`).
+- `backend/app/core/config.py` — единственное место дефолтов (TTL/интервалы/пороги/веса); не дублировать константы в других модулях.
+- `backend/app/db/models.py` — владелец схемы; новые таблицы/поля — только здесь, миграции для прод-БД — `db/migrations.py` (идемпотентно).
+- `backend/app/confidence/service.py` — `StatusService.record_fuel_observation`/`recompute_station_fuel`/`recompute_station_queue`/`expire_stale`; сюда встроены хуки `alerts.service.evaluate_rules` — не задваивать вызов записи статуса в других модулях.
+- `backend/app/worker/__main__.py` + `backend/app/worker/service.py` — реальный воркер (`python -m app.worker`), `schedule_priority_job()` — единственная точка постановки задания сбора (используется и `POST /admin/sources/{id}/refresh`).
+- `frontend/lib/map/types.ts` (`MapProviderProps`) — контракт карты; `frontend/lib/map/index.ts` — выбор MapLibre/Яндекс по `NEXT_PUBLIC_MAP_PROVIDER`/наличию ключа.
+- `frontend/lib/filters.ts` (`Filters`) + `useFilters()` — единственное состояние фильтров, живёт в URL query.
+- `frontend/lib/i18n.ts` — оба словаря (ru/en) обновлять вместе, ключ не может существовать в одном и отсутствовать в другом.
+- `frontend/lib/adminApi.ts` — админ-токен только в `sessionStorage` (ключ `fr_admin_token`), никогда в `.env`/коде фронтенда.
+
+## Архитектура
+
+Поток данных: `sources/*` (SourceAdapter, только ACTIVE: osm_overpass/network_import/user_reports) → `source_station_records` → `stations/ingest.py` строит/обновляет мастер-каталог → `normalization/*` нормализует топливо/бренды → `dedup/*` сравнивает и авто-сливает/ставит в REVIEW → наблюдения (`fuel_observations`/`queue_observations`, всегда новая строка, история не перезаписывается) → `confidence/aggregate.py` взвешенно голосует (trust×свежесть×репутация×GPS) → `station_current_status` → `ranking/score.py` считает Score (7 компонент) → `api/stations.py` отдаёт наружу → `frontend` рендерит карту/список.
+
+Сбор — только через `worker/` (P1–P4 по приоритету, интервалы/backoff из config); API никогда не дёргает источники синхронно (R83) — `POST /admin/sources/{id}/refresh` лишь создаёт `CollectionJob` через `schedule_priority_job`.
+
+MapProvider-абстракция: `lib/map/types.ts::MapProviderProps` — единый интерфейс; `maplibre-provider.tsx` (дефолт, OSM-тайлы, без ключей) и `yandex-provider.tsx` (включается только при непустом `NEXT_PUBLIC_YANDEX_MAPS_API_KEY`) — обе реализации подставляются в `lib/map/index.ts`, вызывающий код (`MapView.tsx`) не знает, какая активна.
+
+Auth: JWT в httpOnly-cookie (`backend/app/auth/service.py`), три способа входа — dev (без ключей), magic-link (активен только при `SMTP_URL`), Telegram (виджет, проверка подписи, активен при `TELEGRAM_BOT_TOKEN`/`NEXT_PUBLIC_TELEGRAM_BOT_USERNAME`) — без соответствующей переменной канал явно отвечает «не настроено», не падает и не притворяется рабочим. Favorites/monitoring-zones/alerts требуют профиль (401 без cookie).
+
+Admin: заголовок `X-Admin-Token` (`backend/app/api/deps.py::require_admin`, `secrets.compare_digest`), значение вводит человек на `/admin` и держится в `sessionStorage` (`frontend/lib/adminApi.ts`) — не переменная окружения фронтенда.
+
+Frontend не ходит в backend напрямую — `next.config.mjs` рёрайтит `/api/:path*` на `API_INTERNAL_URL` (дев: `http://127.0.0.1:8000`); в проде перед обоими стоит `deploy/Caddyfile`.
+
+## Соглашения кода
+
+- Справочники (топливо, бренды, статусы+переводы) — только из `GET /meta`, во frontend никогда не хардкодить список видов топлива/статусов (R98i).
+- Регион (город/радиус/координаты карты по умолчанию) — только из `.env`/`.env.local`, в коде backend и frontend имени региона нет (R04/R81).
+- UNKNOWN и UNAVAILABLE — разные статусы, ни один код их не конвертирует друг в друга (R15, есть тест-инвариант).
+- Наблюдение — всегда новая строка (`fuel_observations`/`queue_observations`), апдейт существующей строки истории запрещён (R17).
+- Секреты только в `.env`/`.env.local`, имена — в `.env.example`; при отсутствии секрета канал отвечает явным «не настроено», не имитирует работу и не падает 500.
+- Все чистые функции — конкретные модульные точки для юнит-тестов без сети/БД: `confidence.aggregate`, `normalization.normalize_fuel`, `dedup.compare_records`, `ranking.score`, `alerts.events.diff_event`.
+- Новый ключ i18n — сразу в оба словаря `frontend/lib/i18n.ts` (ru и en), не в один.
+- Новый провайдер карты — реализовать `MapProviderProps` целиком, не расширять интерфейс под частный случай одной реализации.
+
+## Окружение
+
+`.env.example` (backend, читается из корня `backend/` через `env_file=".env"`):
+- `DEBUG`, `DATABASE_URL` — SQLite (dev) / PostgreSQL+PostGIS (prod)
+- `DEFAULT_REGION_CITY`, `DEFAULT_REGION_RADIUS_KM` — регион (данные, не код)
+- `OVERPASS_ENDPOINT`, `NETWORK_IMPORT_PATH` — источники каталога
+- `DEDUP_AUTO_MERGE`, `DEDUP_NEEDS_REVIEW`, `DEDUP_WEIGHTS` — пороги/веса дедупликации
+- `CONFIDENCE_SHARE_STRONG`, `CONFIDENCE_SHARE_LIKELY`, `CONFIDENCE_MIN_WEIGHT`, `GPS_BOOST`, `GPS_PENALTY`, `QUEUE_SECONDS_PER_VEHICLE`, `AVG_SPEED_KMH`, `SCORE_WEIGHTS` — Confidence Engine и Score
+- `TELEGRAM_BOT_TOKEN`, `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `ADMIN_TOKEN`, `SMTP_URL` — секреты каналов/админки, пусто → канал «не настроено»
+- `JWT_SECRET` (пусто → эфемерный на процесс, только dev), `COOKIE_SECURE`, `CORS_ORIGINS`, `RATE_LIMIT_PER_MINUTE` (0 — выключить), `API_CACHE_TTL_SECONDS`
+- `SMTP_FROM`, `PUBLIC_APP_URL` — magic-link
+- `WORKER_TICK_SECONDS`, `WORKER_BACKOFF_MAX_MINUTES` — воркер
+- `NEXT_PUBLIC_YANDEX_MAPS_API_KEY` — дублируется здесь для docker-compose, реально читается frontend из своего `.env.local`
+
+`frontend/.env.example` (Next.js читает только отсюда, не из корня):
+- `API_INTERNAL_URL` — куда `next.config.mjs` рёрайтит `/api/*`
+- `NEXT_PUBLIC_YANDEX_MAPS_API_KEY` — пусто → Яндекс-провайдер не используется, к сервису не обращается
+- `NEXT_PUBLIC_MAP_PROVIDER` — явный выбор `yandex|maplibre`, переопределяет автоопределение по ключу
+- `NEXT_PUBLIC_DEFAULT_MAP_LAT`, `NEXT_PUBLIC_DEFAULT_MAP_LON` — начальный вьюпорт карты
+- `NEXT_PUBLIC_TELEGRAM_BOT_USERNAME` — публичное имя бота для виджета входа; сам токен на фронт не попадает
+
+## Тесты
+
+- Backend: `backend/tests/test_<module>.py`, один файл на модуль/API-поверхность (`test_api.py`, `test_dedup.py`, `test_worker.py`, `test_alerts.py`, `test_reports.py`, `test_analytics.py`, `test_confidence.py`, `test_confidence_freshness.py`, `test_ranking.py`, `test_normalization.py`, `test_fuel_status.py`, `test_sources.py`, `test_ingest.py`, `test_seed_cli.py`, `test_migrations.py`, `test_schema.py`, `test_health.py`). Гонять один файл: `pytest tests/test_dedup.py`; по имени теста: `pytest -k merge`. 139 passed.
+- Frontend: рядом с модулем как `*.test.ts(x)` (например `frontend/lib/geo.test.ts`, `frontend/components/station/ReportForm.test.tsx`). Один файл/маска: `npm test -- ReportForm`. 76 passed (24 файла).
+- Офлайн-фикстуры для `seed`: `backend/tests/fixtures/`.
+
+## Подводные камни
+
+- `backend/tests/conftest.py::db_session` — `scope="session"`, одна SQLite-БД на весь прогон backend-тестов; тест, оставляющий "висящую" запись (например PENDING `CollectionJob`), может задеть партиционный уникальный индекс `uq_collection_active` в другом файле теста — уже случалось между `test_api.py` и `test_ingest.py`, лечится доведением job до терминального статуса в тесте, который его создал.
+- Next.js читает `.env*` только из `frontend/`, не из корня репозитория — переменные `NEXT_PUBLIC_*` в корневом `.env.example` там только для докера/справки, реальный источник для `npm run dev` — `frontend/.env.local`.
+- `MapProviderProps` (`frontend/lib/map/types.ts`) — единственный контракт между `MapView.tsx` и обеими реализациями; добавление поля ломает вторую реализацию молча, если не обновить обе.
+- Переменная без `NEXT_PUBLIC_` префикса не попадает в браузерный бандл — секреты вроде `TELEGRAM_BOT_TOKEN` намеренно не имеют клиентского аналога, есть только `NEXT_PUBLIC_TELEGRAM_BOT_USERNAME`.
+- `dedup_weights`/`score_weights` в `core/config.py` — dict-поля pydantic-settings; переопределение через `.env` ожидает JSON-строку (см. комментарии в `.env.example`), не плоские ключи.
+- R25/R77 (сетевые предпочтения в правилах/сортировке) — сознательно нереализованы на backend (`/meta` не отдаёт числовой `id` бренда, `GET /stations` не принимает `preferred_brands`); фронтенд компенсирует клиентским реордером (`lib/personalization.ts`) — не пытаться "починить" через выдуманный параметр API, это документированный пробел, а не баг.
 
 ## Как здесь работает Autopilot
 

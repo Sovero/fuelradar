@@ -198,6 +198,9 @@ https://github.com/Sovero/fuelradar.git (ветка `main`). Коммиты — 
 - `/metrics` был пуст у api-процесса (счётчики писал только воркер) — `core/metrics.py` получил опциональный Redis-бэкенд (`REDIS_URL`), без него поведение прежнее.
 - R77/R25: `/meta` теперь отдаёт `id` сети, `GET /stations[/{id}]` принимают `preferred_brands=<id,...>` и персонализируют `Score.user_preferences`, `AlertRulesPanel` предлагает scope «Сеть» (`brand_id`). Побочно найдены и исправлены два реальных бага: `station_detail` дублировал расчёт Score и терял `score_breakdown` для станций без наблюдений (теперь `_station_brief` — единственное место расчёта); `init_db()` создавал таблицы только для уже импортированных моделей — `AlertStateSnapshot`/`AnalyticsSnapshot` регистрировались «повезло если», что ломало изолированный запуск одного тестового файла.
 Тесты: 142 passed (backend), 76 passed (frontend).
+
+Волна 8+ — второй проход по требованиям, снятым пользователем с роадмапа (таски 11–15):
+- T11: Route Mode (R22, `backend/app/route/` + `frontend/components/route/`) — `POST /api/v1/route/stations`: коридор по polyline ≥2 точек (0,5–50 км, стандартные фильтры), расстояние до ближайшего сегмента, 422 на русском; UI — панель RouteModePanel (клики по карте добавляют точки, честная пометка «коридор, без routing-провайдера»), линия — в обеих реализациях карты через `MapProviderProps.routePolyline`/`onMapClick`. Тесты: 149 passed (backend), 79 passed (frontend).
 <!-- autopilot:end -->
 
 <!-- IJFW-MEMORY-START -->

@@ -68,6 +68,13 @@
 
 ## Что уже построено
 
+### Таск 11 — Route Mode и коридор маршрута
+
+- **Что заработало:** Route Mode (R22) end-to-end. Backend `backend/app/route/`: `POST /api/v1/route/stations` — polyline ≥2 точек (объекты `{lat,lon}` или компактные пары `[[lat,lon]]`), corridor 0,5–50 км, стандартные топливные фильтры (city/brand/fuel/status/confidence_min/queue_max/preferred_brands) + пагинация; расстояние считается до ближайшего **сегмента** ломаной (локальная равноугольная проекция, не только до вершин); ответ — `StationBrief` + `distance_from_route_km`, сортировка по удалению от маршрута; неверные данные → 422 «Ошибка валидации» на русском, пустой результат валиден. Frontend: панель `components/route/RouteModePanel` (вкл/выкл, список/удаление точек, ширина коридора, «+5 км», честная пометка «коридор по выбранным точкам» — без routing-провайдера автомобильный маршрут не строится); клики по карте добавляют точки; линия маршрута рисуется в **обеих** реализациях карты через общий контракт (`MapProviderProps.routePolyline` + `onMapClick`; MapLibre — GeoJSON source/layer, Яндекс — `geoObjects.Polyline`); хук `lib/hooks/useRouteStations`; HomeScreen в режиме коридора подменяет список на результат (пустое состояние — отдельный текст).
+- **Модули:** `backend/app/route/` (schemas, service, router), `backend/app/main.py` (include_router), `backend/tests/test_route.py`; `frontend/components/route/`, `frontend/components/HomeScreen.tsx`, `frontend/lib/hooks/useRouteStations.ts`, `frontend/lib/map/{types,maplibre-provider,yandex-provider}.tsx`, `frontend/lib/i18n.ts` (route.* в ru и en).
+- **Тесты:** +6 backend (итого 149 passed / 0 failed), +3 frontend (итого 79 passed / 0 failed, 26 файлов); typecheck и ruff чисто.
+- **Отклонения:** нет. Замечания: коммит 4f0695c, кроме T11, принёс куски таска 12 (`deficit_by_region` R79, `current_outage_minutes` R49 в `analytics/service.py`) и модель `TelegramIntegration` — таск 12 остаётся в очереди и закрывается отдельно; `RouteButton`-заглушка заменён панелью без изменения публичных контрактов старых экранов.
+
 ### Из таска 01 — каркас (коммиты ede643d, 54e63b9)
 
 - `backend/app/main.py` — FastAPI: `/health`, `/ready`, `/metrics`; lifespan вызывает `init_db()`.

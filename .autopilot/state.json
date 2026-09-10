@@ -7,7 +7,7 @@
   "briefFile": "2026-09-07-brief.md",
   "memoryFile": "AGENTS.md",
   "startedAt": "2026-09-07T18:54:27+03:00",
-  "updatedAt": "2026-09-09T23:24:41+03:00",
+  "updatedAt": "2026-09-10T18:58:11+03:00",
   "finishedAt": null,
   "stages": [
     {
@@ -596,9 +596,13 @@
       "blockedBy": ["09"],
       "wave": 8,
       "zone": ["backend/app/route/", "backend/app/main.py", "frontend/components/route/", "frontend/components/HomeScreen.tsx", "frontend/lib/map/", "frontend/lib/i18n.ts"],
-      "status": "in-progress",
+      "status": "done",
       "startedAt": "2026-09-09T23:24:41+03:00",
-      "retries": 0
+      "finishedAt": "2026-09-10T18:58:11+03:00",
+      "retries": 0,
+      "files": ["backend/app/route/", "backend/app/main.py", "backend/tests/test_route.py", "frontend/components/route/", "frontend/components/HomeScreen.tsx", "frontend/lib/hooks/useRouteStations.ts", "frontend/lib/map/", "frontend/lib/i18n.ts"],
+      "tests": {"passed": 6, "failed": 0},
+      "concerns": ["Коммит 4f0695c принёс куски таска 12 (deficit_by_region, current_outage_minutes) — таск 12 закрывается отдельно по своим критериям"]
     },
     {
       "id": "12",

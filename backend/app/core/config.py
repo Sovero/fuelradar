@@ -113,6 +113,13 @@ class Settings(BaseSettings):
     public_app_url: str = "http://localhost:3000"
     api_cache_ttl_seconds: int = 30        # R82: кэш списка/карты (bbox/radius)
 
+    # --- прогноз/heatmap/BI (T12, §23) ---
+    forecast_horizon_minutes: int = 180    # R49 — «ближайшие 3 часа»
+    forecast_min_episodes: int = 2         # R49.2 — мин. эпизодов для вероятности/ETA (бриф: «пара эпизодов»)
+    forecast_min_streams: int = 1          # R49.2 — мин. потоков наблюдений (0 → всегда «мало данных»)
+    heat_high_min: float = 0.67            # R50 — доля доступных DEFINITIVE-статусов → высокий уровень
+    heat_low_min: float = 0.34             # R50 — ниже порога дефицита, между порогами — снижение
+
 
 @lru_cache
 def get_settings() -> Settings:

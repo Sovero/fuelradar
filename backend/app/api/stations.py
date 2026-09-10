@@ -16,6 +16,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from sqlalchemy import select, text
 from sqlalchemy.orm import Session
 
+from ..analytics.models import AnalyticsSnapshot
 from ..core.config import settings
 from ..db.models import (
     FuelObservation,
@@ -492,3 +493,24 @@ def queue_history(station_id: str, limit: int = Query(100, ge=1, le=500), sessio
         raise HTTPException(status_code=404, detail="Станция не найдена")
     rows = session.execute(select(QueueObservation, SourceProvider.name).join(SourceProvider, QueueObservation.source_provider_id == SourceProvider.id).where(QueueObservation.station_id == station_id).order_by(QueueObservation.observed_at.desc()).limit(limit))
     return [{"level": row.queue_level, "vehicles": row.queue_vehicles, "source": source, "observed_at": row.observed_at} for row, source in rows]
+
+
+@router.get("/stations/{station_id}/forecast")
+def station_forecast(
+    station_id: str,
+    session: Session = Depends(get_db),
+) -> dict:
+    """Прогноз появления/исчезновения топлива (R49, §23): только снэпшот.
+
+    Прозрачная эвристика по истории (не ML, R49.1); при малой истории —
+    probability/ETA = null и русская причина (R49.2). is_forecast=true — всегда.
+    """
+    station = session.get(Station, station_id)
+    if station is None or not station.is_active:
+        raise HTTPException(status_code=404, detail="Станция не найдена")
+    snapshot = session.get(AnalyticsSnapshot, 1)
+    if snapshot is None:
+        raise HTTPException(status_code=503, detail="Аналитика ещё не посчитана — фоновый пересчёт не запускался")
+    from ..analytics.forecast import forecast_for_station
+
+    return forecast_for_station(snapshot.payload, station_id)

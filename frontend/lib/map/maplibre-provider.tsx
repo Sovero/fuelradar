@@ -22,6 +22,7 @@ import type { MapProviderProps, StationMarker } from "@/lib/map/types";
 
 const SOURCE_ID = "fr-stations";
 const ROUTE_SOURCE_ID = "fr-route";
+const HEAT_SOURCE_ID = "fr-heat";
 
 function toFeatureCollection(markers: StationMarker[]): GeoJSON.FeatureCollection {
   return {
@@ -63,6 +64,7 @@ export function MapLibreProvider({
   userLocation,
   routePolyline = [],
   onMapClick,
+  heatCircles = [],
   className,
 }: MapProviderProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -103,6 +105,21 @@ export function MapLibreProvider({
           "line-color": "#2563eb",
           "line-width": 4,
           "line-opacity": 0.9,
+        },
+      });
+      map.addSource(HEAT_SOURCE_ID, {
+        type: "geojson",
+        data: { type: "FeatureCollection", features: [] },
+      });
+      map.addLayer({
+        id: "heat-circles",
+        type: "circle",
+        source: HEAT_SOURCE_ID,
+        paint: {
+          "circle-radius": 24,
+          "circle-color": ["get", "color"],
+          "circle-opacity": 0.3,
+          "circle-blur": 0.6,
         },
       });
       map.addSource(SOURCE_ID, {
@@ -277,6 +294,25 @@ export function MapLibreProvider({
     if (map.isStyleLoaded() && map.getSource(ROUTE_SOURCE_ID)) apply();
     else map.once("load", apply);
   }, [routePolyline]);
+
+  // Обновление кругов heatmap (R50) — слой под маркерами, обновляется по фильтрам.
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+    const apply = () => {
+      const source = map.getSource(HEAT_SOURCE_ID) as GeoJSONSource | undefined;
+      source?.setData({
+        type: "FeatureCollection",
+        features: heatCircles.map((circle) => ({
+          type: "Feature",
+          properties: { color: circle.color, stationId: circle.stationId },
+          geometry: { type: "Point", coordinates: [circle.lon, circle.lat] },
+        })),
+      });
+    };
+    if (map.isStyleLoaded() && map.getSource(HEAT_SOURCE_ID)) apply();
+    else map.once("load", apply);
+  }, [heatCircles]);
 
   // Программный перелёт (например, геолокация «Найти рядом»), НЕ на каждое обновление маркеров.
   useEffect(() => {

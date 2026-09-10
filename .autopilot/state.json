@@ -7,7 +7,7 @@
   "briefFile": "2026-09-07-brief.md",
   "memoryFile": "AGENTS.md",
   "startedAt": "2026-09-07T18:54:27+03:00",
-  "updatedAt": "2026-09-10T18:58:11+03:00",
+  "updatedAt": "2026-09-10T20:26:45+03:00",
   "finishedAt": null,
   "stages": [
     {
@@ -45,7 +45,7 @@
       "id": "build",
       "status": "active",
       "startedAt": "2026-09-09T23:23:23+03:00",
-      "note": "10 из 15 тасков готово"
+      "note": "12 из 15 тасков готово"
     },
     {
       "id": "review",
@@ -611,8 +611,13 @@
       "blockedBy": ["08", "09", "11"],
       "wave": 9,
       "zone": ["backend/app/analytics/", "backend/tests/test_analytics.py", "frontend/components/admin/", "frontend/components/map/", "frontend/components/HomeScreen.tsx", "frontend/lib/map/", "frontend/lib/types.ts", "frontend/lib/i18n.ts"],
-      "status": "pending",
-      "retries": 0
+      "status": "done",
+      "startedAt": "2026-09-10T20:26:45+03:00",
+      "finishedAt": "2026-09-10T20:26:45+03:00",
+      "retries": 0,
+      "files": ["backend/app/analytics/forecast.py", "backend/app/analytics/heat.py", "backend/app/analytics/service.py", "backend/app/api/stations.py", "backend/tests/test_forecast.py", "frontend/lib/heatmap.ts", "frontend/lib/hooks/useHeat.ts", "frontend/lib/map/types.ts", "frontend/components/map/MapView.tsx", "frontend/components/map/Legend.tsx", "frontend/components/HomeScreen.tsx", "frontend/components/admin/AdminDeficitByRegion.tsx", "frontend/lib/i18n.ts"],
+      "tests": {"passed": 13, "failed": 0},
+      "concerns": ["Куски этого таска из коммита 4f0695c закрыты здесь по своим критериям", "На demo-каталоге прогнозы будут «мало данных» — ожидаемо по брифу §61"]
     },
     {
       "id": "13",
@@ -645,11 +650,7 @@
       "retries": 0
     }
   ],
-  "singlePass": null,
-  "tests": {
-    "passed": 143,
-    "failed": 0
-  },
+  "singlePass": null,"tests": { "passed": 156, "failed": 0 },
   "debt": {
     "placeholders": [],
     "assumptions": [

@@ -29,6 +29,14 @@ export interface MapPoint {
   lon: number;
 }
 
+/** R50: круг heatmap — цвет решает уровень доступности (см. lib/heatmap.ts). */
+export interface MapHeatCircle {
+  lat: number;
+  lon: number;
+  color: string;
+  stationId: string;
+}
+
 export interface MapProviderProps {
   markers: StationMarker[];
   initialViewport: MapViewport;
@@ -42,6 +50,8 @@ export interface MapProviderProps {
   routePolyline?: MapPoint[];
   /** Клик по фону карты; Route Mode использует его для добавления точки. */
   onMapClick?: (point: MapPoint) => void;
+  /** R50: круги heatmap. Включаются отдельно от маркеров (isHeatmapOn). */
+  heatCircles?: MapHeatCircle[];
   /** Вызывается когда пользователь подвинул карту (для «показать в этой области» и т.п.) */
   onViewportChange?: (viewport: MapViewport & { bounds: [number, number, number, number] }) => void;
   className?: string;

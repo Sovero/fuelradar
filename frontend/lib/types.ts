@@ -371,3 +371,66 @@ export interface StationListQuery {
   /** R77: ID сетей из /meta через запятую — персональный буст user_preferences в Score. */
   preferred_brands?: string;
 }
+
+/** R50: одна ячейка heatmap из /heat/cells (только снэпшот аналитики). */
+export interface HeatCell {
+  station_id: string;
+  lat: number;
+  lon: number;
+  known: number;
+  availability: number | null;
+}
+
+export interface HeatLevel {
+  level: "high" | "medium" | "low";
+  min_availability: number;
+}
+
+export interface HeatResponse {
+  computed_at: string;
+  stale: boolean;
+  levels: HeatLevel[];
+  cells: HeatCell[];
+}
+
+/** R49: прогноз появления/исчезновения топлива (прозрачная эвристика, не ML). */
+export interface StationForecast {
+  is_forecast: true;
+  method: string;
+  horizon_minutes: number;
+  direction: "appearing" | "disappearing" | null;
+  probability: number | null;
+  eta_minutes: number | null;
+  completed_episodes: number;
+  current_outage_minutes: number | null;
+  sufficiency: "ok" | "insufficient" | "no_data";
+  reason: string | null;
+  sample: {
+    streams: number;
+    episodes: number;
+    completed: number;
+    censored: number;
+    window_minutes: number | null;
+    mean_absence_minutes: number | null;
+  };
+}
+
+/** R79: районы дефицита — группировка TTL-censored агрегатов по городу/региону. */
+export interface DeficitByRegionOut {
+  computed_at: string;
+  stale: boolean;
+  dimension: "city" | "region";
+  basis: string;
+  note: string;
+  items: Array<{
+    city?: string;
+    region?: string;
+    fuel: string;
+    stations_observed: number;
+    observed_source_streams: number;
+    unavailable_transitions: number;
+    completed_outages: number;
+    censored_outages: number;
+    mean_absence_minutes: number | null;
+  }>;
+}

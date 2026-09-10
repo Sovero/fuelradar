@@ -119,8 +119,11 @@ def refresh_analytics(db: Session, *, now: datetime | None = None) -> dict[str, 
     for (station_id, fuel_id, source_id), observations in streams.items():
         statistics = deficit_statistics(observations, now=now)
         statistics["total_absence_minutes"] = sum(statistics.pop("duration_minutes"))
+        # Границы окна потока — для прогноза R49 (окно наблюдений), не для R47-агрегатов.
         stations[station_id]["deficits"].append({
             "fuel": fuels[fuel_id], "source_id": source_id,
+            "first_observed_at": min(row["observed_at"] for row in observations).isoformat(),
+            "last_observed_at": max(row["observed_at"] for row in observations).isoformat(),
             **statistics,
         })
     providers = {row.id: {"code": row.code, "name": row.name}
@@ -174,6 +177,37 @@ def _deficit_group_totals(rows: list[dict[str, Any]]) -> dict[str, Any]:
         "mean_absence_minutes": average,
         "mean_recovery_minutes": average,
     }
+
+
+def heat_cells(
+    payload: dict[str, Any], *, fuels: list[str] | None = None,
+    city: str | None = None, region: str | None = None,
+    bbox: tuple[float, float, float, float] | None = None,
+) -> list[dict[str, Any]]:
+    """R50: компактные точки heatmap из текущего снэпшота (не сканируем историю).
+
+    Доступность ячейки = доля доступных (AVAILABLE/LOW_STOCK) среди определённых
+    (definitive) статусов выбранных топлив; неоднозначные (LIKELY/UNCERTAIN) и
+    UNKNOWN не голосуют ни в числителе, ни в знаменателе. Нет определённых
+    статусов → ячейка без уровня (null) — фронтенд её не рисует, «нет данных»
+    остаётся честным отсутствием, а не серым «покрашенным».
+    """
+    cells: list[dict[str, Any]] = []
+    for station in _filter_stations(payload, city=city, region=region, bbox=bbox):
+        statuses = [
+            status for fuel, status in station["fuels"].items()
+            if fuels is None or fuel in fuels
+        ]
+        present = sum(status in PRESENT for status in statuses)
+        definitive = sum(status in DEFINITIVE for status in statuses)
+        cells.append({
+            "station_id": station["id"],
+            "lat": station["latitude"],
+            "lon": station["longitude"],
+            "known": definitive,
+            "availability": round(present / definitive, 3) if definitive else None,
+        })
+    return cells
 
 
 def deficit_by_region(

@@ -10,7 +10,7 @@ from ..api.deps import require_admin
 from ..core.config import settings
 from ..db.session import get_db
 from .models import AnalyticsSnapshot
-from .service import summarize
+from .service import deficit_by_region, summarize
 
 router = APIRouter(prefix="/admin", tags=["analytics"], dependencies=[Depends(require_admin)])
 
@@ -39,6 +39,7 @@ def cached_analytics(
     return {
         "computed_at": snapshot.computed_at.isoformat() + "Z",
         "stale": age > settings.collect_default_minutes * 60,
+        "_payload": snapshot.payload,
         **summarize(snapshot.payload, city=city, region=region, bbox=bounds),
     }
 
@@ -65,3 +66,17 @@ def fuel_index(data: dict[str, Any] = Depends(cached_analytics)) -> dict[str, An
 def deficit_stats(data: dict[str, Any] = Depends(cached_analytics)) -> dict[str, Any]:
     """Return source-reported fuel outage aggregates by network."""
     return {"computed_at": data["computed_at"], "stale": data["stale"], **data["deficit_stats"]}
+
+
+@router.get("/deficit-by-region")
+def deficit_by_region_view(
+    dimension: str = Query(default="city", pattern="^(city|region)$"),
+    data: dict[str, Any] = Depends(cached_analytics),
+) -> dict[str, Any]:
+    """R79: районы дефицита — те же TTL-censored агрегаты по city/region.
+
+    Размер выборки (`stations_observed`/`observed_source_streams`) и честное
+    предупреждение о пилотном объёме данных — часть ответа (R79.1).
+    """
+    result = deficit_by_region(data["_payload"], dimension=dimension)
+    return {"computed_at": data["computed_at"], "stale": data["stale"], **result}

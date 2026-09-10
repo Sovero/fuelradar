@@ -7,6 +7,7 @@ import { useAuth } from "@/lib/hooks/useAuth";
 import { useI18n } from "@/lib/hooks/useI18n";
 import { useStations } from "@/lib/hooks/useStations";
 import { useRouteStations } from "@/lib/hooks/useRouteStations";
+import { useHeat } from "@/lib/hooks/useHeat";
 import { useFavorites } from "@/lib/hooks/useFavorites";
 import { useObservationMode } from "@/lib/hooks/useObservationMode";
 import { useNetworkPreferences } from "@/lib/hooks/useNetworkPreferences";
@@ -26,7 +27,8 @@ import { FavoritesPanel } from "@/components/favorites/FavoritesPanel";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { OnboardingTour } from "@/components/onboarding/OnboardingTour";
 import { RouteModePanel } from "@/components/route/RouteModePanel";
-import type { MapPoint } from "@/lib/map/types";
+import { HEAT_COLORS, heatLevelFor } from "@/lib/heatmap";
+import type { MapHeatCircle, MapPoint } from "@/lib/map/types";
 import type { StationListQuery } from "@/lib/types";
 
 export function HomeScreen() {
@@ -49,6 +51,22 @@ function HomeScreenBody() {
   const [routeActive, setRouteActive] = useState(false);
   const [routePoints, setRoutePoints] = useState<MapPoint[]>([]);
   const [routeCorridorKm, setRouteCorridorKm] = useState(5);
+  const [isHeatmapOn, setIsHeatmapOn] = useState(false);
+
+  // R50: heatmap включается отдельно и читает только снэпшот аналитики;
+  // сбой/пустой кэш не ломает карту — основной список продолжает жить.
+  const heatFuels = filters.fuels.length ? filters.fuels : undefined;
+  const { data: heatData, error: heatError } = useHeat(isHeatmapOn, heatFuels);
+  const heatCircles: MapHeatCircle[] = useMemo(() => {
+    if (!isHeatmapOn || !heatData) return [];
+    const levels = heatData.levels;
+    return heatData.cells
+      .map((cell) => {
+        const level = heatLevelFor(cell.availability, levels);
+        return level ? { lat: cell.lat, lon: cell.lon, color: HEAT_COLORS[level], stationId: cell.station_id } : null;
+      })
+      .filter((circle): circle is MapHeatCircle => circle !== null);
+  }, [isHeatmapOn, heatData]);
 
   const { preferredBrandIds } = useNetworkPreferences();
   const preferredBrandsParam = preferredBrandIds.length ? [...preferredBrandIds].sort((a, b) => a - b).join(",") : undefined;
@@ -189,15 +207,38 @@ function HomeScreenBody() {
         ) : (
           <>
             {filters.tab === "map" && (
-              <MapView
-                stations={personalized}
-                selectedFuelCodes={filters.fuels}
-                selectedStationId={filters.station}
-                onSelectStation={(id) => setFilters({ station: id })}
-                focus={focus}
-                routePolyline={routeActive ? routePoints : undefined}
-                onMapClick={routeActive ? (point) => setRoutePoints((current) => [...current, point].slice(0, 100)) : undefined}
-              />
+              <>
+                <MapView
+                  stations={personalized}
+                  selectedFuelCodes={filters.fuels}
+                  selectedStationId={filters.station}
+                  onSelectStation={(id) => setFilters({ station: id })}
+                  focus={focus}
+                  routePolyline={routeActive ? routePoints : undefined}
+                  onMapClick={routeActive ? (point) => setRoutePoints((current) => [...current, point].slice(0, 100)) : undefined}
+                  heatCircles={heatCircles.length ? heatCircles : undefined}
+                />
+                <div className="absolute right-2 top-2 z-20 flex flex-col items-end gap-2">
+                  <label
+                    className="flex cursor-pointer items-center gap-2 rounded-lg bg-white/95 px-3 py-1.5 text-xs font-medium text-gray-700 shadow dark:bg-gray-900/95 dark:text-gray-200"
+                    title={isHeatmapOn ? t("heat.on") : t("heat.off")}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={isHeatmapOn}
+                      onChange={(event) => setIsHeatmapOn(event.target.checked)}
+                      aria-label={t("heat.toggle")}
+                      className="h-4 w-4 accent-emerald-600"
+                    />
+                    {t("heat.toggle")}
+                  </label>
+                  {isHeatmapOn && heatError && (
+                    <p className="max-w-[260px] rounded-lg bg-amber-50/95 px-3 py-1.5 text-xs text-amber-800 shadow dark:bg-amber-950/95 dark:text-amber-200">
+                      {t(heatError === "unavailable" ? "heat.unavailable" : "heat.error")}
+                    </p>
+                  )}
+                </div>
+              </>
             )}
             {filters.tab === "list" && <StationList stations={personalized} onSelect={(id) => setFilters({ station: id })} />}
             {filters.tab === "favorites" && <FavoritesPanel onSelect={(id) => setFilters({ station: id })} />}

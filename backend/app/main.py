@@ -17,6 +17,7 @@ from fastapi.responses import JSONResponse
 from sqlalchemy import text
 
 from .alerts.router import router as alerts_router
+from .analytics.heat import router as heat_router
 from .analytics.router import router as analytics_router
 from .api import api_router
 from .api.deps import rate_limit
@@ -58,6 +59,7 @@ async def validation_error(request: Request, exc: RequestValidationError):
 
 app.include_router(api_router)
 app.include_router(analytics_router, prefix="/api/v1", dependencies=[Depends(rate_limit)])
+app.include_router(heat_router, prefix="/api/v1", dependencies=[Depends(rate_limit)])
 app.include_router(alerts_router, prefix="/api/v1", dependencies=[Depends(rate_limit)])
 app.include_router(reports_router, prefix="/api/v1", dependencies=[Depends(rate_limit)])
 app.include_router(route_router, prefix="/api/v1", dependencies=[Depends(rate_limit)])

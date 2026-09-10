@@ -48,3 +48,39 @@ describe("MapView Route Mode contract (R22)", () => {
     expect(onMapClick).toHaveBeenCalledWith({ lat: 45.1, lon: 39.1 });
   });
 });
+
+describe("MapView heatmap contract (R50)", () => {
+  it("передаёт круги heatmap через общий MapProviderProps без изменений", () => {
+    const heatCircles = [
+      { lat: 45.01, lon: 39.01, color: "#16a34a", stationId: "fr_a" },
+      { lat: 45.02, lon: 39.02, color: "#dc2626", stationId: "fr_b" },
+    ];
+
+    render(
+      <MapView
+        stations={[]}
+        selectedFuelCodes={[]}
+        selectedStationId={null}
+        onSelectStation={vi.fn()}
+        focus={null}
+        heatCircles={heatCircles}
+      />,
+    );
+
+    expect(received.at(-1)?.heatCircles).toEqual(heatCircles);
+  });
+
+  it("без heatmap поле не передаётся — маркеры работают как раньше", () => {
+    render(
+      <MapView
+        stations={[]}
+        selectedFuelCodes={[]}
+        selectedStationId={null}
+        onSelectStation={vi.fn()}
+        focus={null}
+      />,
+    );
+
+    expect(received.at(-1)?.heatCircles).toBeUndefined();
+  });
+});

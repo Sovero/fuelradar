@@ -201,6 +201,7 @@ https://github.com/Sovero/fuelradar.git (ветка `main`). Коммиты — 
 
 Волна 8+ — второй проход по требованиям, снятым пользователем с роадмапа (таски 11–15):
 - T11: Route Mode (R22, `backend/app/route/` + `frontend/components/route/`) — `POST /api/v1/route/stations`: коридор по polyline ≥2 точек (0,5–50 км, стандартные фильтры), расстояние до ближайшего сегмента, 422 на русском; UI — панель RouteModePanel (клики по карте добавляют точки, честная пометка «коридор, без routing-провайдера»), линия — в обеих реализациях карты через `MapProviderProps.routePolyline`/`onMapClick`. Тесты: 149 passed (backend), 79 passed (frontend).
+- T12: Прогноз/heatmap/районы дефицита (R49/R50/R79, `backend/app/analytics/forecast.py|heat.py`, `frontend/lib/heatmap.ts`) — прогноз-эвристика (не ML) только из снэпшота аналитики: «появление» по доле завершённых эпизодов + ETA, «исчезновение» по Пуассону, мало данных → null + русская причина, `is_forecast=true`; heatmap — круги `MapProviderProps.heatCircles` в обеих картах, неоднозначные статусы не голосуют (ячейки нет), легенда с текстом; BI — `GET /admin/deficit-by-region` с размером выборки и предупреждением о пилотных данных (вкладка админки). Тесты: 156 passed (backend), 85 passed (frontend).
 <!-- autopilot:end -->
 
 <!-- IJFW-MEMORY-START -->

@@ -49,6 +49,7 @@ export function YandexMapProvider({
   userLocation,
   routePolyline = [],
   onMapClick,
+  heatCircles = [],
   className,
 }: MapProviderProps) {
   const apiKey = process.env.NEXT_PUBLIC_YANDEX_MAPS_API_KEY;
@@ -57,6 +58,7 @@ export function YandexMapProvider({
   const clustererRef = useRef<InstanceType<YMapsNamespace["Clusterer"]> | null>(null);
   const userPlacemarkRef = useRef<InstanceType<YMapsNamespace["Placemark"]> | null>(null);
   const routePolylineRef = useRef<InstanceType<YMapsNamespace["Polyline"]> | null>(null);
+  const heatCollectionRef = useRef<InstanceType<YMapsNamespace["GeoObjectCollection"]> | null>(null);
   const ymapsRef = useRef<YMapsNamespace | null>(null);
   const onMarkerClickRef = useRef(onMarkerClick);
   const onViewportChangeRef = useRef(onViewportChange);
@@ -166,6 +168,34 @@ export function YandexMapProvider({
     clusterer.removeAll();
     clusterer.add(placemarks);
   }, [markers, iconCache]);
+
+  // Круги heatmap (R50) — отдельная коллекция geoObjects, обновляется по фильтрам.
+  useEffect(() => {
+    const ymaps = ymapsRef.current;
+    const map = mapRef.current;
+    if (!ymaps || !map) return;
+    if (heatCollectionRef.current) {
+      map.geoObjects.remove(heatCollectionRef.current);
+      heatCollectionRef.current = null;
+    }
+    if (!heatCircles.length) return;
+    const collection = new ymaps.GeoObjectCollection();
+    for (const circle of heatCircles) {
+      collection.add(new ymaps.Circle(
+        [[circle.lat, circle.lon], 500],
+        { hintContent: circle.stationId },
+        {
+          fillColor: circle.color,
+          fillOpacity: 0.3,
+          strokeColor: circle.color,
+          strokeOpacity: 0.6,
+          strokeWidth: 1,
+        },
+      ));
+    }
+    map.geoObjects.add(collection);
+    heatCollectionRef.current = collection;
+  }, [heatCircles, state]);
 
   useEffect(() => {
     const ymaps = ymapsRef.current;

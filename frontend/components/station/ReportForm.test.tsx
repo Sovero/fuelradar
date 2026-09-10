@@ -80,6 +80,36 @@ describe("ReportForm (R39)", () => {
     expect(body.idempotency_key).toMatch(/^report:fr_station_1:\d+$/);
   });
 
+  it("принимает цену выбранного топлива и отправляет её вместе со статусом (R78.2)", async () => {
+    const fetchMock = renderForm(() =>
+      Promise.resolve(
+        jsonResponse(201, { id: 2, station_id: "fr_station_1", gps_confirmed: false, distance_to_station_m: null, created: true, created_at: "now" }),
+      ),
+    );
+    const user = userEvent.setup();
+    await waitFor(() => expect(screen.getByText("АИ-95")).toBeInTheDocument());
+    await user.click(screen.getByText("Есть"));
+    await user.type(screen.getByLabelText(/Цена, ₽\/л.*АИ-95/), "62,40");
+    await user.click(screen.getByText("Отправить"));
+
+    await waitFor(() => expect(screen.getByText(/Спасибо/)).toBeInTheDocument());
+    const reportCall = fetchMock.mock.calls.find(([url]) => String(url).includes("/reports"));
+    const body = JSON.parse((reportCall![1] as RequestInit).body as string);
+    expect(body.prices).toEqual({ AI_95: 62.4 });
+  });
+
+  it("не отправляет нулевую цену и показывает понятную ошибку (R78.4)", async () => {
+    const fetchMock = renderForm(() => Promise.resolve(jsonResponse(201, {})));
+    const user = userEvent.setup();
+    await waitFor(() => expect(screen.getByText("АИ-95")).toBeInTheDocument());
+    await user.click(screen.getByText("Есть"));
+    await user.type(screen.getByLabelText(/Цена, ₽\/л.*АИ-95/), "0");
+    await user.click(screen.getByText("Отправить"));
+
+    expect(await screen.findByText("Цена должна быть числом больше нуля")).toBeInTheDocument();
+    expect(fetchMock.mock.calls.filter(([url]) => String(url).includes("/reports"))).toHaveLength(0);
+  });
+
   it("сеть недоступна — отчёт уходит в офлайн-очередь, а не теряется (R39.2)", async () => {
     renderForm(() => Promise.reject(new TypeError("Failed to fetch")));
     const user = userEvent.setup();

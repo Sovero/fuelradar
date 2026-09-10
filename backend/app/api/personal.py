@@ -10,7 +10,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from ..core.config import settings
-from ..db.models import AlertRule, Favorite, FuelType, MonitoringZone, Station, User
+from ..db.models import AlertRule, Favorite, FuelType, MonitoringZone, SourceProvider, Station, User
 from ..db.session import get_db
 from .deps import require_user
 from .schemas import AlertRuleBody, AlertRuleOut, ZoneBody, ZoneOut
@@ -37,6 +37,7 @@ def list_favorites(session: Session = Depends(get_db), user: User = Depends(requ
     if not rows:
         return []
     stations, brands, statuses = _snapshot(session)
+    providers = {provider.id: provider.name for provider in session.scalars(select(SourceProvider))}
     result = []
     for station in rows:
         brand = brands.get(station.brand_id) if station.brand_id else None
@@ -44,7 +45,18 @@ def list_favorites(session: Session = Depends(get_db), user: User = Depends(requ
         from .schemas import FuelStatusBrief, QueueBrief
 
         briefs = [
-            FuelStatusBrief(fuel_code=code, status=r.status, confidence=r.confidence, updated_at=r.updated_at, expires_at=r.expires_at)
+            FuelStatusBrief(
+                fuel_code=code,
+                status=r.status,
+                confidence=r.confidence,
+                updated_at=r.updated_at,
+                expires_at=r.expires_at,
+                price=r.price,
+                price_currency=r.price_currency,
+                price_updated_at=r.price_updated_at,
+                price_source_provider_id=r.price_source_provider_id,
+                price_source=providers.get(r.price_source_provider_id) if r.price_source_provider_id else None,
+            )
             for r, code in rows_s
         ]
         top = max(rows_s, key=lambda r: r[0].confidence, default=None)

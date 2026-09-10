@@ -70,6 +70,7 @@ def submit_report(session: Session, user_id: int, body: ReportBody) -> tuple[Use
         fuel_type = session.scalar(select(FuelType).where(FuelType.code == fuel_code))
         if fuel_type is None:
             continue  # неизвестный код мягко игнорируется — нормализация не наша зона (T03)
+        price = body.prices.get(fuel_code)  # R78: цена идёт в ту же append-only observation
         statuses.record_fuel_observation(
             station_id=body.station_id,
             fuel_code=fuel_code,
@@ -77,6 +78,7 @@ def submit_report(session: Session, user_id: int, body: ReportBody) -> tuple[Use
             source_provider_id=provider_id,
             observed_at=observed_at,
             user_reliability=user_reliability,
+            price=price,
             idempotency_key=f"{body.idempotency_key}:{fuel_code}",
             report_id=report.id,
         )

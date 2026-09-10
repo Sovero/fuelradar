@@ -4,7 +4,7 @@
 **Blocked by:** 04, 05, 07, 09, 11, 12
 **Зона:** `backend/app/db/`, `backend/app/confidence/`, `backend/app/reports/`, `backend/app/api/stations.py`, `backend/app/api/schemas.py`, `backend/tests/`, `frontend/components/station/`, `frontend/lib/types.ts`, `frontend/lib/i18n.ts`
 **Волна:** 10
-**Status:** ready
+**Status:** done
 
 ## Что должно заработать
 
@@ -23,10 +23,10 @@
 
 ## Критерии приёмки
 
-- [ ] Текущий агрегат хранит nullable price + время/источник, миграция идемпотентна
-- [ ] `POST /reports` принимает валидные цены по топливу и пишет append-only observations
-- [ ] Список/деталь станции возвращают price metadata обратно совместимо
-- [ ] `fuel` + `price_max` фильтруют станции; без fuel параметр отвергается, без цены станция не считается дешёвой
-- [ ] NaN/≤0/неразумная цена → 422; идемпотентный повтор не дублирует наблюдение
-- [ ] Форма и карточка доступны с клавиатуры, имеют RU/EN тексты и состояния «нет данных»
-- [ ] Backend migration/API/report и frontend component tests проходят
+- [x] Текущий агрегат хранит nullable price + время/источник, миграция идемпотентна
+- [x] `POST /reports` принимает валидные цены по топливу и пишет append-only observations
+- [x] Список/деталь станции возвращают price metadata обратно совместимо
+- [x] `fuel` + `price_max` фильтруют станции; без fuel параметр отвергается, без цены станция не считается дешёвой
+- [x] NaN/≤0/неразумная цена → 422; идемпотентный повтор не дублирует наблюдение
+- [x] Форма и карточка доступны с клавиатуры, имеют RU/EN тексты и состояния «нет данных»
+- [x] Backend migration/API/report и frontend component tests проходят

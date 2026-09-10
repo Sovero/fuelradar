@@ -16,6 +16,18 @@ export function formatConfidence(pct: number | null | undefined): string {
   return `${Math.round(pct)}%`;
 }
 
+/** R78: цена с валютой; отсутствие данных — «нет данных», никогда не 0 (R78.3). */
+export function formatPrice(
+  price: number | null | undefined,
+  currency: string | null | undefined = "RUB",
+  labels: { noData: string } = { noData: "нет данных" },
+): string {
+  if (price === null || price === undefined) return labels.noData;
+  const value = price.toFixed(2);
+  if (currency === "RUB") return `${value} ₽`;
+  return `${value} ${currency ?? ""}`.trim();
+}
+
 export function formatAgeMinutes(minutes: number): string {
   if (minutes < 1) return "только что";
   if (minutes < 60) return `${minutes} мин назад`;

@@ -93,7 +93,13 @@ def _validate_geo(lat: float | None, lon: float | None, radius_km: float | None,
     return box
 
 
-def _validate_filters(fuel: str | None, status: str | None, confidence_min: int | None, queue_max: str | None):
+def _validate_filters(
+    fuel: str | None,
+    status: str | None,
+    confidence_min: int | None,
+    queue_max: str | None,
+    price_max: float | None = None,
+):
     fuel_code = None
     if fuel:
         fuel_code = normalize_fuel(fuel).base_code
@@ -106,6 +112,12 @@ def _validate_filters(fuel: str | None, status: str | None, confidence_min: int 
         _fail("confidence_min должен быть от 0 до 100")
     if queue_max is not None and queue_max not in QUEUE_LEVELS:
         _fail(f"queue_max должен быть одним из {', '.join(QUEUE_LEVELS)}")
+    if price_max is not None:
+        # R78.1: «дешевле X» — валидируется (>0), применяется только с топливом.
+        if not math.isfinite(price_max) or price_max <= 0:
+            _fail("price_max должен быть положительным числом")
+        if fuel is None:
+            _fail("фильтр price_max требует указания вида топлива (fuel) — цена сравнивается по конкретному виду")
     return fuel_code
 
 
@@ -210,17 +222,19 @@ def _list_stations(
     status: str | None,
     confidence_min: int | None,
     queue_max: str | None,
+    price_max: float | None = None,  # R78.1 — «дешевле X», только вместе с fuel
     sort: str | None,
     limit: int,
     offset: int,
     preferred_brands: tuple[int, ...] = (),
 ) -> list[StationBrief]:
     _validate_geo(lat, lon, radius_km, bbox)
-    fuel_code = _validate_filters(fuel, status, confidence_min, queue_max)
+    fuel_code = _validate_filters(fuel, status, confidence_min, queue_max, price_max)
     if sort is not None and sort not in SORTS:
         _fail(f"sort должен быть одним из {', '.join(SORTS)}")
 
     stations, brands, statuses = _snapshot(session, lat=lat, lon=lon, radius_km=radius_km, bbox=bbox)
+    providers = {provider.id: provider.name for provider in session.scalars(select(SourceProvider))}
     brand_canon = normalize_brand(brand) if brand else None
     box = _validate_geo(None, None, None, bbox) if bbox else None
 
@@ -240,6 +254,11 @@ def _list_stations(
                 confidence=row.confidence,
                 updated_at=row.updated_at,
                 expires_at=row.expires_at,
+                price=row.price,
+                price_currency=row.price_currency,
+                price_updated_at=row.price_updated_at,
+                price_source_provider_id=row.price_source_provider_id,
+                price_source=providers.get(row.price_source_provider_id) if row.price_source_provider_id else None,
             )
             for row, code in rows
         ]
@@ -247,6 +266,10 @@ def _list_stations(
             briefs = [b for b in briefs if b.fuel_code == fuel_code]
         if status is not None and not any(b.status == status for b in briefs):
             continue
+        if price_max is not None:
+            # R78.1: станция без цены на выбранное топливо — не «дешёвая», она исключается.
+            if not any(b.fuel_code == fuel_code and b.price is not None and b.price <= price_max for b in briefs):
+                continue
         if confidence_min is not None:
             confs = [b.confidence for b in briefs if (fuel_code is None or b.fuel_code == fuel_code)]
             if not confs or max(confs, default=0) < confidence_min:
@@ -320,6 +343,7 @@ def nearby(
     status: str | None = None,
     confidence_min: int | None = None,
     queue_max: str | None = None,
+    price_max: float | None = None,
     sort: str | None = None,
     limit: int = Query(50, ge=1, le=100),
     offset: int = Query(0, ge=0),
@@ -337,7 +361,7 @@ def nearby(
         request, response, session,
         lat=lat, lon=lon, radius_km=selected_radius, bbox=bbox,
         city=city, brand=brand, fuel=fuel, status=status, confidence_min=confidence_min,
-        queue_max=queue_max, sort=sort, limit=limit, offset=offset,
+        queue_max=queue_max, price_max=price_max, sort=sort, limit=limit, offset=offset,
         preferred_brands=_parse_preferred_brands(preferred_brands),
     )
 
@@ -357,6 +381,7 @@ def list_stations(
     status: str | None = None,
     confidence_min: int | None = None,
     queue_max: str | None = None,
+    price_max: float | None = None,
     sort: str | None = None,
     limit: int = Query(50, ge=1, le=100),
     offset: int = Query(0, ge=0),
@@ -368,7 +393,7 @@ def list_stations(
         request, response, session,
         lat=lat, lon=lon, radius_km=radius_km if radius_km is not None else radius, bbox=bbox,
         city=city, brand=brand, fuel=fuel, status=status, confidence_min=confidence_min,
-        queue_max=queue_max, sort=sort, limit=limit, offset=offset,
+        queue_max=queue_max, price_max=price_max, sort=sort, limit=limit, offset=offset,
         preferred_brands=_parse_preferred_brands(preferred_brands),
     )
 
@@ -395,12 +420,24 @@ def station_detail(
     if station is None or not station.is_active:
         raise HTTPException(status_code=404, detail="Станция не найдена")
     brand = session.get(StationBrand, station.brand_id) if station.brand_id else None
+    providers = {provider.id: provider.name for provider in session.scalars(select(SourceProvider))}
     rows = session.execute(
         select(StationCurrentStatus, FuelType.code).join(FuelType, StationCurrentStatus.fuel_type_id == FuelType.id)
         .where(StationCurrentStatus.station_id == station_id)
     ).all()
     briefs = [
-        FuelStatusBrief(fuel_code=code, status=r.status, confidence=r.confidence, updated_at=r.updated_at, expires_at=r.expires_at)
+        FuelStatusBrief(
+            fuel_code=code,
+            status=r.status,
+            confidence=r.confidence,
+            updated_at=r.updated_at,
+            expires_at=r.expires_at,
+            price=r.price,
+            price_currency=r.price_currency,
+            price_updated_at=r.price_updated_at,
+            price_source_provider_id=r.price_source_provider_id,
+            price_source=providers.get(r.price_source_provider_id) if r.price_source_provider_id else None,
+        )
         for r, code in rows
     ]
     selected_fuel = _validate_filters(fuel, None, None, None) if fuel else None
@@ -470,13 +507,22 @@ def station_history(
         .join(FuelType, FuelObservation.fuel_type_id == FuelType.id)
         .join(SourceProvider, FuelObservation.source_provider_id == SourceProvider.id)
         .where(FuelObservation.station_id == station_id)
-        .order_by(FuelObservation.observed_at.desc())
+        .order_by(FuelObservation.observed_at.desc(), FuelObservation.id.desc())
         .limit(limit)
     )
     if fuel_code:
         query = query.where(FuelType.code == fuel_code)
     return [
-        HistoryItem(fuel_code=code, status=row.status, source=name, observed_at=row.observed_at, received_at=row.received_at, confidence_raw=row.confidence_raw)
+        HistoryItem(
+            fuel_code=code,
+            status=row.status,
+            source=name,
+            observed_at=row.observed_at,
+            received_at=row.received_at,
+            confidence_raw=row.confidence_raw,
+            price=row.price,
+            price_currency=row.currency,
+        )
         for row, code, name in session.execute(query).all()
     ]
 

@@ -22,6 +22,14 @@ export interface FuelStatusBrief {
   confidence: number;
   updated_at: string | null;
   expires_at: string | null;
+  /** R78 (T13): последняя свежая цена — null/undefined = «нет данных», никогда не 0.
+   * Опциональны не только по null: офлайн-кэш прошлой версии приложения (localStorage)
+   * десериализуется без этих полей. */
+  price?: number | null;
+  price_currency?: string | null;
+  price_updated_at?: string | null;
+  price_source_provider_id?: number | null;
+  price_source?: string | null;
 }
 
 export interface QueueBrief {
@@ -86,6 +94,8 @@ export interface HistoryItem {
   source: string;
   observed_at: string;
   received_at: string | null;
+  price?: number | null;
+  price_currency?: string | null;
 }
 
 export interface QueueHistoryItem {
@@ -173,6 +183,8 @@ export interface AlertRuleBody {
 export interface ReportBody {
   station_id: string;
   fuel: Record<string, string>;
+  /** R78: цена вместе со статусом того же топлива; валидируется backend'ом (R78.4). */
+  prices?: Record<string, number>;
   queue?: string | null;
   idempotency_key: string;
   lat?: number | null;
@@ -370,6 +382,8 @@ export interface StationListQuery {
   offset?: number;
   /** R77: ID сетей из /meta через запятую — персональный буст user_preferences в Score. */
   preferred_brands?: string;
+  /** R78.1: «дешевле X» — только вместе с fuel; станции без цены исключаются. */
+  price_max?: number;
 }
 
 /** R50: одна ячейка heatmap из /heat/cells (только снэпшот аналитики). */

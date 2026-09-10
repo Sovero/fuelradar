@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildRouteUrl, formatAgeMinutes, formatConfidence, formatDistance, formatEtaMinutes, formatUpdatedAt } from "@/lib/format";
+import { buildRouteUrl, formatAgeMinutes, formatConfidence, formatDistance, formatEtaMinutes, formatPrice, formatUpdatedAt } from "@/lib/format";
 
 describe("format helpers", () => {
   it("formatDistance округляет метры/километры и отдаёт «—» без данных", () => {
@@ -13,6 +13,13 @@ describe("format helpers", () => {
     expect(formatEtaMinutes(null)).toBe("—");
     expect(formatConfidence(94.4)).toBe("94%");
     expect(formatConfidence(undefined)).toBe("—");
+  });
+
+  it("formatPrice не превращает отсутствие цены в ноль и форматирует валюту (R78.3)", () => {
+    expect(formatPrice(62.4)).toBe("62.40 ₽");
+    expect(formatPrice(62.4, "USD")).toBe("62.40 USD");
+    expect(formatPrice(null)).toBe("нет данных");
+    expect(formatPrice(undefined, "RUB", { noData: "no data" })).toBe("no data");
   });
 
   it("formatAgeMinutes покрывает минуты/часы/дни", () => {

@@ -49,6 +49,10 @@ export function ReportForm({
   const privacy = usePrivacy();
 
   const [answers, setAnswers] = useState<Record<string, string>>({});
+  // R78: цена по топливу — сырое значение строки, парсится при отправке (запятая
+  // допускается как десятичный разделитель). Появляется только у топлива
+  // с выбранным статусом — цена без статуса невозможна по построению.
+  const [prices, setPrices] = useState<Record<string, string>>({});
   const [queue, setQueue] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<"idle" | "sent" | "queued" | "error">("idle");
@@ -104,11 +108,25 @@ export function ReportForm({
       setErrorMessage(t("report.validation.empty"));
       return;
     }
+    // R78.4: невалидная цена не портит отчёт — ловим до отправки, дублируя
+    // проверку backend'а (конечное число > 0; верхнюю границу проверяет backend).
+    const parsedPrices: Record<string, number> = {};
+    for (const [code, raw] of Object.entries(prices)) {
+      const trimmed = raw.trim();
+      if (!trimmed || !answers[code]) continue; // пустая или статус снят — цену не шлём
+      const value = Number(trimmed.replace(",", "."));
+      if (!Number.isFinite(value) || value <= 0) {
+        setErrorMessage(t("report.price.invalid"));
+        return;
+      }
+      parsedPrices[code] = value;
+    }
     setBusy(true);
     setErrorMessage(null);
     const body: ReportBody = {
       station_id: stationId,
       fuel: answers,
+      prices: Object.keys(parsedPrices).length ? parsedPrices : undefined,
       queue,
       idempotency_key: idempotencyKey,
       lat: effectivePosition?.lat ?? null,
@@ -194,6 +212,19 @@ export function ReportForm({
                         </button>
                       ))}
                     </div>
+                    {answers[fuel.code] && (
+                      <input
+                        type="text"
+                        inputMode="decimal"
+                        min={0}
+                        step={0.1}
+                        value={prices[fuel.code] ?? ""}
+                        onChange={(e) => setPrices((prev) => ({ ...prev, [fuel.code]: e.target.value }))}
+                        aria-label={`${t("report.price.label")} — ${fuelLabel(fuel.code)}`}
+                        placeholder={t("report.price.placeholder")}
+                        className="mt-1 w-full rounded-md border border-gray-300 px-2 py-1.5 text-sm dark:border-gray-700 dark:bg-gray-800"
+                      />
+                    )}
                   </div>
                 ))}
               </div>

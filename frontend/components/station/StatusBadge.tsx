@@ -2,12 +2,14 @@
 
 import { useMeta } from "@/lib/hooks/useMeta";
 import { statusVisual } from "@/lib/map/statusColor";
-import { formatConfidence, formatUpdatedAt } from "@/lib/format";
+import { formatConfidence, formatPrice, formatUpdatedAt } from "@/lib/format";
+import { useI18n } from "@/lib/hooks/useI18n";
 import type { FuelStatusBrief } from "@/lib/types";
 
-/** Строка «вид топлива → статус» в карточке/списке (R30: пустых полей нет — есть «нет данных»). */
+/** Строка «вид топлива → статус (+ цена, R78)» в карточке (R30: пустых полей нет). */
 export function StatusBadge({ status }: { status: FuelStatusBrief }) {
   const { fuelLabel, statusLabel } = useMeta();
+  const { t } = useI18n();
   const visual = statusVisual(status.status);
   return (
     <div className="flex items-center justify-between gap-2 rounded-md border border-gray-100 bg-gray-50 px-3 py-2 dark:border-gray-800 dark:bg-gray-800/60">
@@ -17,7 +19,15 @@ export function StatusBadge({ status }: { status: FuelStatusBrief }) {
       </div>
       <div className="text-right text-sm text-gray-600 dark:text-gray-400">
         <div>{statusLabel(status.status)} · {formatConfidence(status.confidence)}</div>
-        <div className="text-xs text-gray-400 dark:text-gray-500">обновлено {formatUpdatedAt(status.updated_at)}</div>
+        {/* R78.3: цена всегда со временем; нет данных — текст, не ноль. */}
+        <div className="text-xs text-gray-500 dark:text-gray-400">
+          {t("station.price")}: {status.price !== null && status.price !== undefined
+            ? formatPrice(status.price, status.price_currency ?? "RUB", { noData: t("station.price.noData") })
+            : t("station.price.noData")}
+          {status.price_updated_at && <> · {formatUpdatedAt(status.price_updated_at)}</>}
+          {status.price_source && <> · {status.price_source}</>}
+        </div>
+        <div className="text-xs text-gray-400 dark:text-gray-500">{t("station.updated")}: {formatUpdatedAt(status.updated_at)}</div>
       </div>
     </div>
   );

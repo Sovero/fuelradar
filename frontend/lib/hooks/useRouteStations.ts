@@ -9,7 +9,7 @@ import type { RouteStation, StationListQuery } from "@/lib/types";
 interface RouteStationsQuery
   extends Pick<
     StationListQuery,
-    "city" | "brand" | "fuel" | "status" | "confidence_min" | "queue_max" | "limit" | "offset" | "preferred_brands"
+    "city" | "brand" | "fuel" | "status" | "confidence_min" | "queue_max" | "price_max" | "limit" | "offset" | "preferred_brands"
   > {
   polyline: MapPoint[];
   corridor_km: number;

@@ -15,6 +15,8 @@ export interface Filters {
   status: string | null;
   confidenceMin: number | null;
   queueMax: string | null;
+  /** R78.1: «дешевле X» для выбранного топлива; null = фильтр выключен. */
+  priceMax: number | null;
   search: string;
   /** «Показывать вероятное наличие» — из пустого состояния (R75). */
   includeLikely: boolean;
@@ -34,6 +36,7 @@ export const DEFAULT_FILTERS: Filters = {
   status: null,
   confidenceMin: null,
   queueMax: null,
+  priceMax: null,
   search: "",
   includeLikely: false,
   tab: "map",
@@ -61,6 +64,7 @@ export function filtersFromSearchParams(params: URLSearchParams): Filters {
     status: params.get("status") || null,
     confidenceMin: parseNumber(params.get("confidence_min")),
     queueMax: params.get("queue_max") || null,
+    priceMax: parseNumber(params.get("price_max")),
     search: params.get("q") || "",
     includeLikely: params.get("likely") === "1",
     tab,
@@ -79,6 +83,7 @@ export function filtersToSearchParams(filters: Filters): URLSearchParams {
   if (filters.status) params.set("status", filters.status);
   if (filters.confidenceMin !== null) params.set("confidence_min", String(filters.confidenceMin));
   if (filters.queueMax) params.set("queue_max", filters.queueMax);
+  if (filters.priceMax !== null) params.set("price_max", String(filters.priceMax));
   if (filters.search) params.set("q", filters.search);
   if (filters.includeLikely) params.set("likely", "1");
   if (filters.tab !== "map") params.set("tab", filters.tab);

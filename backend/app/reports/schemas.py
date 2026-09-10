@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import math
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
+
+from ..core.config import settings
 
 # R39: «есть/нет/заканчивается/не знаю» — статусы, которые реально сообщает
 # человек. LIKELY_AVAILABLE/UNCERTAIN — только вычисляемые системой (R14/R19),
@@ -16,10 +18,37 @@ REPORTABLE_QUEUE_LEVELS: tuple[str, ...] = ("NONE", "LOW", "MEDIUM", "HIGH", "VE
 class ReportBody(BaseModel):
     station_id: str = Field(min_length=1)
     fuel: dict[str, str] = Field(default_factory=dict)  # {"AI_95": "AVAILABLE", ...}
+    prices: dict[str, float] = Field(default_factory=dict)  # R78: {"AI_95": 62.4} — цена вместе со статусом
     queue: str | None = None
     idempotency_key: str = Field(min_length=1, max_length=100)  # запас под суффикс ":FUEL_CODE" (R39.1)
     lat: float | None = None
     lon: float | None = None
+
+    @field_validator("prices")
+    @classmethod
+    def prices_valid(cls, v: dict[str, float]) -> dict[str, float]:
+        """R78.4: NaN/≤0/чрезмерная цена → 422 с понятной ошибкой (не портит отчёт)."""
+        ceiling = settings.price_max_reasonable
+        for fuel_code, price in v.items():
+            if not math.isfinite(price):
+                raise ValueError(f"цена для {fuel_code} должна быть конечным числом")
+            if price <= 0:
+                raise ValueError(f"цена для {fuel_code} должна быть больше нуля")
+            if price > ceiling:
+                raise ValueError(f"цена для {fuel_code} не может превышать {ceiling}")
+        return v
+
+    @model_validator(mode="after")
+    def prices_have_status(self):
+        """Цена имеет смысл только вместе со статусом этого же топлива — иначе
+        наблюдение статуса не создаётся и цене не с чем храниться."""
+        unknown = set(self.prices) - set(self.fuel)
+        if unknown:
+            raise ValueError(
+                f"цена передана без статуса топлива: {', '.join(sorted(unknown))} — добавьте статус в поле fuel"
+            )
+        return self
+
 
     @field_validator("fuel")
     @classmethod

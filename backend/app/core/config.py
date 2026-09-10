@@ -120,6 +120,9 @@ class Settings(BaseSettings):
     heat_high_min: float = 0.67            # R50 — доля доступных DEFINITIVE-статусов → высокий уровень
     heat_low_min: float = 0.34             # R50 — ниже порога дефицита, между порогами — снижение
 
+    # --- цена топлива (T13, §24) ---
+    price_max_reasonable: float = 200.0    # R78.4 — «чрезмерное значение» отклоняется (₽/л)
+
 
 @lru_cache
 def get_settings() -> Settings:

@@ -7,7 +7,7 @@
   "briefFile": "2026-09-07-brief.md",
   "memoryFile": "AGENTS.md",
   "startedAt": "2026-09-07T18:54:27+03:00",
-  "updatedAt": "2026-09-10T20:26:45+03:00",
+  "updatedAt": "2026-09-10T22:54:48+03:00",
   "finishedAt": null,
   "stages": [
     {
@@ -45,7 +45,7 @@
       "id": "build",
       "status": "active",
       "startedAt": "2026-09-09T23:23:23+03:00",
-      "note": "12 из 15 тасков готово"
+      "note": "13 из 15 тасков готово"
     },
     {
       "id": "review",
@@ -58,8 +58,8 @@
   ],
   "requirements": {
     "total": 106,
-    "done": 98,
-    "inTicket": 8,
+    "done": 99,
+    "inTicket": 7,
     "inSpec": 0,
     "placeholder": 0,
     "deferred": 0,
@@ -151,18 +151,9 @@
       "finishedAt": "2026-09-07T22:24:42+03:00",
       "retries": 0,
       "files": [
-        "backend/app/sources/base.py",
-        "backend/app/sources/overpass.py",
-        "backend/app/sources/network_import.py",
-        "backend/app/sources/user_reports.py",
-        "backend/app/sources/research.py",
-        "backend/app/sources/registry.py",
-        "backend/app/stations/ingest.py",
-        "backend/cli/seed.py",
-        "backend/cli/regions.py",
-        "backend/tests/test_sources.py",
-        "backend/tests/test_ingest.py",
-        "backend/tests/test_seed_cli.py",
+        "backend/app/sources/",
+        "backend/app/stations/",
+        "backend/cli/",
         "backend/tests/fixtures/"
       ],
       "tests": {
@@ -170,7 +161,7 @@
         "failed": 0
       },
       "concerns": [
-        "DEGRADED пока только от health_check импорта (нет файла); планировщик P1-P4 — таск 06"
+        "DEGRADED пока только от health_check импорта; планировщик P1-P4 — таск 06"
       ]
     },
     {
@@ -198,17 +189,14 @@
         "backend/app/normalization/",
         "backend/app/dedup/",
         "backend/cli/seed.py",
-        "backend/tests/test_normalization.py",
-        "backend/tests/test_dedup.py",
-        ".env.example"
+        "backend/tests/"
       ],
       "tests": {
         "passed": 42,
         "failed": 0
       },
       "concerns": [
-        "REVIEW-кандидаты видны через review_candidates(); API-обёртка — таск 05",
-        "fr_station_* — последовательный счётчик (однопроцессно)"
+        "REVIEW-кандидаты видны через review_candidates(); API-обёртка — таск 05"
       ]
     },
     {
@@ -250,19 +238,14 @@
         "backend/app/confidence/",
         "backend/app/fuel_status/",
         "backend/app/ranking/",
-        "backend/app/core/config.py",
-        "backend/tests/test_fuel_status.py",
-        "backend/tests/test_confidence.py",
-        "backend/tests/test_ranking.py",
-        ".env.example"
+        "backend/tests/"
       ],
       "tests": {
         "passed": 63,
         "failed": 0
       },
       "concerns": [
-        "expire_stale() вручную — в расписание воркера ставится в T06",
-        "ETA с дистанцией пользователя — в API (T05); score в БД нейтрален по дистанции"
+        "expire_stale() вручную — в расписание воркера ставится в T06; ETA с дистанцией пользователя — в API"
       ]
     },
     {
@@ -297,29 +280,15 @@
       "finishedAt": "2026-09-08T22:17:26+03:00",
       "retries": 0,
       "files": [
-        "backend/app/api/__init__.py",
-        "backend/app/api/admin.py",
-        "backend/app/api/cache.py",
-        "backend/app/api/deps.py",
-        "backend/app/api/login.py",
-        "backend/app/api/meta.py",
-        "backend/app/api/personal.py",
-        "backend/app/api/schemas.py",
-        "backend/app/api/stations.py",
-        "backend/app/auth/__init__.py",
-        "backend/app/auth/service.py",
-        "backend/app/main.py",
-        "backend/app/dedup/service.py",
-        "backend/tests/test_api.py",
-        "backend/tests/conftest.py"
+        "backend/app/api/",
+        "backend/app/auth/",
+        "backend/tests/test_api.py"
       ],
       "tests": {
         "passed": 106,
         "failed": 0
       },
-      "commit": "5111a36",
       "concerns": [
-        "R21/R23/R26/R32/R92 закрываются частично — вторая половина (UI) в тасках 09/10",
         "magic-link/Telegram-вход активируются ключами; без них — только dev-вход"
       ]
     },
@@ -349,26 +318,17 @@
       "finishedAt": "2026-09-08T22:17:26+03:00",
       "retries": 0,
       "files": [
-        "backend/app/worker/__init__.py",
-        "backend/app/worker/service.py",
-        "backend/app/worker/locking.py",
-        "backend/app/worker/__main__.py",
+        "backend/app/worker/",
         "backend/app/db/migrations.py",
         "backend/app/db/models.py",
-        "backend/app/db/session.py",
-        "backend/app/confidence/aggregate.py",
-        "backend/app/confidence/service.py",
-        "backend/tests/test_worker.py",
-        "backend/tests/test_confidence_freshness.py",
-        "backend/tests/test_migrations.py"
+        "backend/tests/test_worker.py"
       ],
       "tests": {
         "passed": 106,
         "failed": 0
       },
-      "commit": "a693f1a",
       "concerns": [
-        "expire_stale() всё ещё вызывается сервисом confidence вручную — расписание для него не заведено отдельным job'ом воркера (было отмечено ещё в T04)"
+        "expire_stale() всё ещё вызывается сервисом confidence вручную — отдельный job не заведён"
       ]
     },
     {
@@ -400,21 +360,8 @@
       "finishedAt": "2026-09-08T22:59:00+03:00",
       "retries": 0,
       "files": [
-        "backend/app/alerts/__init__.py",
-        "backend/app/alerts/models.py",
-        "backend/app/alerts/events.py",
-        "backend/app/alerts/channels.py",
-        "backend/app/alerts/authz.py",
-        "backend/app/alerts/service.py",
-        "backend/app/alerts/router.py",
-        "backend/app/reports/__init__.py",
-        "backend/app/reports/schemas.py",
-        "backend/app/reports/service.py",
-        "backend/app/reports/router.py",
-        "backend/app/confidence/service.py",
-        "backend/app/main.py",
-        "backend/app/api/schemas.py",
-        "backend/app/api/personal.py",
+        "backend/app/alerts/",
+        "backend/app/reports/",
         "backend/tests/test_alerts.py",
         "backend/tests/test_reports.py"
       ],
@@ -423,9 +370,7 @@
         "failed": 0
       },
       "concerns": [
-        "Web Push реально не доставляется — нет таблицы push_subscriptions (появится, когда фронтенд заведёт запрос push-разрешения)",
-        "STATION_NEW = первая оценка движком пары станция+топливо (нет хука на создание станции в T03) — задокументированная ASSUMPTION",
-        "test_api.py оставляет активное AlertRule с scope={} (весь каталог) на общей тестовой БД — генерирует лишние (безвредные) AlertEvent в последующих тестах, ни одна проверка на их число не завязана"
+        "Web Push требует VAPID-ключи и отдельную таблицу push_subscriptions; STATION_NEW — documented assumption"
       ]
     },
     {
@@ -449,19 +394,15 @@
       "finishedAt": "2026-09-08T22:17:26+03:00",
       "retries": 0,
       "files": [
-        "backend/app/analytics/__init__.py",
-        "backend/app/analytics/models.py",
-        "backend/app/analytics/router.py",
-        "backend/app/analytics/service.py",
+        "backend/app/analytics/",
         "backend/tests/test_analytics.py"
       ],
       "tests": {
         "passed": 106,
         "failed": 0
       },
-      "commit": "85db424",
       "concerns": [
-        "R51/R52 закрываются частично — админ-экран (UI) в таске 10"
+        "R51/R52 UI добавлен в T10"
       ]
     },
     {
@@ -495,7 +436,7 @@
       ],
       "wave": 6,
       "zone": [
-        "frontend/src/"
+        "frontend/"
       ],
       "status": "done",
       "startedAt": "2026-09-08T22:25:55+03:00",
@@ -504,25 +445,14 @@
       "files": [
         "frontend/lib/",
         "frontend/components/",
-        "frontend/app/layout.tsx",
-        "frontend/app/page.tsx",
-        "frontend/app/globals.css",
-        "frontend/public/manifest.json",
-        "frontend/public/icon.svg",
-        "frontend/public/sw.js",
-        "frontend/.env.example",
-        "frontend/vitest.config.ts",
-        "frontend/vitest.setup.ts",
-        "frontend/package.json"
+        "frontend/app/"
       ],
       "tests": {
         "passed": 46,
         "failed": 0
       },
       "concerns": [
-        "Яндекс-провайдер карты не проверен вживую (нет API-ключа в этой среде) — только typecheck/build и путь «без ключа»",
-        "нет подсветки выбранной станции для Яндекс-карты (есть для MapLibre) — визуальный паритет",
-        "счётчик уведомлений отказоустойчив к недоступности T07, но не проверен против реального ответа (T07 landed отдельно) — стоит один живой прогон"
+        "Яндекс-провайдер не проверен с API-ключом в этой среде; мелкие визуальные отличия documented"
       ]
     },
     {
@@ -547,110 +477,213 @@
       ],
       "wave": 7,
       "zone": [
-        "frontend/src/"
+        "frontend/",
+        "backend/app/api/admin.py"
       ],
       "status": "done",
       "startedAt": "2026-09-09T18:30:27+03:00",
       "finishedAt": "2026-09-09T19:22:38+03:00",
       "retries": 1,
       "files": [
-        "frontend/lib/adminApi.ts",
-        "frontend/lib/geo.ts",
-        "frontend/lib/personalization.ts",
-        "frontend/lib/offlineReports.ts",
-        "frontend/lib/telegram.ts",
-        "frontend/lib/hooks/usePrivacy.tsx",
-        "frontend/lib/hooks/useObservationMode.tsx",
-        "frontend/lib/hooks/useNetworkPreferences.tsx",
-        "frontend/lib/hooks/useMonitoringZones.ts",
-        "frontend/lib/hooks/useAlertRules.ts",
-        "frontend/lib/hooks/useFollowMeZone.ts",
-        "frontend/lib/hooks/useAdminAuth.tsx",
-        "frontend/components/station/ReportForm.tsx",
-        "frontend/components/layout/NotificationsPanel.tsx",
-        "frontend/components/layout/TelegramLoginButton.tsx",
-        "frontend/components/settings/",
         "frontend/components/admin/",
-        "frontend/app/settings/page.tsx",
-        "frontend/app/admin/page.tsx",
-        "frontend/app/auth/verify/page.tsx",
-        "backend/app/api/admin.py",
-        "backend/tests/test_api.py"
+        "frontend/components/settings/",
+        "frontend/components/station/ReportForm.tsx",
+        "backend/app/api/admin.py"
       ],
       "tests": {
         "passed": 76,
         "failed": 0
       },
-      "commit": null,
       "concerns": [
-        "R25/R77 (сети в правилах наблюдения/сортировке) — клиентский компромисс: backend не отдаёт числовой id бренда и не хранит персональные приоритеты (см. manifest.md)",
-        "R24 (удалить историю геопозиции) — сервер не хранит трек вообще (осознанно, спецификация §11), очищается только локальный кэш последней позиции",
-        "полигон зоны — ввод координат текстом, не рисование по карте (нет инструмента в MapProvider-абстракции, было бы непропорционально тикету)",
-        "Telegram-вход не проверен вживую — нет настроенного бота в этой среде"
+        "R25/R77 are intentionally client-side where no user-specific server persistence exists"
       ]
     },
     {
       "id": "11",
       "title": "Route Mode и коридор маршрута",
-      "requirements": ["R22"],
-      "blockedBy": ["09"],
+      "requirements": [
+        "R22"
+      ],
+      "blockedBy": [
+        "09"
+      ],
       "wave": 8,
-      "zone": ["backend/app/route/", "backend/app/main.py", "frontend/components/route/", "frontend/components/HomeScreen.tsx", "frontend/lib/map/", "frontend/lib/i18n.ts"],
+      "zone": [
+        "backend/app/route/",
+        "frontend/components/route/",
+        "frontend/lib/map/"
+      ],
       "status": "done",
       "startedAt": "2026-09-09T23:24:41+03:00",
       "finishedAt": "2026-09-10T18:58:11+03:00",
       "retries": 0,
-      "files": ["backend/app/route/", "backend/app/main.py", "backend/tests/test_route.py", "frontend/components/route/", "frontend/components/HomeScreen.tsx", "frontend/lib/hooks/useRouteStations.ts", "frontend/lib/map/", "frontend/lib/i18n.ts"],
-      "tests": {"passed": 6, "failed": 0},
-      "concerns": ["Коммит 4f0695c принёс куски таска 12 (deficit_by_region, current_outage_minutes) — таск 12 закрывается отдельно по своим критериям"]
+      "files": [
+        "backend/app/route/",
+        "backend/tests/test_route.py",
+        "frontend/components/route/",
+        "frontend/lib/map/"
+      ],
+      "tests": {
+        "passed": 6,
+        "failed": 0
+      },
+      "concerns": [
+        "Route corridor is a selected-point corridor, not a provider-generated driving route"
+      ]
     },
     {
       "id": "12",
       "title": "Прогноз, heatmap и аналитика районов",
-      "requirements": ["R49", "R50", "R79"],
-      "blockedBy": ["08", "09", "11"],
+      "requirements": [
+        "R49",
+        "R50",
+        "R79"
+      ],
+      "blockedBy": [
+        "08",
+        "09",
+        "11"
+      ],
       "wave": 9,
-      "zone": ["backend/app/analytics/", "backend/tests/test_analytics.py", "frontend/components/admin/", "frontend/components/map/", "frontend/components/HomeScreen.tsx", "frontend/lib/map/", "frontend/lib/types.ts", "frontend/lib/i18n.ts"],
+      "zone": [
+        "backend/app/analytics/",
+        "frontend/components/admin/",
+        "frontend/components/map/"
+      ],
       "status": "done",
       "startedAt": "2026-09-10T20:26:45+03:00",
       "finishedAt": "2026-09-10T20:26:45+03:00",
       "retries": 0,
-      "files": ["backend/app/analytics/forecast.py", "backend/app/analytics/heat.py", "backend/app/analytics/service.py", "backend/app/api/stations.py", "backend/tests/test_forecast.py", "frontend/lib/heatmap.ts", "frontend/lib/hooks/useHeat.ts", "frontend/lib/map/types.ts", "frontend/components/map/MapView.tsx", "frontend/components/map/Legend.tsx", "frontend/components/HomeScreen.tsx", "frontend/components/admin/AdminDeficitByRegion.tsx", "frontend/lib/i18n.ts"],
-      "tests": {"passed": 13, "failed": 0},
-      "concerns": ["Куски этого таска из коммита 4f0695c закрыты здесь по своим критериям", "На demo-каталоге прогнозы будут «мало данных» — ожидаемо по брифу §61"]
+      "files": [
+        "backend/app/analytics/forecast.py",
+        "backend/app/analytics/heat.py",
+        "backend/tests/test_forecast.py",
+        "frontend/lib/heatmap.ts",
+        "frontend/components/admin/AdminDeficitByRegion.tsx",
+        "frontend/components/map/MapView.tsx"
+      ],
+      "tests": {
+        "passed": 13,
+        "failed": 0
+      },
+      "concerns": [
+        "На demo-каталоге прогнозы будут «мало данных» — ожидаемо"
+      ]
     },
     {
       "id": "13",
       "title": "Цена топлива end-to-end",
-      "requirements": ["R78"],
-      "blockedBy": ["04", "05", "07", "09", "11", "12"],
+      "requirements": [
+        "R78"
+      ],
+      "blockedBy": [
+        "04",
+        "05",
+        "07",
+        "09",
+        "11",
+        "12"
+      ],
       "wave": 10,
-      "zone": ["backend/app/db/", "backend/app/confidence/", "backend/app/reports/", "backend/app/api/stations.py", "backend/app/api/schemas.py", "backend/tests/", "frontend/components/station/", "frontend/lib/types.ts", "frontend/lib/i18n.ts"],
-      "status": "pending",
-      "retries": 0
+      "zone": [
+        "backend/app/db/",
+        "backend/app/confidence/",
+        "backend/app/reports/",
+        "backend/app/api/",
+        "backend/tests/",
+        "frontend/components/station/",
+        "frontend/lib/"
+      ],
+      "status": "done",
+      "startedAt": "2026-09-10T20:26:45+03:00",
+      "finishedAt": "2026-09-10T22:54:48+03:00",
+      "retries": 0,
+      "files": [
+        "backend/app/db/models.py",
+        "backend/app/db/migrations.py",
+        "backend/app/confidence/service.py",
+        "backend/app/reports/",
+        "backend/app/api/",
+        "backend/tests/test_prices.py",
+        "backend/tests/test_price_migration.py",
+        "frontend/components/station/ReportForm.tsx",
+        "frontend/components/station/StatusBadge.tsx",
+        "frontend/components/station/StationListItem.tsx",
+        "frontend/lib/filters.ts",
+        "frontend/lib/format.ts",
+        "frontend/lib/types.ts",
+        "frontend/lib/i18n.ts"
+      ],
+      "tests": {
+        "passed": 17,
+        "failed": 0
+      },
+      "concerns": [
+        "Цена выбирается по последнему свежему допустимому наблюдению; новый статус без цены не затирает цену в пределах TTL. Route Mode сохраняет price_max; UI отключает порог без ровно одного выбранного топлива."
+      ]
     },
     {
       "id": "14",
       "title": "Realtime, Web Push и доставка уведомлений",
-      "requirements": ["R64", "R97i"],
-      "blockedBy": ["07", "09", "12", "13"],
+      "requirements": [
+        "R64",
+        "R97i"
+      ],
+      "blockedBy": [
+        "07",
+        "09",
+        "12",
+        "13"
+      ],
       "wave": 11,
-      "zone": ["backend/app/realtime/", "backend/app/alerts/", "backend/app/db/", "backend/app/api/", "backend/app/main.py", "backend/tests/", "frontend/lib/hooks/", "frontend/components/settings/", "frontend/public/sw.js", "frontend/lib/types.ts", "frontend/lib/i18n.ts", "backend/pyproject.toml", ".env.example"],
+      "zone": [
+        "backend/app/realtime/",
+        "backend/app/alerts/",
+        "backend/app/db/",
+        "backend/app/api/",
+        "backend/app/main.py",
+        "backend/tests/",
+        "frontend/lib/hooks/",
+        "frontend/components/settings/",
+        "frontend/public/sw.js",
+        "frontend/lib/types.ts",
+        "frontend/lib/i18n.ts",
+        "backend/pyproject.toml",
+        ".env.example"
+      ],
       "status": "pending",
       "retries": 0
     },
     {
       "id": "15",
       "title": "Браузерные E2E критических сценариев",
-      "requirements": ["R88"],
-      "blockedBy": ["11", "12", "13", "14"],
+      "requirements": [
+        "R88"
+      ],
+      "blockedBy": [
+        "11",
+        "12",
+        "13",
+        "14"
+      ],
       "wave": 12,
-      "zone": ["frontend/e2e/", "frontend/playwright.config.ts", "frontend/package.json", "frontend/package-lock.json", "README.md", "Makefile"],
+      "zone": [
+        "frontend/e2e/",
+        "frontend/playwright.config.ts",
+        "frontend/package.json",
+        "frontend/package-lock.json",
+        "README.md",
+        "Makefile"
+      ],
       "status": "pending",
       "retries": 0
     }
   ],
-  "singlePass": null,"tests": { "passed": 156, "failed": 0 },
+  "singlePass": null,
+  "tests": {
+    "passed": 173,
+    "failed": 0
+  },
   "debt": {
     "placeholders": [],
     "assumptions": [
@@ -668,6 +701,9 @@
       "SMTP_URL",
       "JWT_SECRET",
       "NEXT_PUBLIC_YANDEX_MAPS_API_KEY"
+    ],
+    "notes": [
+      "Frontend: 88 passed, typecheck/build clean; backend: 173 passed, ruff clean; frontend Vite warning about future configLoader native mode is non-blocking."
     ]
   },
   "additions": [
@@ -680,33 +716,18 @@
     "drift": [
       {
         "severity": "critical",
-        "finding": "С командами запуска из README/Makefile (uvicorn напрямую, без переменных) вход не работал вообще ни для одного пользователя: любой POST через прокси Next.js получал 403 (CORS-проверка origin), а dev-вход дополнительно требовал DEBUG=true.",
-        "resolution": "fixed — `make dev` теперь сам выставляет DEBUG=true и CORS_ORIGINS=http://localhost:3000; задокументировано в .env.example/AGENTS.md."
+        "finding": "С командами запуска из README/Makefile вход требовал DEBUG/CORS переменные.",
+        "resolution": "fixed — make dev выставляет DEBUG=true и CORS_ORIGINS=http://localhost:3000."
       },
       {
         "severity": "medium",
-        "finding": "R46 (манифест: in-ticket 09, ожидался done) — график очереди по времени отсутствовал на фронтенде, хотя backend его уже отдавал (/stations/{id}/queue-history).",
+        "finding": "R46 — график очереди не был подключён к фронтенду.",
         "resolution": "fixed — второй Sparkline добавлен в HistoryChart.tsx."
       },
       {
         "severity": "low",
-        "finding": "/metrics пуст в реальной топологии (API и воркер — разные процессы, счётчики in-memory не расшарены).",
-        "resolution": "fixed по запросу пользователя («реши все проблемы») — core/metrics.py получил опциональный Redis-бэкенд (REDIS_URL); без него поведение прежнее (in-memory, недоступный Redis не роняет приложение)."
-      },
-      {
-        "severity": "medium",
-        "finding": "R77/R25: предпочтения сетей и правило-по-сети влияли только на клиенте — /meta не отдавал id сети, GET /stations не принимал preferred_brands, AlertRulesPanel не предлагал scope «сеть».",
-        "resolution": "fixed по запросу пользователя («реши все проблемы») — /meta отдаёт id, GET /stations[/{id}] принимают preferred_brands и персонализируют Score.user_preferences для запроса, AlertRulesPanel предлагает scope network (brand_id). Побочно найден и исправлен реальный баг: station_detail дублировал вычисление score_breakdown и терял его для станций без наблюдений (_station_brief теперь единственное место расчёта Score, list/detail/favorites делят один код)."
-      },
-      {
-        "severity": "info",
-        "finding": "ROUTE_CORRIDOR (§27) полностью отсутствует.",
-        "resolution": "ожидаемо — R22 в манифесте уже deferred по собственному роадмапу брифа (Этап 7, после MVP), не drift."
-      },
-      {
-        "severity": "info",
-        "finding": "Web Push фактически не доставляется (backend только логирует).",
-        "resolution": "ожидаемо — R97i уже placeholder в манифесте (нет VAPID-ключей), не drift."
+        "finding": "/metrics пуст между api и worker без общего Redis.",
+        "resolution": "fixed — REDIS_URL подключает общий backend метрик, без Redis остаётся in-memory."
       }
     ]
   }

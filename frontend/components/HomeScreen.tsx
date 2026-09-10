@@ -81,11 +81,13 @@ function HomeScreenBody() {
       status: filters.status ?? undefined,
       confidence_min: filters.confidenceMin ?? undefined,
       queue_max: filters.queueMax ?? undefined,
+      // R78.1: «дешевле X» уходит в API только когда выбран ровно один вид топлива
+      price_max: filters.fuels.length === 1 && filters.priceMax !== null ? filters.priceMax : undefined,
       sort: filters.sort ?? undefined,
       limit: 100,
       preferred_brands: preferredBrandsParam,
     }),
-    [filters.lat, filters.lon, filters.radiusKm, filters.brand, filters.fuels, filters.status, filters.confidenceMin, filters.queueMax, filters.sort, preferredBrandsParam],
+    [filters.lat, filters.lon, filters.radiusKm, filters.brand, filters.fuels, filters.status, filters.confidenceMin, filters.queueMax, filters.priceMax, filters.sort, preferredBrandsParam],
   );
 
   const { stations, loading, error, isStale } = useStations(query);
@@ -99,10 +101,12 @@ function HomeScreenBody() {
       status: filters.status ?? undefined,
       confidence_min: filters.confidenceMin ?? undefined,
       queue_max: filters.queueMax ?? undefined,
+      // R78.1: тот же ценовой порог сохраняется и в Route Mode.
+      price_max: filters.fuels.length === 1 && filters.priceMax !== null ? filters.priceMax : undefined,
       limit: 100,
       preferred_brands: preferredBrandsParam,
     }),
-    [routePoints, routeCorridorKm, filters.brand, filters.fuels, filters.status, filters.confidenceMin, filters.queueMax, preferredBrandsParam],
+    [routePoints, routeCorridorKm, filters.brand, filters.fuels, filters.status, filters.confidenceMin, filters.queueMax, filters.priceMax, preferredBrandsParam],
   );
   const { stations: routeStations, loading: routeLoading, error: routeError } = useRouteStations(routeReady, routeQuery);
   const visibleStations = routeReady ? routeStations : stations;

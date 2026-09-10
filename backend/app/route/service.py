@@ -60,6 +60,7 @@ def find_route_stations(session: Session, request: RouteStationsRequest) -> list
         status=request.status,
         confidence_min=request.confidence_min,
         queue_max=request.queue_max,
+        price_max=request.price_max,
         sort=None,
         limit=10_000,
         offset=0,

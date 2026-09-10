@@ -41,7 +41,7 @@
 
 ## Публичный API /api/v1 (контракт — T05; дополняют T07/T08)
 
-- `GET /stations` — фильтры: `lat, lon, radius, bbox, city, brand, fuel, status, confidence_min, queue_max`; пагинация; сортировки: `sort=distance|confidence|availability|queue|travel_time|score`.
+- `GET /stations` — фильтры: `lat, lon, radius, bbox, city, brand, fuel, status, confidence_min, queue_max, price_max` (последний только вместе с `fuel`, станции без цены не считаются дешёвыми); пагинация; сортировки: `sort=distance|confidence|availability|queue|travel_time|score`.
 - `GET /stations/{id}` — карточка: станция + топливо со статусами + `confidence` + `status_explanation` (источники: название, возраст) + `score_breakdown` + `eta` + `queue` (`level`, `vehicles`, `estimated_wait_minutes`).
 - `GET /stations/{id}/history?fuel=AI95` — серия наблюдений (для графиков).
 - `GET /stations/nearby` — точка+радиус (обёртка над /stations).
@@ -49,7 +49,7 @@
 - `GET/POST/DELETE /favorites` (+ `{station_id}`) — только с профилем.
 - `GET/POST/PUT/DELETE /monitoring-zones` — типы city|circle|polygon; только с профилем.
 - `GET/POST/PUT/DELETE /alerts` — правила (fuel, distance_km, status, confidence_min, queue_max, scope: zone|favorites|network); только с профилем.
-- `POST /reports` — `{station_id, fuel: {AI95: AVAILABLE|UNAVAILABLE|LOW_STOCK|UNKNOWN}, queue: NONE|LOW|MEDIUM|HIGH|VERY_HIGH, idempotency_key}` + координаты пользователя для GPS-веса (R40).
+- `POST /reports` — `{station_id, fuel: {AI95: AVAILABLE|UNAVAILABLE|LOW_STOCK|UNKNOWN}, prices: {AI95: number}?, queue: NONE|LOW|MEDIUM|HIGH|VERY_HIGH, idempotency_key}` + координаты пользователя для GPS-веса (R40); цена допустима только вместе со статусом того же топлива и возвращается с валютой/временем/источником (R78).
 - `GET /notifications` + `POST /notifications/read` — лента + счётчик (A03).
 - Admin (заголовок `X-Admin-Token`): `GET /admin/sources`, `GET /admin/sources/{id}/health`, `POST /admin/sources/{id}/refresh`, `GET /admin/collection-log[?provider_id=&limit=&offset=]` → `{total, items:[{id, provider_code, provider_name, station_id, job_type, trigger, priority, status, records_count, error_count, error_message, started_at, finished_at}]}` — журнал запусков сбора, и ручных (refresh), и по расписанию воркера (R104, добавлено 2026-09-09); `GET /admin/collection-log/{job_id}/details` → построчные сообщения этого запуска (`level, message, created_at`); `POST /admin/stations/{id}/merge` / `/split`, `GET /admin/coverage`, `GET /admin/coverage-by-source`, `GET /admin/fuel-index`, `GET /admin/deficit-stats`, `GET /admin/reports[?user_id=&limit=&offset=]` (отчёты всех пользователей — с `user_reliability_score`/`user_is_blocked`, R58/добавлено при T10), `POST /admin/users/{id}/block` (`{"blocked": bool}`, добавлено при T10 — раньше только значилось в контракте), `GET/POST /admin/dedup-queue` (подтверждения слияний), `POST /admin/trust-weights`.
 
@@ -74,6 +74,13 @@
 - **Модули:** `backend/app/analytics/` (forecast.py, heat.py, service.py — heat_cells + границы окон потоков, router.py — deficit-by-region), `backend/app/api/stations.py` (forecast-endpoint), `backend/app/main.py` (heat-роутер), `backend/app/core/config.py` (FORECAST_*/HEAT_*), `backend/tests/test_forecast.py`; `frontend/lib/heatmap.ts`, `frontend/lib/hooks/useHeat.ts`, `frontend/lib/map/types.ts` (+`MapHeatCircle.heatCircles`), обе реализации провайдера, `frontend/components/map/{MapView,Legend}.tsx`, `frontend/components/HomeScreen.tsx` (тумблер/круги/ошибки), `frontend/components/admin/{AdminDeficitByRegion,AdminScreen}.tsx`, `frontend/lib/types.ts`, `frontend/lib/i18n.ts` (heat.*/admin.bi.* в ru+en), `.env.example`.
 - **Тесты:** +7 backend (итого 156 passed / 0 failed): формула появления (67% = 2/3, censored-эпизод честно снижает уверенность), Пуассон (78% при 3 эпизодах за 355 мин), обе причины R49.2, no_data, 503/422, snapshot-only (перехват SQL), grouping BI. +6 frontend (итого 85 passed / 0 failed, 27 файлов): пороги уровней, null-ячейки, контракт MapProviderProps. Typecheck/build/ruff чисто. Live-прогон на dev-БД: прогноз 67%/ETA 10 мин, зелёная ячейка у единогласной станции, конфликтная — без ячейки, BI-группа по Краснодару.
 - **Отклонения:** нет. Замечания: куски таска 12 из коммита 4f0695c (`deficit_by_region`, `current_outage_minutes`) закрыты здесь по своим критериям; `FORECAST_MIN_STREAMS` — конфигурируемый минимум потоков (по умолчанию 1); demo-каталог даст мало содержательных прогнозов («мало данных») — ожидаемо по брифу §61, путь рабочий.
+
+### Таск 13 — Цена топлива end-to-end
+
+- **Что заработало:** R78 end-to-end. `StationCurrentStatus` хранит nullable цену, валюту, время и источник; идемпотентная additive-миграция обновляет старые БД. `POST /reports` принимает цену вместе со статусом, валидирует конечность/положительность/разумный максимум и пишет её в append-only `FuelObservation`; повтор с тем же ключом не создаёт наблюдений. Публичные список/detail/favorites возвращают price metadata, а `fuel` + `price_max` фильтруют только станции с ценой выбранного топлива; Route Mode сохраняет этот фильтр. Последняя свежая допустимая цена выбирается по времени наблюдения, новый статус без цены не затирает её до истечения TTL. Frontend показывает цену, время/источник и честное «нет данных», имеет RU/EN подписи, клавиатурную форму отчёта и URL-фильтр.
+- **Модули:** `backend/app/db/{models,migrations,session}.py`, `backend/app/confidence/service.py`, `backend/app/reports/{schemas,service}.py`, `backend/app/api/{schemas,stations,personal}.py`, `backend/app/route/{schemas,service}.py`, `frontend/components/{filters,station}/`, `frontend/lib/{filters,format,types,i18n}.ts`, `.env.example`.
+- **Тесты:** backend — 173 passed / 0 failed (17 новых T13, включая миграцию, агрегацию, API, `price_max`, валидацию и идемпотентность); frontend — 88 passed / 0 failed (цена/формат, URL-фильтр, форма отчёта); `ruff`, typecheck и production build чистые.
+- **Отклонения:** нет. Vite сообщает только не блокирующее предупреждение о будущем `configLoader: native`; внешний источник цен не активирован, поэтому продукт честно показывает отсутствие цены, когда наблюдений нет.
 
 ### Таск 11 — Route Mode и коридор маршрута
 

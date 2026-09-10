@@ -19,7 +19,7 @@ signals:
 <!-- autopilot:start -->
 # FuelRadar
 
-PWA-система независимой агрегации данных о наличии топлива на АЗС (пилот — Краснодар). Для агента, впервые открывшего репозиторий: сборка полностью завершена (10/10 тасков), это готовая кодовая база для доработок, не черновик.
+PWA-система независимой агрегации данных о наличии топлива на АЗС (пилот — Краснодар). Для агента, впервые открывшего репозиторий: основная сборка завершена, текущая волна закрыла 13/15 тасков; T14/T15 остаются в очереди.
 
 ## Команды (проверены 09.09.2026)
 
@@ -28,7 +28,7 @@ PWA-система независимой агрегации данных о н�
 ```
 make install                              # pip install backend + npm install frontend
 make dev                                  # backend: uvicorn app.main:app --reload --port 8000 (dev — SQLite, без Docker)
-cd backend && pytest                      # 142 passed
+cd backend && pytest                      # 173 passed
 cd backend && pytest tests/test_api.py    # один файл
 cd backend && pytest -k dedup             # по имени
 cd backend && ruff check .                # линт, "All checks passed!"
@@ -37,7 +37,7 @@ cd frontend && npm install
 cd frontend && npm run dev                # localhost:3000, проксирует /api/* на API_INTERNAL_URL
 cd frontend && npm run typecheck          # tsc --noEmit, чисто
 cd frontend && npm run build              # успешно, ~331 kB First Load JS
-cd frontend && npm test                   # vitest run — 76 passed (24 файла)
+cd frontend && npm test                   # vitest run — 88 passed (27 файлов)
 cd frontend && npm test -- ReportForm     # один файл/маска
 make compose-up                           # полный docker-compose: api+worker+db(Postgres/PostGIS)+redis+frontend+caddy
 ```
@@ -148,8 +148,8 @@ Frontend не ходит в backend напрямую — `next.config.mjs` рё�
 
 ## Тесты
 
-- Backend: `backend/tests/test_<module>.py`, один файл на модуль/API-поверхность (`test_api.py`, `test_dedup.py`, `test_worker.py`, `test_alerts.py`, `test_reports.py`, `test_analytics.py`, `test_confidence.py`, `test_confidence_freshness.py`, `test_ranking.py`, `test_normalization.py`, `test_fuel_status.py`, `test_sources.py`, `test_ingest.py`, `test_seed_cli.py`, `test_migrations.py`, `test_schema.py`, `test_health.py`). Гонять один файл: `pytest tests/test_dedup.py`; по имени теста: `pytest -k merge`. 142 passed.
-- Frontend: рядом с модулем как `*.test.ts(x)` (например `frontend/lib/geo.test.ts`, `frontend/components/station/ReportForm.test.tsx`). Один файл/маска: `npm test -- ReportForm`. 76 passed (24 файла).
+- Backend: `backend/tests/test_<module>.py`, один файл на модуль/API-поверхность (`test_api.py`, `test_dedup.py`, `test_worker.py`, `test_alerts.py`, `test_reports.py`, `test_analytics.py`, `test_confidence.py`, `test_confidence_freshness.py`, `test_ranking.py`, `test_normalization.py`, `test_fuel_status.py`, `test_sources.py`, `test_ingest.py`, `test_seed_cli.py`, `test_migrations.py`, `test_schema.py`, `test_health.py`). Гонять один файл: `pytest tests/test_dedup.py`; по имени теста: `pytest -k merge`. 173 passed.
+- Frontend: рядом с модулем как `*.test.ts(x)` (например `frontend/lib/geo.test.ts`, `frontend/components/station/ReportForm.test.tsx`). Один файл/маска: `npm test -- ReportForm`. 88 passed (27 файлов).
 - Офлайн-фикстуры для `seed`: `backend/tests/fixtures/`.
 
 ## Подводные камни
@@ -192,7 +192,7 @@ https://github.com/Sovero/fuelradar.git (ветка `main`). Коммиты — 
 - T09: Frontend-ядро (Next.js App Router, `frontend/app|components|lib`) — карта за абстракцией `MapProvider` (MapLibre+OSM по умолчанию, бесплатно; Яндекс.Карты — опционально, только при `NEXT_PUBLIC_YANDEX_MAPS_API_KEY`, с пользовательским тумблером, R102/R102.1), маркеры цветом по статусу топлива + кольцом по сети (R103, независимые — без кольца), список/фильтры/карточка станции/пустые состояния по макету, PWA. Сверх тикета по прямым просьбам пользователя: тема свет/тёмная (R99), язык RU/EN (R100, `/meta` отдаёт `name_en`), ознакомительный тур (R101). Тесты: 46 passed (vitest), typecheck/build чисты.
 - T10 (последний): персонализация — зоны мониторинга (CRUD + «следить вокруг меня»), приватность (GPS off/ручная точка/забыть позицию), реальная форма «Сообщить» с офлайн-очередью, полная лента уведомлений, вход magic-link/Telegram. Админка (`app/admin`) — источники + журнал загрузок (R104), покрытие/индекс, очередь слияний, пользователи и отчёты (админ-токен — вводится человеком, `sessionStorage`, не `.env`). По ходу таска на backend добавлены `GET /admin/reports` и `POST /admin/users/{id}/block` — значились в контракте, но не были реализованы. R25/R77 (сети в правилах/сортировке) — клиентский компромисс: backend не отдаёт числовой id бренда и не хранит персональные приоритеты, см. interfaces.md. Тесты: 76 passed (frontend), 139 passed (backend).
 
-Сборка завершена (10/10 тасков). Все требования брифа закрыты, отложены (роадмап) или помечены как заглушка/клиентский компромисс — детали в `.autopilot/fuelradar/manifest.md`.
+Сборка в текущей волне: 13/15 тасков завершено; T14 (realtime/Web Push) и T15 (браузерные E2E) остаются в очереди. Все требования брифа закрыты, отложены (роадмап) или помечены как заглушка/клиентский компромисс — детали в `.autopilot/fuelradar/manifest.md`.
 
 Пост-приёмочная доводка (по прямому запросу пользователя «реши все проблемы» — оба открытых пункта из отчёта приёмки):
 - `/metrics` был пуст у api-процесса (счётчики писал только воркер) — `core/metrics.py` получил опциональный Redis-бэкенд (`REDIS_URL`), без него поведение прежнее.
@@ -202,6 +202,7 @@ https://github.com/Sovero/fuelradar.git (ветка `main`). Коммиты — 
 Волна 8+ — второй проход по требованиям, снятым пользователем с роадмапа (таски 11–15):
 - T11: Route Mode (R22, `backend/app/route/` + `frontend/components/route/`) — `POST /api/v1/route/stations`: коридор по polyline ≥2 точек (0,5–50 км, стандартные фильтры), расстояние до ближайшего сегмента, 422 на русском; UI — панель RouteModePanel (клики по карте добавляют точки, честная пометка «коридор, без routing-провайдера»), линия — в обеих реализациях карты через `MapProviderProps.routePolyline`/`onMapClick`. Тесты: 149 passed (backend), 79 passed (frontend).
 - T12: Прогноз/heatmap/районы дефицита (R49/R50/R79, `backend/app/analytics/forecast.py|heat.py`, `frontend/lib/heatmap.ts`) — прогноз-эвристика (не ML) только из снэпшота аналитики: «появление» по доле завершённых эпизодов + ETA, «исчезновение» по Пуассону, мало данных → null + русская причина, `is_forecast=true`; heatmap — круги `MapProviderProps.heatCircles` в обеих картах, неоднозначные статусы не голосуют (ячейки нет), легенда с текстом; BI — `GET /admin/deficit-by-region` с размером выборки и предупреждением о пилотных данных (вкладка админки). Тесты: 156 passed (backend), 85 passed (frontend).
+- T13: Цена топлива end-to-end (R78) — nullable цена/валюта/время/источник в текущем агрегате и идемпотентная additive-миграция; `POST /reports` принимает цену вместе со статусом и пишет append-only observation с валидацией; список/detail/favorites и Route Mode возвращают/учитывают `price_max`; последняя свежая цена не затирается пустым новым опросом до TTL; карточка/список/форма показывают цену, время/источник и «нет данных» на RU/EN. Тесты: 173 passed backend, 88 passed frontend; ruff/typecheck/build чистые.
 <!-- autopilot:end -->
 
 <!-- IJFW-MEMORY-START -->

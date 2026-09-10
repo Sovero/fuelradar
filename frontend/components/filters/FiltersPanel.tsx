@@ -111,6 +111,26 @@ export function FiltersPanel() {
           </label>
 
           <label className="flex flex-col gap-1 text-sm">
+            <span className="text-xs font-semibold uppercase text-gray-500">{t("filters.priceMax")}</span>
+            <input
+              type="number"
+              min={0}
+              step={0.5}
+              value={filters.priceMax ?? ""}
+              onChange={(e) => {
+                const raw = e.target.value;
+                const n = raw === "" ? null : Number(raw);
+                setFilters({ priceMax: n !== null && Number.isFinite(n) && n > 0 ? n : null });
+              }}
+              disabled={filters.fuels.length !== 1}
+              aria-describedby="price-max-hint"
+              placeholder={t("filters.priceMax")}
+              className="rounded-md border border-gray-300 px-2 py-1.5 disabled:opacity-50 dark:border-gray-700 dark:bg-gray-800"
+            />
+            <span id="price-max-hint" className="text-xs text-gray-400">{t("filters.priceMax.hint")}</span>
+          </label>
+
+          <label className="flex flex-col gap-1 text-sm">
             <span className="text-xs font-semibold uppercase text-gray-500">{t("filters.radius")}</span>
             <input
               type="number"
@@ -126,7 +146,7 @@ export function FiltersPanel() {
             <button
               type="button"
               onClick={() =>
-                setFilters({ brand: null, status: null, confidenceMin: null, queueMax: null, search: "" })
+                setFilters({ brand: null, status: null, confidenceMin: null, queueMax: null, priceMax: null, search: "" })
               }
               className="text-sm text-gray-500 underline hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
             >

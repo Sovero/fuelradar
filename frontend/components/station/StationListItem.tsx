@@ -3,8 +3,9 @@
 /** Карточка списка по макету §107 (R74): «ЛУКОЙЛ, ул.…, AI-95 ● Есть, 91%, 3.8 км · 9 мин, очередь: небольшая, обновлено 12 мин назад». */
 
 import { useMeta } from "@/lib/hooks/useMeta";
+import { useI18n } from "@/lib/hooks/useI18n";
 import { statusVisual } from "@/lib/map/statusColor";
-import { formatConfidence, formatDistance, formatEtaMinutes, formatUpdatedAt } from "@/lib/format";
+import { formatConfidence, formatDistance, formatEtaMinutes, formatPrice, formatUpdatedAt } from "@/lib/format";
 import type { StationBrief } from "@/lib/types";
 
 export function StationListItem({
@@ -17,6 +18,7 @@ export function StationListItem({
   onSelect: (id: string) => void;
 }) {
   const { fuelLabel, statusLabel, queueLabel } = useMeta();
+  const { t } = useI18n();
 
   const relevant = selectedFuelCodes.length ? station.statuses.filter((s) => selectedFuelCodes.includes(s.fuel_code)) : station.statuses;
   const best = relevant.slice().sort((a, b) => b.confidence - a.confidence)[0] ?? null;
@@ -45,9 +47,18 @@ export function StationListItem({
           "Нет данных по выбранному топливу"
         )}
       </p>
+      {best && (
+        <p className="text-xs text-gray-500 dark:text-gray-400">
+          {t("station.price")}: {best.price !== null && best.price !== undefined
+            ? formatPrice(best.price, best.price_currency ?? "RUB", { noData: t("station.price.noData") })
+            : t("station.price.noData")}
+          {best.price_updated_at && <> · {t("station.updated")} {formatUpdatedAt(best.price_updated_at)}</>}
+          {best.price_source && <> · {best.price_source}</>}
+        </p>
+      )}
       <p className="text-xs text-gray-400 dark:text-gray-500">
         {formatDistance(station.distance_km)} · {formatEtaMinutes(station.eta_minutes)} в пути · очередь:{" "}
-        {station.queue ? queueLabel(station.queue.level) : "—"} · обновлено {formatUpdatedAt(best?.updated_at)}
+        {station.queue ? queueLabel(station.queue.level) : "—"} · {t("station.updated")} {formatUpdatedAt(best?.updated_at)}
       </p>
     </button>
   );

@@ -18,12 +18,22 @@ class FuelStatusBrief(BaseModel):
     confidence: int
     updated_at: datetime | None = None
     expires_at: datetime | None = None
+    # R78 (T13): цена последнего свежего наблюдения — nullable, обратно совместимо.
+    # Отсутствие цены = отсутствие поля-значения (null), UI показывает «нет данных», не 0 (R78.3).
+    price: float | None = None
+    price_currency: str | None = None
+    price_updated_at: datetime | None = None
+    price_source_provider_id: int | None = None
+    price_source: str | None = None
 
     @model_validator(mode="after")
     def expire_status(self):
         from datetime import UTC
         if self.expires_at and self.expires_at.replace(tzinfo=None) <= datetime.now(UTC).replace(tzinfo=None):
             self.status, self.confidence = "UNKNOWN", 0
+            # R78.3: протухло всё наблюдение → цена тоже не «свежая», не показываем.
+            self.price, self.price_currency, self.price_updated_at = None, None, None
+            self.price_source_provider_id, self.price_source = None, None
         return self
 
 
@@ -63,6 +73,8 @@ class HistoryItem(BaseModel):
     source: str
     observed_at: datetime
     received_at: datetime | None = None
+    price: float | None = None
+    price_currency: str | None = None
 
 
 class DevLoginBody(BaseModel):

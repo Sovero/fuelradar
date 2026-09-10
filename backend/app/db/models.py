@@ -183,6 +183,12 @@ class StationCurrentStatus(Base):  # §83/§85 station_current_status — рез
     queue_vehicles: Mapped[int | None] = mapped_column(Integer, nullable=True)
     estimated_wait_minutes: Mapped[int | None] = mapped_column(Integer, nullable=True)  # R20/R45
     eta_minutes: Mapped[float | None] = mapped_column(Float, nullable=True)  # R45
+    # R78 (T13): последняя допустимая цена выбранного топлива — с источником и временем,
+    # никогда не 0 при отсутствии данных (nullable, «нет данных» = None).
+    price: Mapped[float | None] = mapped_column(Float, nullable=True)  # R78
+    price_currency: Mapped[str] = mapped_column(String(8), default="RUB")  # R78
+    price_source_provider_id: Mapped[int | None] = mapped_column(ForeignKey("source_providers.id"), nullable=True)  # R78
+    price_updated_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)  # R78.3 — «не путать старую цену»
     status_explanation: Mapped[dict] = mapped_column(JSON, default=dict)  # R71 — источники и вклады
 
 

@@ -11,6 +11,7 @@ describe("filters <-> URL", () => {
       status: "AVAILABLE",
       confidenceMin: 80,
       queueMax: "LOW",
+      priceMax: 62.5,
       search: "Красная",
       includeLikely: true,
       tab: "list" as const,

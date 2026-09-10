@@ -12,6 +12,7 @@
 from __future__ import annotations
 
 import logging
+import math
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
@@ -78,6 +79,13 @@ class StatusService:
     ) -> FuelObservation:
         """Новое наблюдение → новая строка (R17) → пересчёт агрегата (R16)."""
         validate_fuel_status(status)
+        if price is not None:
+            if isinstance(price, bool) or not isinstance(price, (int, float)) or not math.isfinite(price):
+                raise ValueError(f"цена для {fuel_code} должна быть конечным числом")
+            if price <= 0:
+                raise ValueError(f"цена для {fuel_code} должна быть больше нуля")
+            if price > settings.price_max_reasonable:
+                raise ValueError(f"цена для {fuel_code} не может превышать {settings.price_max_reasonable}")
         fuel_type = self._fuel_type(fuel_code)
         at = observed_at or _now()
         observation = FuelObservation(
@@ -90,7 +98,7 @@ class StatusService:
             received_at=_now(),
             expires_at=at + timedelta(minutes=settings.ttl_fuel_minutes),
             confidence_raw=user_reliability or 0.0,
-            price=price,
+            price=float(price) if price is not None else None,
             idempotency_key=idempotency_key,
             report_id=report_id,
         )
@@ -130,7 +138,7 @@ class StatusService:
     # ---------- пересчёт агрегатов ----------
 
     def recompute_station_fuel(self, station_id: str, fuel_type_id: int) -> StationCurrentStatus:
-        rows = self.session.execute(
+        all_rows = self.session.execute(
             select(FuelObservation, SourceProvider.trust)
             .join(SourceProvider, FuelObservation.source_provider_id == SourceProvider.id)
             .where(FuelObservation.station_id == station_id, FuelObservation.fuel_type_id == fuel_type_id)
@@ -139,7 +147,7 @@ class StatusService:
         # One vote per independent provider or reporter; repeated polls are history,
         # not additional independent evidence.
         latest: dict[tuple[int, int | None], Any] = {}
-        for observation, trust in rows:
+        for observation, trust in all_rows:
             report = self.session.get(UserReport, observation.report_id) if observation.report_id else None
             key = (observation.source_provider_id, report.user_id if report else None)
             latest.setdefault(key, (observation, trust))
@@ -157,7 +165,10 @@ class StatusService:
             for row, trust in rows
         ]
         result = aggregate(inputs, _cfg())
-        row = self._upsert_status(station_id, fuel_type_id, result)
+        # Цена — не голос: сохраняем последнее свежее допустимое ценовое
+        # наблюдение даже если более новый опрос этого источника цену не передал.
+        price_meta = self._latest_price(all_rows)
+        row = self._upsert_status(station_id, fuel_type_id, result, price_meta)
         usable = [observation for observation, trust in rows if trust > 0 and observation.status != UNKNOWN]
         if usable:
             row.expires_at = max(observation.expires_at for observation in usable)
@@ -216,7 +227,7 @@ class StatusService:
         self.session.commit()
 
     def _upsert_status(
-        self, station_id: str, fuel_type_id: int, result: Any
+        self, station_id: str, fuel_type_id: int, result: Any, price_meta: dict | None = None
     ) -> StationCurrentStatus:
         row = self.session.scalar(
             select(StationCurrentStatus).where(
@@ -270,6 +281,10 @@ class StatusService:
                 score=score_result.score,
                 score_breakdown=score_result.breakdown,
                 status_explanation=explanation,
+                price=price_meta["price"] if price_meta else None,
+                price_currency=price_meta["currency"] if price_meta else "RUB",
+                price_source_provider_id=price_meta["source_provider_id"] if price_meta else None,
+                price_updated_at=price_meta["updated_at"] if price_meta else None,
             )
             self.session.add(row)
         else:
@@ -280,6 +295,10 @@ class StatusService:
             row.score = score_result.score
             row.score_breakdown = score_result.breakdown
             row.status_explanation = explanation
+            row.price = price_meta["price"] if price_meta else None
+            row.price_currency = price_meta["currency"] if price_meta else "RUB"
+            row.price_source_provider_id = price_meta["source_provider_id"] if price_meta else None
+            row.price_updated_at = price_meta["updated_at"] if price_meta else None
         self.session.flush()
         return row
 
@@ -350,3 +369,37 @@ class StatusService:
             return None
         report = self.session.get(UserReport, report_id)
         return report.gps_confirmed if report is not None else None
+
+    @staticmethod
+    def _latest_price(rows: list[tuple[FuelObservation, float]]) -> dict | None:
+        """R78/§24: последняя допустимая цена из свежих наблюдений.
+
+        Цена не является голосом confidence: выбирается именно самое новое
+        допустимое ценовое наблюдение (при равном времени — большая id), а не
+        источник с максимальным trust×freshness. История остаётся доступной,
+        поэтому новый опрос без цены не затирает последнюю известную цену, пока
+        она не вышла за TTL (R78.3).
+        """
+        now = _now()
+        ttl = settings.ttl_fuel_minutes
+        candidates: list[FuelObservation] = []
+        for observation, trust in rows:
+            price = observation.price
+            if trust <= 0 or price is None:
+                continue
+            if isinstance(price, bool) or not isinstance(price, (int, float)) or not math.isfinite(price):
+                continue
+            if price <= 0 or price > settings.price_max_reasonable:
+                continue
+            age = max(0.0, (now - observation.observed_at).total_seconds() / 60.0)
+            if age < ttl:
+                candidates.append(observation)
+        if not candidates:
+            return None
+        observation = max(candidates, key=lambda item: (item.observed_at, item.id))
+        return {
+            "price": observation.price,
+            "currency": observation.currency or "RUB",
+            "source_provider_id": observation.source_provider_id,
+            "updated_at": observation.observed_at,
+        }

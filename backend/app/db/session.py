@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from ..core.config import settings
 from .base import Base
-from .migrations import upgrade_spatial_index, upgrade_worker_jobs
+from .migrations import upgrade_prices, upgrade_spatial_index, upgrade_worker_jobs
 from .models import FuelBrand, FuelType, SourceProvider
 
 _engine = create_engine(
@@ -75,6 +75,7 @@ def init_db() -> None:
     Base.metadata.create_all(_engine)
     upgrade_worker_jobs(_engine)
     upgrade_spatial_index(_engine)
+    upgrade_prices(_engine)
     with Session(_engine) as session:
         for code, name in FUEL_TYPES:
             if session.scalar(select(FuelType).where(FuelType.code == code)) is None:

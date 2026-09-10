@@ -25,6 +25,7 @@ class RouteStationsRequest(BaseModel):
     status: str | None = None
     confidence_min: int | None = None
     queue_max: str | None = None
+    price_max: float | None = Field(default=None, gt=0)  # R78.1 — «дешевле X» вдоль коридора
     preferred_brands: str | None = None
     limit: int = Field(default=100, ge=1, le=100)
     offset: int = Field(default=0, ge=0)

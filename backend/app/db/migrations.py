@@ -53,3 +53,30 @@ def upgrade_worker_jobs(engine: Engine) -> None:
                 "CREATE UNIQUE INDEX IF NOT EXISTS uq_collection_active ON collection_jobs "
                 "(source_provider_id, job_type, coalesce(station_id,'')) WHERE status IN ('PENDING','RUNNING')"
             ))
+
+
+def upgrade_prices(engine: Engine) -> None:
+    """R78 (T13): price-колонки агрегата для каталогов, созданных до T13.
+
+    Идемпотентно: сначала инспекция, добавление только отсутствующих колонок.
+    Внутри одного engine.begin() — атомарно для Postgres, итеративно для SQLite.
+    """
+    with engine.begin() as connection:
+        if connection.dialect.name == "postgresql":
+            connection.execute(text("SELECT pg_advisory_xact_lock(72819301)"))
+        inspector = inspect(connection)
+        if not inspector.has_table("station_current_status"):
+            return
+        columns = {column["name"] for column in inspector.get_columns("station_current_status")}
+        additions = {
+            "price": "FLOAT",
+            "price_currency": "VARCHAR(8) DEFAULT 'RUB' NOT NULL",
+            "price_source_provider_id": "INTEGER",
+        }
+        for name, sql_type in additions.items():
+            if name not in columns:
+                connection.execute(text(f"ALTER TABLE station_current_status ADD COLUMN {name} {sql_type}"))
+        if "price_updated_at" not in columns:
+            connection.execute(text(
+                "ALTER TABLE station_current_status ADD COLUMN price_updated_at TIMESTAMP"
+            ))

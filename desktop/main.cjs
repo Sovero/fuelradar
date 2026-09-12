@@ -15,8 +15,10 @@
  * окна (иначе вход ломается), остальные внешние ссылки — в системный браузер,
  * `tg://` — в Telegram-клиент пользователя.
  *
- * Автообновление: electron-updater (NSIS, generic-провайдер). URL фида задаётся
- * в `build.publish` при сборке (см. desktop/README.md); в dev-режиме проверка
+ * Автообновление: electron-updater (NSIS, github-провайдер → Releases
+ * приватного репозитория). Каждый запрос фида подписывается токеном из
+ * resources/update-feed-token (посылается сборщиком, см. desktop/README.md);
+ * без токена автообновление в сборке честно отключено. В dev-режиме проверка
  * обновлений честно не выполняется.
  */
 
@@ -258,13 +260,45 @@ function handleExternalUrl(url) {
   }
 }
 
-// ---------- автообновление (electron-updater, NSIS) ----------
+// ---------- автообновление (electron-updater, NSIS, приватный GitHub-фид) ----------
 
-function initAutoUpdate() {
-  if (!app.isPackaged || SMOKE) return; // в dev обновляться не с чего — честно не проверяем
+/** Токен доступа к приватному фиду (resources/update-feed-token); нет файла — нет доступа. */
+function readFeedToken() {
+  try {
+    const token = fs.readFileSync(path.join(process.resourcesPath, "update-feed-token"), "utf8").trim();
+    return token || null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Настроенный autoUpdater или null (dev / нет токена / конфиг не github).
+ *
+ * Релизы лежат в Releases ПРИВАТНОГО репозитория: обычный GitHubProvider ходит
+ * на github.com (atom-фид, /releases/latest, download-ссылки), и эти endpoинты
+ * не принимают API-токены — приватный репозиторий для него всегда 404. Поэтому
+ * при наличии токена переключаем фид на PrivateGitHubProvider через setFeedURL
+ * ({provider: "github", private: true, token}): он работает через api.github.com
+ * (releases/latest + asset API, Accept: application/octet-stream) — там
+ * fine-grained PAT с правом Contents: read авторизует и чтение фида, и загрузку.
+ */
+let configuredUpdater = null;
+
+function getUpdater() {
+  if (configuredUpdater) return configuredUpdater;
+  if (!app.isPackaged) return null;
+  const token = readFeedToken();
+  if (!token) return null;
   try {
     // eslint-disable-next-line global-require
     const { autoUpdater } = require("electron-updater");
+    // js-yaml — prod-зависимость electron-updater, доступна в asar пакета.
+    // eslint-disable-next-line global-require
+    const yaml = require("js-yaml");
+    const cfg = yaml.load(fs.readFileSync(path.join(process.resourcesPath, "app-update.yml"), "utf8"));
+    if (!cfg || cfg.provider !== "github" || !cfg.owner || !cfg.repo) return null;
+    autoUpdater.setFeedURL({ provider: "github", owner: cfg.owner, repo: cfg.repo, private: true, token });
     autoUpdater.autoDownload = true;
     autoUpdater.autoInstallOnAppQuit = true;
     autoUpdater.on("update-downloaded", () => {
@@ -276,15 +310,27 @@ function initAutoUpdate() {
       }
     });
     autoUpdater.on("error", (error) => {
-      // Нет сети / не настроен фид — обновление не критичная функция (как офлайн-кэш R05).
+      // Нет сети / истёк токен — обновление не критичная функция (как офлайн-кэш R05).
       console.warn("[updates]", error?.message ?? error);
     });
-    const check = () => autoUpdater.checkForUpdatesAndNotify().catch(() => {});
-    check();
-    setInterval(check, UPDATE_CHECK_INTERVAL_MS);
+    configuredUpdater = autoUpdater;
+    return configuredUpdater;
   } catch (error) {
     console.warn("[updates] недоступно:", error?.message ?? error);
+    return null;
   }
+}
+
+function initAutoUpdate() {
+  if (!app.isPackaged || SMOKE) return; // в dev обновляться не с чего — честно не проверяем
+  const updater = getUpdater();
+  if (!updater) {
+    console.warn("[updates] токен фида не упакован — автообновление отключено (R97i)");
+    return;
+  }
+  const check = () => updater.checkForUpdatesAndNotify().catch(() => {});
+  check();
+  setInterval(check, UPDATE_CHECK_INTERVAL_MS);
 }
 
 function buildMenu() {
@@ -296,14 +342,9 @@ function buildMenu() {
         {
           label: "Проверить обновления",
           click: () => {
-            if (!app.isPackaged) return;
-            try {
-              // eslint-disable-next-line global-require
-              const { autoUpdater } = require("electron-updater");
-              autoUpdater.checkForUpdatesAndNotify().catch(() => {});
-            } catch {
-              // обновление не критичная функция
-            }
+            const updater = getUpdater();
+            if (!updater) return; // dev или сборка без токена — честно ничего не делаем
+            updater.checkForUpdatesAndNotify().catch(() => {});
           },
         },
         { type: "separator" },
@@ -327,10 +368,12 @@ ipcMain.on("fuelradar:version", (event) => {
 
 ipcMain.handle("fuelradar:check-updates", async () => {
   if (!app.isPackaged) return { supported: false, reason: "dev-run: обновляться не с чего (R97i)" };
+  const updater = getUpdater();
+  if (!updater) {
+    return { supported: false, current: app.getVersion(), reason: "Токен фида обновлений не упакован в эту сборку — обновление отключено (см. desktop/README.md)" };
+  }
   try {
-    // eslint-disable-next-line global-require
-    const { autoUpdater } = require("electron-updater");
-    const result = await autoUpdater.checkForUpdates();
+    const result = await updater.checkForUpdates();
     const info = result?.updateInfo;
     return {
       supported: true,
@@ -339,7 +382,7 @@ ipcMain.handle("fuelradar:check-updates", async () => {
       latest: info?.version ?? null,
     };
   } catch (error) {
-    // Нет сети / фид не настроен — обновление не критичная функция (R97i).
+    // Нет сети / истёк токен — обновление не критичная функция (R97i).
     return { supported: true, current: app.getVersion(), available: false, error: String(error?.message ?? error) };
   }
 });

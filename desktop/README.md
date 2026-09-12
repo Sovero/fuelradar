@@ -67,10 +67,32 @@ npm run smoke       # быстрая проверка: окно + сервер +
 
 - `electron-updater`, NSIS, `autoDownload` + установка при выходе; проверка
   при старте и раз в 4 часа; уведомление «обновление загружено».
-- Фид — `publish` в `desktop/package.json` (`provider: generic`,
-  `url: https://updates.fuelradar.example/desktop/` — **замените на реальный**).
-  На сервер достаточно выложить `FuelRadar-Setup-<v>.exe`, `latest.yml`
-  и `.blockmap` — updater сам сравнит версию и sha512.
+- Фид — **Releases приватного репозитория** `Sovero/fuelradar`
+  (`build.publish` = `provider: github`); owner/repo запекаются при сборке в
+  `resources/app-update.yml`. Публикация релиза:
+  ```
+  gh release create vX.Y.Z dist/FuelRadar-Setup-X.Y.Z.exe \
+    dist/FuelRadar-Setup-X.Y.Z.exe.blockmap dist/latest.yml
+  ```
+- **Токен фида** (репозиторий приватный): fine-grained PAT с единственным
+  правом **Contents: Read-only** только для этого репозитория
+  (<https://github.com/settings/personal-access-tokens/new>). Положите его в
+  `desktop/.update-feed-token` (в git не попадает, см. .gitignore) **перед**
+  сборкой — afterPack (`scripts/patch-feed-token.cjs`) упакует его в
+  `resources/update-feed-token`.
+- В рантайме `main.cjs` читает токен и переключает фид на
+  `setFeedURL({provider:"github", private:true, token})` →
+  PrivateGitHubProvider работает через **api.github.com** (`releases/latest`
+  + asset API). Обычные github.com-эндпоинты (atom-фид, `/releases/latest`,
+  download-ссылки) API-токены не принимают — для приватного репозитория они
+  всегда 404, поэтому `addAuthHeader` с публичной схемой здесь не работает.
+- **Токена нет** → сборка работает, автообновление в ней честно отключено
+  (при старте пишется `[updates] токен фида не упакован`, IPC возвращает
+  `supported: false` — R97i). Токен истёк/отозван → апдейтер молча пишет
+  ошибку в лог, приложение работает как обычно.
 - В dev-режиме обновления не проверяются (проверять не с чего — честно).
+- Проверка обновления end-to-end: установить сборку версии N (с токеном),
+  опубликовать релиз N+1 по инструкции выше, запустить приложение N →
+  «обновление загружено», закрыть → при следующем запуске версия N+1.
 - Подпись кода сейчас отсутствует (`signing is skipped`); SmartScreen будет
   предупреждать до подключения сертификата.

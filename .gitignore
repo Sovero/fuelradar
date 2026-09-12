@@ -31,3 +31,10 @@ Thumbs.db
 # thread workspace artifacts
 .freebuff/
 desktop/dist/
+
+# Playwright E2E artifacts (T15)
+frontend/test-results/
+frontend/playwright-report/
+
+# Токен фида автообновлений (никогда в git; см. desktop/README.md)
+desktop/.update-feed-token

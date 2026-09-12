@@ -1,13 +1,14 @@
 {
   "name": "fuelradar-desktop",
   "productName": "FuelRadar",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "private": true,
   "description": "FuelRadar — мониторинг доступности топлива на АЗС (десктоп-оболочка)",
   "author": "FuelRadar <dev@fuelradar.local>",
   "main": "main.cjs",
   "scripts": {
     "prepare:server": "node scripts/prepare-server.mjs",
+    "patch:feed": "node scripts/patch-feed-token.cjs",
     "icon": "node scripts/make-icon.mjs",
     "start": "electron .",
     "smoke": "cross-env FUELRADAR_SMOKE=1 electron .",
@@ -25,6 +26,7 @@
   },
   "build": {
     "appId": "ru.fuelradar.desktop",
+    "afterPack": "scripts/patch-feed-token.cjs",
     "productName": "FuelRadar",
     "copyright": "© 2026 FuelRadar",
     "directories": {
@@ -67,13 +69,12 @@
       "artifactName": "FuelRadar-Setup-${version}.${ext}",
       "deleteAppDataOnUninstall": false
     },
-    "publish": [
-      {
-        "provider": "generic",
-        "url": "https://updates.fuelradar.example/desktop/",
-        "channel": "latest"
-      }
-    ]
+    "publish": {
+      "provider": "github",
+      "owner": "Sovero",
+      "repo": "fuelradar",
+      "releaseType": "release"
+    }
   },
   "allowScripts": {
     "electron@33.4.11": true

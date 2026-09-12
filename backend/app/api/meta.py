@@ -6,6 +6,8 @@ from fastapi import APIRouter, Depends
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from ..alerts.channels import web_push_configured
+from ..core.config import settings
 from ..db.models import FuelBrand, FuelType, SourceProvider, StationBrand
 from ..db.session import get_db
 from ..fuel_status import FUEL_STATUSES, QUEUE_LEVELS
@@ -98,4 +100,10 @@ def meta(session: Session = Depends(get_db)) -> dict:
         "queue_levels": [
             {"code": code, "name_ru": QUEUE_LEVEL_RU[code], "name_en": QUEUE_LEVEL_EN[code]} for code in QUEUE_LEVELS
         ],
+        # T14 (R64/R97i): публичный VAPID-ключ — это не секрет (идентифицирует
+        # сервер для push-сервиса); приватный ключ остаётся только в .env (R68).
+        "push": {
+            "enabled": web_push_configured(),
+            "vapid_public_key": settings.vapid_public_key if web_push_configured() else None,
+        },
     }

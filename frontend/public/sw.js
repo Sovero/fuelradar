@@ -32,6 +32,45 @@ self.addEventListener("activate", (event) => {
   self.clients.claim();
 });
 
+// ---------- Push (T14, R64): показать уведомление и открыть карточку станции ----------
+
+/** Payload от backend (alerts/channels.py): {title, body, station_id, event_type}. */
+self.addEventListener("push", (event) => {
+  let data = {};
+  try {
+    data = event.data ? event.data.json() : {};
+  } catch (err) {
+    data = { title: "FuelRadar", body: event.data ? event.data.text() : "" };
+  }
+  const title = data.title || "FuelRadar";
+  const options = {
+    body: data.body || "",
+    icon: "/icon.svg",
+    badge: "/icon.svg",
+    tag: data.station_id ? `fuelradar-${data.station_id}` : undefined, // не дублируем уведомления по той же АЗС
+    data: { station_id: data.station_id || null },
+  };
+  event.waitUntil(self.registration.showNotification(title, options));
+});
+
+self.addEventListener("notificationclick", (event) => {
+  event.notification.close();
+  const stationId = event.notification.data && event.notification.data.station_id;
+  const target = stationId ? `/?station=${encodeURIComponent(stationId)}` : "/";
+  event.waitUntil(
+    self.clients.matchAll({ type: "window", includeUncontrolled: true }).then((clientList) => {
+      // Уже открытое окно — фокусируем и сообщаем ему про станцию, а не плодим вкладки.
+      for (const client of clientList) {
+        if ("focus" in client) {
+          client.navigate(target).catch(() => undefined);
+          return client.focus();
+        }
+      }
+      return self.clients.openWindow(target);
+    }),
+  );
+});
+
 function isTileRequest(url) {
   return /tile\.openstreetmap\.org/.test(url) || /\/\d+\/\d+\/\d+\.png$/.test(url);
 }

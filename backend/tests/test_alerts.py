@@ -294,13 +294,14 @@ def test_web_push_not_configured_without_keys(monkeypatch):
     assert channels.send_web_push(user, event, station) == "not_configured"
 
 
-def test_web_push_attempts_when_keys_present(monkeypatch):
+def test_web_push_without_subscriptions_is_honest(monkeypatch):
+    """T14: ключи заданы, но хранилище подписок пусто — честный статус, не «sent»."""
     monkeypatch.setattr(settings, "vapid_public_key", "pub-key")
     monkeypatch.setattr(settings, "vapid_private_key", "priv-key")
     user = User(id=1, telegram_id=None)
     event = AlertEvent(id=1, user_id=1, station_id="x", event_type="FUEL_APPEARED", payload={})
     station = Station(id="x", latitude=1, longitude=1)
-    assert channels.send_web_push(user, event, station) == "sent"
+    assert channels.send_web_push(user, event, station) == "no_subscriptions"
 
 
 def test_telegram_not_configured_without_token(monkeypatch):

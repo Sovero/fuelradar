@@ -72,6 +72,10 @@ def init_db() -> None:
     from ..alerts.models import AlertStateSnapshot  # noqa: F401
     from ..analytics.models import AnalyticsSnapshot  # noqa: F401
 
+    # T14: push_subscriptions объявлена в db/models.py, но явный импорт держит
+    # init_db() самодостаточным (см. комментарий выше про AlertStateSnapshot).
+    from .models import PushSubscription  # noqa: F401
+
     Base.metadata.create_all(_engine)
     upgrade_worker_jobs(_engine)
     upgrade_spatial_index(_engine)

@@ -16,10 +16,11 @@ import { PrivacySettings } from "@/components/settings/PrivacySettings";
 import { ObservationModeSettings } from "@/components/settings/ObservationModeSettings";
 import { NetworkPreferences } from "@/components/settings/NetworkPreferences";
 import { AlertRulesPanel } from "@/components/settings/AlertRulesPanel";
+import { PushSettingsPanel } from "@/components/settings/PushSettingsPanel";
 
-type SettingsTab = "zones" | "privacy" | "observation" | "networks" | "rules";
+type SettingsTab = "zones" | "privacy" | "observation" | "networks" | "rules" | "push";
 
-const TABS: SettingsTab[] = ["zones", "privacy", "observation", "networks", "rules"];
+const TABS: SettingsTab[] = ["zones", "privacy", "observation", "networks", "rules", "push"];
 
 export function SettingsScreen() {
   const { user, loading } = useAuth();
@@ -78,6 +79,7 @@ export function SettingsScreen() {
             {tab === "observation" && <ObservationModeSettings />}
             {tab === "networks" && <NetworkPreferences />}
             {tab === "rules" && <AlertRulesPanel />}
+            {tab === "push" && <PushSettingsPanel />}
           </div>
         </div>
       )}

@@ -123,6 +123,11 @@ class Settings(BaseSettings):
     # --- цена топлива (T13, §24) ---
     price_max_reasonable: float = 200.0    # R78.4 — «чрезмерное значение» отклоняется (₽/л)
 
+    # --- realtime и Web Push (T14, §25) ---
+    sse_poll_seconds: float = 1.0          # период проверки data_revision для SSE
+    sse_max_seconds: int = 300             # макс. жизнь SSE-соединения (переподключение клиента)
+    sse_max_clients: int = 200             # предохранитель от исчерпания соединений (dev-масштаб)
+
 
 @lru_cache
 def get_settings() -> Settings:

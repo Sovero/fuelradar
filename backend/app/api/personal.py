@@ -5,15 +5,31 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException, Response
+from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from ..core.config import settings
-from ..db.models import AlertRule, Favorite, FuelType, MonitoringZone, SourceProvider, Station, User
+from ..db.models import (
+    AlertRule,
+    Favorite,
+    FuelType,
+    MonitoringZone,
+    PushSubscription,
+    SourceProvider,
+    Station,
+    User,
+)
 from ..db.session import get_db
 from .deps import require_user
-from .schemas import AlertRuleBody, AlertRuleOut, ZoneBody, ZoneOut
+from .schemas import (
+    AlertRuleBody,
+    AlertRuleOut,
+    PushSubscriptionBody,
+    PushSubscriptionOut,
+    ZoneBody,
+    ZoneOut,
+)
 from .stations import _snapshot, _station_brief
 
 router = APIRouter(tags=["personal"])
@@ -190,5 +206,82 @@ def delete_alert(rule_id: int, session: Session = Depends(get_db), user: User = 
     if rule is None or rule.user_id != user.id:
         raise HTTPException(status_code=404, detail="Правило не найдено")
     session.delete(rule)
+    session.commit()
+    return Response(status_code=204)
+
+
+# ---------- push-подписки браузера (T14, R64/R97i) ----------
+
+
+MAX_PUSH_SUBSCRIPTIONS_PER_USER = 10  # браузеры/устройства одного профиля
+
+
+def _push_out(row: PushSubscription) -> PushSubscriptionOut:
+    from urllib.parse import urlparse
+
+    host = urlparse(row.endpoint).hostname or ""
+    return PushSubscriptionOut(
+        id=row.id,
+        endpoint=row.endpoint,
+        endpoint_host=host,
+        is_active=row.is_active,
+        created_at=row.created_at,
+        last_success_at=row.last_success_at,
+    )
+
+
+@router.get("/push/subscriptions")
+def list_push_subscriptions(session: Session = Depends(get_db), user: User = Depends(require_user)) -> list[PushSubscriptionOut]:
+    return [
+        _push_out(row)
+        for row in session.scalars(
+            select(PushSubscription).where(PushSubscription.user_id == user.id).order_by(PushSubscription.id)
+        )
+    ]
+
+
+@router.post("/push/subscriptions", status_code=201)
+def create_push_subscription(
+    body: PushSubscriptionBody,
+    request: Request,
+    session: Session = Depends(get_db),
+    user: User = Depends(require_user),
+) -> PushSubscriptionOut:
+    if user.is_blocked:
+        raise HTTPException(status_code=403, detail="Профиль заблокирован")
+
+    # Идемпотентность: тот же endpoint → обновляем ключи (браузер их ротирует), не плодим строки.
+    # Лимит считаем только для НОВЫХ endpoint — иначе профиль на 10/10 не сможет
+    # переподписать уже существующий браузер (ротация ключей = тот же endpoint).
+    row = session.scalar(select(PushSubscription).where(PushSubscription.endpoint == body.endpoint))
+    if row is None:
+        count = session.scalar(select(func.count()).select_from(PushSubscription).where(PushSubscription.user_id == user.id))
+        if (count or 0) >= MAX_PUSH_SUBSCRIPTIONS_PER_USER:
+            raise HTTPException(status_code=400, detail=f"Достигнут лимит push-подписок ({MAX_PUSH_SUBSCRIPTIONS_PER_USER})")
+        row = PushSubscription(endpoint=body.endpoint)
+        session.add(row)
+    if row.user_id != user.id:
+        # endpoint уже занят другим профилем: переподписка того же браузера под другим
+        # аккаунтом — легитимный сценарий, забираем подписку себе (старая перестаёт действовать).
+        row.user_id = user.id
+    row.p256dh = body.keys["p256dh"]
+    row.auth = body.keys["auth"]
+    row.user_agent = (request.headers.get("user-agent") or "")[:256]
+    row.is_active = True
+    row.last_error = ""
+    session.commit()
+    return _push_out(row)
+
+
+@router.delete("/push/subscriptions/{subscription_id}", status_code=204)
+def delete_push_subscription(
+    subscription_id: int,
+    session: Session = Depends(get_db),
+    user: User = Depends(require_user),
+) -> Response:
+    row = session.get(PushSubscription, subscription_id)
+    if row is None or row.user_id != user.id:
+        raise HTTPException(status_code=404, detail="Подписка не найдена")
+    session.delete(row)
     session.commit()
     return Response(status_code=204)

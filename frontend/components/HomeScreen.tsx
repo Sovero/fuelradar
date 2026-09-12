@@ -8,6 +8,7 @@ import { useI18n } from "@/lib/hooks/useI18n";
 import { useStations } from "@/lib/hooks/useStations";
 import { useRouteStations } from "@/lib/hooks/useRouteStations";
 import { useHeat } from "@/lib/hooks/useHeat";
+import { useRealtime } from "@/lib/hooks/useRealtime";
 import { useFavorites } from "@/lib/hooks/useFavorites";
 import { useObservationMode } from "@/lib/hooks/useObservationMode";
 import { useNetworkPreferences } from "@/lib/hooks/useNetworkPreferences";
@@ -90,7 +91,11 @@ function HomeScreenBody() {
     [filters.lat, filters.lon, filters.radiusKm, filters.brand, filters.fuels, filters.status, filters.confidenceMin, filters.queueMax, filters.priceMax, filters.sort, preferredBrandsParam],
   );
 
-  const { stations, loading, error, isStale } = useStations(query);
+  const { stations, loading, error, isStale, refetch } = useStations(query);
+  // T14 (R64): SSE-сигнал «данные изменились» → переподтягиваем станции обычным
+  // GET (R82). При обрыве соединения данные на экране не трогаются — живём на
+  // последнем успешном ответе (и офлайн-кэше), EventSource переподключится сам.
+  const realtimeState = useRealtime({ onRevision: () => refetch() });
   const routeReady = routeActive && routePoints.length >= 2;
   const routeQuery = useMemo(
     () => ({
@@ -192,6 +197,11 @@ function HomeScreenBody() {
 
       {visibleError && (!isStale || routeReady) && <p className="px-4 py-2 text-sm text-red-600 dark:text-red-400">{visibleError}</p>}
       {isStale && !routeReady && <p className="bg-amber-50 px-4 py-1 text-xs text-amber-700 dark:bg-amber-950 dark:text-amber-300">{t("error.stale")}</p>}
+      {/* T14 (R64): честный индикатор живого канала — только когда соединение потеряно.
+          live/connecting не шумят: connecting виден долю секунды при старте. */}
+      {realtimeState === "offline" && (
+        <p className="bg-gray-100 px-4 py-1 text-xs text-gray-500 dark:bg-gray-900 dark:text-gray-400">{t("realtime.offline")}</p>
+      )}
 
       <main className="relative flex-1 overflow-hidden" data-tour="map">
         {isEmpty ? (

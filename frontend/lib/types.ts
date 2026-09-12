@@ -137,6 +137,8 @@ export interface Meta {
   sources: MetaSource[];
   fuel_statuses: MetaStatus[];
   queue_levels: MetaStatus[];
+  /** T14 (R64): Web Push — публичный VAPID-ключ (не секрет); без ключей на сервере — enabled: false. */
+  push?: { enabled: boolean; vapid_public_key: string | null };
 }
 
 export interface AuthUser {

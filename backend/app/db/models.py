@@ -226,6 +226,33 @@ class Favorite(Base):  # §83 favorites
     created_at: Mapped[datetime] = mapped_column(DateTime, default=_now)
 
 
+class PushSubscription(Base):  # T14 (R64/R97i): браузерные push-подписки Web Push
+    """Endpoint + ключи шифрования браузера. Секреты пользователя (не сервера):
+    p256dh/auth нужны для шифрования payload, хранятся обязательно (спека Web Push),
+    но никогда не возвращаются API и не логируются (R68).
+
+    Уникальность endpoint — идемпотентный POST: повторная подписка того же браузера
+    обновляет p256dh/auth (браузер их ротирует), а не создаёт дубликаты.
+    """
+
+    __tablename__ = "push_subscriptions"
+    __table_args__ = (
+        UniqueConstraint("endpoint", name="uq_push_endpoint"),
+        Index("ix_push_subscriptions_user", "user_id"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
+    endpoint: Mapped[str] = mapped_column(Text)
+    p256dh: Mapped[str] = mapped_column(String(128))
+    auth: Mapped[str] = mapped_column(String(64))
+    user_agent: Mapped[str] = mapped_column(String(256), default="")
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_now)
+    last_success_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    last_error: Mapped[str] = mapped_column(String(256), default="")
+
+
 # ---------- уведомления ----------
 
 class AlertRule(Base):  # §83 alert_rules

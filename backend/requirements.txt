@@ -6,6 +6,7 @@ pydantic-settings>=2.6
 httpx>=0.27
 PyJWT>=2.9
 redis>=5.0
+pywebpush>=2.0  # T14 (R64): Web Push Protocol + VAPID для реальной доставки push
 
 # dev/test
 pytest>=8.3

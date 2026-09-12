@@ -23,6 +23,7 @@ from .api import api_router
 from .api.deps import rate_limit
 from .core.config import settings
 from .db.session import SessionLocal, init_db
+from .realtime import router as realtime_router
 from .reports.router import router as reports_router
 from .route import router as route_router
 
@@ -63,6 +64,7 @@ app.include_router(heat_router, prefix="/api/v1", dependencies=[Depends(rate_lim
 app.include_router(alerts_router, prefix="/api/v1", dependencies=[Depends(rate_limit)])
 app.include_router(reports_router, prefix="/api/v1", dependencies=[Depends(rate_limit)])
 app.include_router(route_router, prefix="/api/v1", dependencies=[Depends(rate_limit)])
+app.include_router(realtime_router, prefix="/api/v1")  # SSE: долгоживущий GET, rate_limit не применим (R64)
 
 
 @app.get("/health")

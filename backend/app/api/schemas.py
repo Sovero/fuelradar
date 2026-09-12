@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+import base64
+import binascii
 import math
 from datetime import datetime
+from urllib.parse import urlparse
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
@@ -176,6 +179,53 @@ class AlertRuleOut(AlertRuleBody):
 
 class AdminMergeBody(BaseModel):
     record_id: int
+
+
+class PushSubscriptionBody(BaseModel):
+    """T14 (R64/R97i): браузерная push-подписка. Keys.p256dh/auth — обязательные
+    поля спеки Web Push (нужны для шифрования payload). Endpoint — только https
+    (push-сервисы: FCM/Mozilla autopush), иначе это не реальная подписка.
+
+    Секреты хранятся (необходимы для отправки), но НИКОГДА не возвращаются API
+    и не логируются (R68) — наружу отдаётся только id/endpoint/host/is_active.
+    """
+
+    endpoint: str = Field(min_length=20, max_length=2048)
+    keys: dict[str, str]
+
+    @field_validator("endpoint")
+    @classmethod
+    def endpoint_https(cls, v: str) -> str:
+        parsed = urlparse(v)
+        if parsed.scheme != "https" or not parsed.hostname:
+            raise ValueError("endpoint должен быть абсолютным https-URL push-сервиса")
+        return v
+
+    @model_validator(mode="after")
+    def keys_valid(self):
+        keys = self.keys or {}
+        p256dh = keys.get("p256dh", "")
+        auth = keys.get("auth", "")
+        if not p256dh or not auth:
+            raise ValueError("keys должны содержать p256dh и auth (спека Web Push)")
+        try:
+            if len(base64.urlsafe_b64decode(p256dh + "=" * (-len(p256dh) % 4))) < 60:
+                raise ValueError("keys.p256dh не похож на P-256 публичный ключ")
+            base64.urlsafe_b64decode(auth + "=" * (-len(auth) % 4))
+        except (ValueError, binascii.Error) as error:
+            raise ValueError(f"keys должны быть base64url: {error}") from error
+        return self
+
+
+class PushSubscriptionOut(BaseModel):
+    """Ответ без ключей шифрования (R68): наружу — только метаданные."""
+
+    id: int
+    endpoint: str
+    endpoint_host: str
+    is_active: bool
+    created_at: datetime
+    last_success_at: datetime | None = None
 
 
 class DedupQueueAction(BaseModel):

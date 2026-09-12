@@ -1,0 +1,81 @@
+{
+  "name": "fuelradar-desktop",
+  "productName": "FuelRadar",
+  "version": "0.1.0",
+  "private": true,
+  "description": "FuelRadar — мониторинг доступности топлива на АЗС (десктоп-оболочка)",
+  "author": "FuelRadar <dev@fuelradar.local>",
+  "main": "main.cjs",
+  "scripts": {
+    "prepare:server": "node scripts/prepare-server.mjs",
+    "icon": "node scripts/make-icon.mjs",
+    "start": "electron .",
+    "smoke": "cross-env FUELRADAR_SMOKE=1 electron .",
+    "dist": "npm run icon && npm run prepare:server && electron-builder --win nsis",
+    "dist:dir": "npm run icon && npm run prepare:server && electron-builder --win nsis --dir"
+  },
+  "devDependencies": {
+    "@resvg/resvg-js": "^2.6.2",
+    "cross-env": "^7.0.3",
+    "electron": "^33.0.0",
+    "electron-builder": "^25.1.8"
+  },
+  "dependencies": {
+    "electron-updater": "^6.3.9"
+  },
+  "build": {
+    "appId": "ru.fuelradar.desktop",
+    "productName": "FuelRadar",
+    "copyright": "© 2026 FuelRadar",
+    "directories": {
+      "output": "dist",
+      "buildResources": "build"
+    },
+    "files": [
+      "main.cjs",
+      "preload.cjs",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "server-dist",
+        "to": "server",
+        "filter": [
+          "**/*"
+        ]
+      }
+    ],
+    "asarUnpack": [],
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": "build/icon.ico"
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": "always",
+      "createStartMenuShortcut": true,
+      "shortcutName": "FuelRadar",
+      "artifactName": "FuelRadar-Setup-${version}.${ext}",
+      "deleteAppDataOnUninstall": false
+    },
+    "publish": [
+      {
+        "provider": "generic",
+        "url": "https://updates.fuelradar.example/desktop/",
+        "channel": "latest"
+      }
+    ]
+  },
+  "allowScripts": {
+    "electron@33.4.11": true
+  }
+}

@@ -24,6 +24,14 @@ lint:
 seed:
 	cd backend && python -m cli.seed $(ARGS)
 
+# Десктоп-приложение (Electron + NSIS-установщик): desktop/README.md
+desktop-dist:
+	cd desktop && npm install && npm run dist
+
+# Smoke-проверка оболочки (нужен backend на :8000)
+desktop-smoke:
+	cd desktop && npm run smoke
+
 # Docker (R85)
 compose-up:
 	docker compose up --build

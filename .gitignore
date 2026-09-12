@@ -19,6 +19,11 @@ node_modules/
 out/
 *.tsbuildinfo
 
+# electron desktop build artifacts
+desktop/dist/
+desktop/server-dist/
+desktop/build/
+
 # system
 .DS_Store
 Thumbs.db

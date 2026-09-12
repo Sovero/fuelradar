@@ -26,6 +26,7 @@ backend (новое окно) и frontend (текущее окно) — откр
 | `make dev` | Запустить API локально (uvicorn, http://localhost:8000) |
 | `make test` | Прогнать тесты backend + typecheck frontend |
 | `make lint` | Линт backend (ruff) |
+| `make e2e` | Браузерные E2E (Playwright/Chromium) критических сценариев |
 | `make compose-up` | Поднять dev-окружение в Docker (api, worker, frontend) |
 | `make compose-prod` | Поднять prod-профиль (+PostGIS, Redis, reverse proxy) |
 
@@ -33,9 +34,9 @@ backend (новое окно) и frontend (текущее окно) — откр
 
 ## Состояние roadmap
 
-Завершены T01–T13: каталог и дедупликация, Confidence Engine, публичный API,
-воркер, уведомления, frontend, Route Mode, прогноз/heatmap/BI и цена топлива
-end-to-end. В очереди остаются T14 (realtime/Web Push) и T15 (браузерные E2E).
+Завершены T01–T15: каталог и дедупликация, Confidence Engine, публичный API,
+воркер, уведомления, frontend, Route Mode, прогноз/heatmap/BI, цена топлива
+end-to-end, realtime/Web Push и браузерные E2E.
 
 T13 добавляет nullable цену с временем/источником, `POST /reports` с ценой вместе
 со статусом, фильтр `fuel` + `price_max` и честное «нет данных» в UI. Секреты и
@@ -45,7 +46,7 @@ T13 добавляет nullable цену с временем/источнико�
 ## Границы объёма MVP (R90)
 
 Намеренно не строим в первом MVP: нативные приложения, микросервисы, Kubernetes,
-ML/LLM на каждый запрос, платный routing API, браузерный E2E. Heatmap, прогноз,
+ML/LLM на каждый запрос, платный routing API. Heatmap, прогноз,
 route-corridor и реальные цены реализованы в расширенной волне T11–T13; полный
 список оставшихся ограничений — в `.autopilot/fuelradar/spec.md`.
 

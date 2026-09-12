@@ -1,4 +1,4 @@
-.PHONY: install dev test lint compose-up compose-prod
+.PHONY: install dev test lint e2e compose-up compose-prod
 
 # Локальная разработка (R96i): SQLite + haversine, без Docker.
 
@@ -19,6 +19,10 @@ test:
 
 lint:
 	cd backend && ruff check .
+
+# Браузерные E2E критических сценариев (T15, Playwright/Chromium)
+e2e:
+	cd frontend && npm run test:e2e
 
 # Наполнение каталога из источников (A01); пример: make seed ARGS="--region krasnodar --offline"
 seed:

@@ -6,10 +6,11 @@
  * с профилем (R65) — анонимному пользователю предлагаем войти, как везде.
  */
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useAuth } from "@/lib/hooks/useAuth";
 import { useI18n } from "@/lib/hooks/useI18n";
+import { isDesktopShell } from "@/lib/desktop";
 import { LoginPanel } from "@/components/layout/LoginPanel";
 import { MonitoringZonesPanel } from "@/components/settings/MonitoringZonesPanel";
 import { PrivacySettings } from "@/components/settings/PrivacySettings";
@@ -17,16 +18,22 @@ import { ObservationModeSettings } from "@/components/settings/ObservationModeSe
 import { NetworkPreferences } from "@/components/settings/NetworkPreferences";
 import { AlertRulesPanel } from "@/components/settings/AlertRulesPanel";
 import { PushSettingsPanel } from "@/components/settings/PushSettingsPanel";
+import { UpdatesPanel } from "@/components/settings/UpdatesPanel";
 
-type SettingsTab = "zones" | "privacy" | "observation" | "networks" | "rules" | "push";
+type SettingsTab = "zones" | "privacy" | "observation" | "networks" | "rules" | "push" | "updates";
 
-const TABS: SettingsTab[] = ["zones", "privacy", "observation", "networks", "rules", "push"];
+const TABS: SettingsTab[] = ["zones", "privacy", "observation", "networks", "rules", "push", "updates"];
 
 export function SettingsScreen() {
   const { user, loading } = useAuth();
   const { t } = useI18n();
   const [tab, setTab] = useState<SettingsTab>("zones");
   const [loginOpen, setLoginOpen] = useState(false);
+  // Вкладка «Обновления» существует только в desktop-оболочке (Electron).
+  // Флаг после монтирования: SSR и первый клиентский рендер совпадают (без
+  // hydration-расхождения), в оболочке вкладка появляется сразу после старта.
+  const [isDesktop, setIsDesktop] = useState(false);
+  useEffect(() => setIsDesktop(isDesktopShell()), []);
 
   return (
     <div className="flex h-dvh flex-col bg-gray-50 text-gray-900 dark:bg-gray-950 dark:text-gray-100">
@@ -58,20 +65,22 @@ export function SettingsScreen() {
       {!loading && user && (
         <div className="flex flex-1 flex-col overflow-hidden sm:flex-row">
           <nav className="flex shrink-0 gap-1 overflow-x-auto border-b border-gray-200 bg-white px-2 py-2 dark:border-gray-800 dark:bg-gray-900 sm:w-48 sm:flex-col sm:overflow-visible sm:border-b-0 sm:border-r">
-            {TABS.map((key) => (
-              <button
-                key={key}
-                type="button"
-                onClick={() => setTab(key)}
-                className={`whitespace-nowrap rounded-md px-3 py-2 text-left text-sm font-medium ${
-                  tab === key
-                    ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300"
-                    : "text-gray-600 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-800"
-                }`}
-              >
-                {t(`settings.tab.${key}` as const)}
-              </button>
-            ))}
+            {TABS.map((key) =>
+              key === "updates" && !isDesktop ? null : (
+                <button
+                  key={key}
+                  type="button"
+                  onClick={() => setTab(key)}
+                  className={`whitespace-nowrap rounded-md px-3 py-2 text-left text-sm font-medium ${
+                    tab === key
+                      ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300"
+                      : "text-gray-600 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-800"
+                  }`}
+                >
+                  {t(`settings.tab.${key}` as const)}
+                </button>
+              ),
+            )}
           </nav>
           <div className="flex-1 overflow-y-auto p-4">
             {tab === "zones" && <MonitoringZonesPanel />}
@@ -80,6 +89,7 @@ export function SettingsScreen() {
             {tab === "networks" && <NetworkPreferences />}
             {tab === "rules" && <AlertRulesPanel />}
             {tab === "push" && <PushSettingsPanel />}
+            {tab === "updates" && <UpdatesPanel />}
           </div>
         </div>
       )}

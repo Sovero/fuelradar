@@ -7,7 +7,7 @@
   "briefFile": "2026-09-07-brief.md",
   "memoryFile": "AGENTS.md",
   "startedAt": "2026-09-07T18:54:27+03:00",
-  "updatedAt": "2026-09-12T22:30:00+03:00",
+  "updatedAt": "2026-09-12T22:36:11+03:00",
   "finishedAt": null,
   "stages": [
     {
@@ -43,9 +43,10 @@
     },
     {
       "id": "build",
-      "status": "active",
+      "status": "done",
       "startedAt": "2026-09-09T23:23:23+03:00",
-      "note": "13 из 15 тасков готово"
+      "note": "15 из 15 тасков готово",
+      "finishedAt": "2026-09-12T22:36:11+03:00"
     },
     {
       "id": "review",
@@ -58,8 +59,8 @@
   ],
   "requirements": {
     "total": 106,
-    "done": 99,
-    "inTicket": 7,
+    "done": 102,
+    "inTicket": 4,
     "inSpec": 0,
     "placeholder": 0,
     "deferred": 0,
@@ -680,13 +681,30 @@
         "README.md",
         "Makefile"
       ],
-      "status": "pending",
-      "retries": 0
+      "status": "done",
+      "retries": 0,
+      "finishedAt": "2026-09-12T22:36:11+03:00",
+      "files": [
+        "frontend/e2e/",
+        "frontend/playwright.config.ts",
+        "frontend/package.json",
+        "README.md",
+        "Makefile"
+      ],
+      "tests": {
+        "passed": 5,
+        "failed": 0
+      },
+      "concerns": [
+        "Chromium берётся из канала system Chrome (channel: 'chrome'): CDN Playwright в этой среде недоступен; на машине с доступом к CDN достаточно убрать channel из playwright.config.ts.",
+        "Моки перехватывают /api/v1/* на уровне страницы — service worker в E2E отключён (disableServiceWorker), иначе после его активации SW-запросы идут мимо page.route и проваливаются в реальный backend.",
+        "Zero-console-error — проверка в каждом спеке (assertNoConsoleErrors), не глобальный репортер; Playwright CDN недоступен, глобальный webReporter не настраивался."
+      ]
     }
   ],
   "singlePass": null,
   "tests": {
-    "passed": 191,
+    "passed": 192,
     "failed": 0
   },
   "debt": {
@@ -708,7 +726,7 @@
       "NEXT_PUBLIC_YANDEX_MAPS_API_KEY"
     ],
     "notes": [
-      "Frontend: 88 passed, typecheck/build clean; backend: 173 passed, ruff clean; frontend Vite warning about future configLoader native mode is non-blocking."
+      "Frontend: 98 passed (vitest, 28 файлов) + 5 E2E (Playwright/Chromium, включая zero-console smoke), typecheck/build чистые; backend: 192 passed, ruff чистый."
     ]
   },
   "additions": [

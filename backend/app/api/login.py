@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException, Request, Response
+from fastapi import APIRouter, Depends, HTTPException, Response
 from sqlalchemy.orm import Session
 
 from ..auth.service import (
@@ -86,9 +86,12 @@ def telegram_login(response: Response, body: dict[str, str | int] | None = None,
 
 
 @router.get("/me")
-def me(request: Request, user: User | None = Depends(optional_user)) -> dict:
+def me(user: User | None = Depends(optional_user)) -> dict:
+    """Профиль сессии. Анонимный гость — не ошибка, а данные: {"user": null} (200).
+    Иначе session-проб фронтенда при каждом заходе гарантированно даёт 401 и шумит
+    в консоли браузера (ошибки сети/кэша при этом по-прежнему честный exception)."""
     if user is None:
-        raise HTTPException(status_code=401, detail="Нет активной сессии")
+        return {"user": None}
     return {"user": _user_payload(user)}
 
 

@@ -49,7 +49,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const refresh = useCallback(async () => {
     try {
-      const res = await apiGet<{ user: AuthUser }>("/auth/me");
+      // Анонимный гость — 200 + {user: null} (не 401): probe не шумит ошибкой в консоли.
+      const res = await apiGet<{ user: AuthUser | null }>("/auth/me");
       setUser(res.user);
     } catch {
       setUser(null);

@@ -419,7 +419,10 @@ def test_dev_login_profile_favorites(client) -> None:
     assert client.delete(f"/api/v1/favorites/{S1}").status_code == 404
 
     assert client.post("/api/v1/auth/logout").status_code == 200
-    assert client.get("/api/v1/auth/me").status_code == 401
+    # Анонимный гость — не ошибка, а данные: 200 + user=null (иначе session-проб
+    # фронтенда при каждом заходе даёт гарантированный 401 и шумит в консоли).
+    me = client.get("/api/v1/auth/me")
+    assert me.status_code == 200 and me.json()["user"] is None
 
 
 def test_zones_and_alerts_crud(client) -> None:

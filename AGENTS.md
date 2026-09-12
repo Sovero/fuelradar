@@ -40,6 +40,8 @@ cd frontend && npm run build              # успешно, ~331 kB First Load J
 cd frontend && npm test                   # vitest run — 88 passed (27 файлов)
 cd frontend && npm test -- ReportForm     # один файл/маска
 make compose-up                           # полный docker-compose: api+worker+db(Postgres/PostGIS)+redis+frontend+caddy
+make desktop-dist                         # Electron-приложение: NSIS-установщик desktop/dist/FuelRadar-Setup-<v>.exe (+ автообновление)
+make desktop-smoke                        # smoke-проверка оболочки (нужен backend на :8000)
 ```
 
 `make test` = `pytest` (backend) + `npm run typecheck` (frontend) — не гоняет frontend-тесты, гонять `npm test` отдельно.
@@ -84,6 +86,7 @@ frontend/lib/
   hooks/                — useMeta, useAuth, useFilters, useStations, useStationDetail, useFavorites, useNotifications, useTheme, useI18n, useOnboarding, useMapProviderPreference, usePrivacy, useObservationMode, useNetworkPreferences, useMonitoringZones, useAlertRules, useFollowMeZone, useAdminAuth
 frontend/public/       — manifest.json, icon.svg, sw.js (PWA, network-first для навигации)
 deploy/Caddyfile        — прод-реверс-прокси: /api/* → api:8000, остальное → frontend:3000
+desktop/                — Electron-оболочка (Windows): встроенный Next standalone + reverse-proxy /api/* (Origin переписывается), NSIS-установщик, автообновление electron-updater, Telegram-popup; сборка `make desktop-dist`, детали desktop/README.md
 .claude/launch.json     — дев-превью (`npm run dev --prefix frontend`), не код приложения
 ```
 
@@ -192,7 +195,7 @@ https://github.com/Sovero/fuelradar.git (ветка `main`). Коммиты — 
 - T09: Frontend-ядро (Next.js App Router, `frontend/app|components|lib`) — карта за абстракцией `MapProvider` (MapLibre+OSM по умолчанию, бесплатно; Яндекс.Карты — опционально, только при `NEXT_PUBLIC_YANDEX_MAPS_API_KEY`, с пользовательским тумблером, R102/R102.1), маркеры цветом по статусу топлива + кольцом по сети (R103, независимые — без кольца), список/фильтры/карточка станции/пустые состояния по макету, PWA. Сверх тикета по прямым просьбам пользователя: тема свет/тёмная (R99), язык RU/EN (R100, `/meta` отдаёт `name_en`), ознакомительный тур (R101). Тесты: 46 passed (vitest), typecheck/build чисты.
 - T10 (последний): персонализация — зоны мониторинга (CRUD + «следить вокруг меня»), приватность (GPS off/ручная точка/забыть позицию), реальная форма «Сообщить» с офлайн-очередью, полная лента уведомлений, вход magic-link/Telegram. Админка (`app/admin`) — источники + журнал загрузок (R104), покрытие/индекс, очередь слияний, пользователи и отчёты (админ-токен — вводится человеком, `sessionStorage`, не `.env`). По ходу таска на backend добавлены `GET /admin/reports` и `POST /admin/users/{id}/block` — значились в контракте, но не были реализованы. R25/R77 (сети в правилах/сортировке) — клиентский компромисс: backend не отдаёт числовой id бренда и не хранит персональные приоритеты, см. interfaces.md. Тесты: 76 passed (frontend), 139 passed (backend).
 
-Сборка в текущей волне: 13/15 тасков завершено; T14 (realtime/Web Push) и T15 (браузерные E2E) остаются в очереди. Все требования брифа закрыты, отложены (роадмап) или помечены как заглушка/клиентский компромисс — детали в `.autopilot/fuelradar/manifest.md`.
+Сборка в текущей волне: 14/15 тасков завершено; T15 (браузерные E2E) остаётся в очереди. Все требования брифа закрыты, отложены (роадмап) или помечены как заглушка/клиентский компромисс — детали в `.autopilot/fuelradar/manifest.md`.
 
 Пост-приёмочная доводка (по прямому запросу пользователя «реши все проблемы» — оба открытых пункта из отчёта приёмки):
 - `/metrics` был пуст у api-процесса (счётчики писал только воркер) — `core/metrics.py` получил опциональный Redis-бэкенд (`REDIS_URL`), без него поведение прежнее.
@@ -203,6 +206,7 @@ https://github.com/Sovero/fuelradar.git (ветка `main`). Коммиты — 
 - T11: Route Mode (R22, `backend/app/route/` + `frontend/components/route/`) — `POST /api/v1/route/stations`: коридор по polyline ≥2 точек (0,5–50 км, стандартные фильтры), расстояние до ближайшего сегмента, 422 на русском; UI — панель RouteModePanel (клики по карте добавляют точки, честная пометка «коридор, без routing-провайдера»), линия — в обеих реализациях карты через `MapProviderProps.routePolyline`/`onMapClick`. Тесты: 149 passed (backend), 79 passed (frontend).
 - T12: Прогноз/heatmap/районы дефицита (R49/R50/R79, `backend/app/analytics/forecast.py|heat.py`, `frontend/lib/heatmap.ts`) — прогноз-эвристика (не ML) только из снэпшота аналитики: «появление» по доле завершённых эпизодов + ETA, «исчезновение» по Пуассону, мало данных → null + русская причина, `is_forecast=true`; heatmap — круги `MapProviderProps.heatCircles` в обеих картах, неоднозначные статусы не голосуют (ячейки нет), легенда с текстом; BI — `GET /admin/deficit-by-region` с размером выборки и предупреждением о пилотных данных (вкладка админки). Тесты: 156 passed (backend), 85 passed (frontend).
 - T13: Цена топлива end-to-end (R78) — nullable цена/валюта/время/источник в текущем агрегате и идемпотентная additive-миграция; `POST /reports` принимает цену вместе со статусом и пишет append-only observation с валидацией; список/detail/favorites и Route Mode возвращают/учитывают `price_max`; последняя свежая цена не затирается пустым новым опросом до TTL; карточка/список/форма показывают цену, время/источник и «нет данных» на RU/EN. Тесты: 173 passed backend, 88 passed frontend; ruff/typecheck/build чистые.
+- T14: Realtime/Web Push (R64/R97i, `backend/app/realtime/` + `frontend/lib/hooks/useRealtime.ts`) — SSE `GET /api/v1/realtime/stream`: сигнал `revision` (max-id станций/наблюдений, append-only R17) + heartbeat + `Last-Event-ID`, лимит `sse_max_clients`; клиент переподтягивает `/stations` обычным GET (R82 не дублируется), при обрыве данные не трогаются. Web Push — реально: `push_subscriptions` (идемпотентный POST по endpoint, endpoint только https, keys base64url-валидация, наружу без ключей R68), доставка pywebpush всем активным подпискам, 404/410 → деактивация, ошибки изолированы; `/meta` отдаёт `push.enabled`+публичный VAPID key; панель в настройках («Push») и обработчики `push`/`notificationclick` в `sw.js` (клик → `/?station=<id>`). Тесты: 191 passed backend (+18 realtime), 96 passed frontend; ruff/typecheck/build чистые.
 <!-- autopilot:end -->
 
 <!-- IJFW-MEMORY-START -->

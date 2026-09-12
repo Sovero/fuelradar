@@ -7,7 +7,7 @@
   "briefFile": "2026-09-07-brief.md",
   "memoryFile": "AGENTS.md",
   "startedAt": "2026-09-07T18:54:27+03:00",
-  "updatedAt": "2026-09-10T22:54:48+03:00",
+  "updatedAt": "2026-09-12T22:30:00+03:00",
   "finishedAt": null,
   "stages": [
     {
@@ -651,8 +651,13 @@
         "backend/pyproject.toml",
         ".env.example"
       ],
-      "status": "pending",
-      "retries": 0
+      "status": "done",
+      "retries": 0,
+      "concerns": [
+        "SSE выбран вместо WebSocket (однонаправленный сигнал, EventSource сам переподключается); сигнал несёт только data_revision — клиент переподтягивает /stations обычным кэшируемым GET (R82 не дублируется).",
+        "Web Push: pywebpush (RFC 8291/8292), подписки в push_subscriptions (T14-таблица, идемпотентный POST по endpoint); 404/410 → is_active=false. Без VAPID-ключей /meta отдаёт push.enabled=false и панель честно пишет «не настроено» (R97i).",
+        "Обновлён T07-тест каналов: без подписок честный no_subscriptions вместо «sent» (контракт доставки стал реальным)."
+      ]
     },
     {
       "id": "15",
@@ -681,7 +686,7 @@
   ],
   "singlePass": null,
   "tests": {
-    "passed": 173,
+    "passed": 191,
     "failed": 0
   },
   "debt": {

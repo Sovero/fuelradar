@@ -277,7 +277,7 @@
       "id": "build",
       "status": "active",
       "startedAt": "2026-09-09T23:23:23+03:00",
-      "note": "13 из 15 тасков готово"
+      "note": "14 из 15 тасков готово"
     },
     {
       "id": "review",
@@ -290,8 +290,8 @@
   ],
   "requirements": {
     "total": 106,
-    "done": 99,
-    "inTicket": 7,
+    "done": 101,
+    "inTicket": 5,
     "inSpec": 0,
     "placeholder": 0,
     "deferred": 0,
@@ -883,8 +883,16 @@
         "backend/pyproject.toml",
         ".env.example"
       ],
-      "status": "pending",
-      "retries": 0
+      "status": "done",
+      "retries": 0,
+      "tests": {
+        "passed": 18,
+        "failed": 0
+      },
+      "concerns": [
+        "SSE вместо WebSocket: однонаправленный сигнал data_revision, клиент переподтягивает /stations обычным GET (R82); при обрыве данные не трогаются, EventSource переподключается сам.",
+        "Web Push: pywebpush, 404/410 → деактивация подписки; без VAPID-ключей /meta отдаёт push.enabled=false — панель честно «не настроено» (R97i)."
+      ]
     },
     {
       "id": "15",

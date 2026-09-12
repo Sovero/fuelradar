@@ -53,7 +53,9 @@ def forecast_for_station(
                        "window_minutes": None, "mean_absence_minutes": None},
         }
 
-    streams = station["deficits"]
+    # Снэпшот, посчитанный кодом до T12, не содержит deficits — даём честный
+    # no_data вместо KeyError/500 до первого фонового пересчёта.
+    streams = station.get("deficits", [])
     method = ("эвристика по истории дефицита (R47-агрегаты, не ML): "
               "восстановление — доля завершённых эпизодов; исчезновение — "
               "Пуассон-риск по частоте эпизодов за окно наблюдений")

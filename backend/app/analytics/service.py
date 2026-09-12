@@ -232,7 +232,9 @@ def deficit_by_region(
     station_ids: dict[tuple[str, str], set[str]] = defaultdict(set)
     for station in stations:
         area = station.get(dimension) or "UNKNOWN"
-        for row in station["deficits"]:
+        # Снэпшот до T12 не содержит deficits — пусто вместо KeyError/500
+        # до первого фонового пересчёта.
+        for row in station.get("deficits") or []:
             key = (area, row["fuel"])
             grouped[key].append(row)
             station_ids[key].add(station["id"])
@@ -294,7 +296,7 @@ def summarize(
                             "unlinked_records": sum(row["station_id"] is None for row in records)})
     grouped: dict[tuple[str, str], list[dict[str, Any]]] = defaultdict(list)
     for station in stations:
-        for row in station["deficits"]:
+        for row in station.get("deficits") or []:
             grouped[(station["brand"], row["fuel"])].append(row)
     deficits = [{"brand": brand, "fuel": fuel, **_deficit_group_totals(rows)}
                 for (brand, fuel), rows in sorted(grouped.items())]

@@ -326,6 +326,13 @@ class StatusService:
                 "expired": True,
                 "note": "нет свежих наблюдений — статус UNKNOWN, а не UNAVAILABLE (R56)",
             }
+            # R78.3: цена протухает вместе со статусом. Иначе expire_stale
+            # перезаряжает expires_at в будущее, а API-валидатор прячет цену
+            # только при expires_at <= now — часы-старая цена «реанимируется».
+            row.price = None
+            row.price_currency = "RUB"
+            row.price_source_provider_id = None
+            row.price_updated_at = None
             self._expire_queue_for(row)
         self.session.commit()
         if rows:

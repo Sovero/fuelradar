@@ -265,6 +265,33 @@ def test_expired_status_hides_price(client, db_session):
 # ---------- обратная совместимость ----------
 
 
+def test_expire_stale_clears_price(client, db_session):
+    """R78.3: expire_stale перезаряжает expires_at в будущее — цена не должна
+    «реанимироваться» после прохода воркера (регрессия T13-ревью)."""
+    _seed_priced_stations(db_session)
+    row = db_session.scalar(select(StationCurrentStatus).where(StationCurrentStatus.station_id == STATION_A))
+    assert row.price == 62.0
+    row.expires_at = _now() - timedelta(minutes=1)
+    db_session.commit()
+    try:
+        StatusService(db_session).expire_stale()
+        db_session.refresh(row)
+        assert row.status == "UNKNOWN"
+        assert row.expires_at > _now()  # перезаряжено вперёд
+        assert row.price is None  # но цена не реанимирована
+        assert row.price_updated_at is None
+        assert row.price_source_provider_id is None
+        detail = client.get(f"/api/v1/stations/{STATION_A}").json()
+        status_row = next(s for s in detail["statuses"] if s["fuel_code"] == "AI_95")
+        assert status_row["price"] is None
+    finally:
+        # общая session-БД: возвращаем свежий AVAILABLE, чтобы не задеть другие тесты
+        StatusService(db_session).record_fuel_observation(
+            station_id=STATION_A, fuel_code="AI_95", status="AVAILABLE",
+            source_provider_id=_provider(db_session).id, observed_at=_now(), price=62.0,
+        )
+
+
 def test_price_source_is_returned_by_public_api(client, db_session):
     _seed_station(db_session, STATION_A)
     _set_price_status(db_session, STATION_A, "AI_95", 62.0)

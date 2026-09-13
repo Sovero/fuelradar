@@ -139,7 +139,7 @@ Frontend не ходит в backend напрямую — `next.config.mjs` рё�
 - `DEDUP_AUTO_MERGE`, `DEDUP_NEEDS_REVIEW`, `DEDUP_WEIGHTS` — пороги/веса дедупликации
 - `CONFIDENCE_SHARE_STRONG`, `CONFIDENCE_SHARE_LIKELY`, `CONFIDENCE_MIN_WEIGHT`, `GPS_BOOST`, `GPS_PENALTY`, `QUEUE_SECONDS_PER_VEHICLE`, `AVG_SPEED_KMH`, `SCORE_WEIGHTS` — Confidence Engine и Score
 - `TELEGRAM_BOT_TOKEN`, `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `ADMIN_TOKEN`, `SMTP_URL` — секреты каналов/админки, пусто → канал «не настроено»
-- `JWT_SECRET` (пусто → эфемерный на процесс, только dev), `COOKIE_SECURE`, `CORS_ORIGINS`, `RATE_LIMIT_PER_MINUTE` (0 — выключить), `API_CACHE_TTL_SECONDS`
+- `JWT_SECRET` (пусто → эфемерный на процесс, только dev), `COOKIE_SECURE`, `CORS_ORIGINS`, `RATE_LIMIT_PER_MINUTE` (0 — выключить), `ADMIN_RATE_LIMIT_PER_MINUTE` (отдельный per-IP лимит admin API, 0 — выключить), `API_CACHE_TTL_SECONDS`
 - `SMTP_FROM`, `PUBLIC_APP_URL` — magic-link
 - `WORKER_TICK_SECONDS`, `WORKER_BACKOFF_MAX_MINUTES` — воркер
 - `NEXT_PUBLIC_YANDEX_MAPS_API_KEY` — дублируется здесь для docker-compose, реально читается frontend из своего `.env.local`

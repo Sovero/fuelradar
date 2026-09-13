@@ -107,6 +107,7 @@ class Settings(BaseSettings):
     cookie_secure: bool = False            # secure-cookie — включать за HTTPS (prod)
     cors_origins: str = ""                 # белый список CORS через запятую (R66); пусто → same-origin
     rate_limit_per_minute: int = 120       # R66: простой per-IP лимит; 0 — выключить
+    admin_rate_limit_per_minute: int = 30  # security: отдельный лимит admin API; 0 — выключить
     worker_tick_seconds: int = 10
     worker_backoff_max_minutes: int = 120
     smtp_from: str = "noreply@localhost"

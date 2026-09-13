@@ -10,6 +10,7 @@ services:
       DATABASE_URL: sqlite:////data/fuelradar.db
       DEBUG: ${DEBUG:-true}
       ADMIN_TOKEN: ${ADMIN_TOKEN:-}
+      ADMIN_RATE_LIMIT_PER_MINUTE: ${ADMIN_RATE_LIMIT_PER_MINUTE:-30}
       JWT_SECRET: ${JWT_SECRET:-}
       TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
       VAPID_PUBLIC_KEY: ${VAPID_PUBLIC_KEY:-}

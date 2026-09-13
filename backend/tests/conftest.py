@@ -17,9 +17,10 @@ os.environ["DEBUG"] = "true"
 # (см. app/core/config.py::_ROOT_ENV_FILE). Всё нужное тестам — только явные
 # os.environ ниже, дефолты Settings — для того, что не выставлено явно.
 os.environ["FUELRADAR_NO_ENV_FILE"] = "1"
-# API-тесты: фиксированный админ-токен, щедрый rate-limit и живой кэш.
+# API-тесты: фиксированный админ-токен, щедрые лимиты и живой кэш.
 os.environ.setdefault("ADMIN_TOKEN", "test-admin-token")
 os.environ.setdefault("RATE_LIMIT_PER_MINUTE", "10000")
+os.environ.setdefault("ADMIN_RATE_LIMIT_PER_MINUTE", "10000")
 os.environ.setdefault("API_CACHE_TTL_SECONDS", "60")
 
 

@@ -379,7 +379,7 @@ class AdminActionLog(Base):  # R67 — журналирование действ
 
     id: Mapped[int] = mapped_column(primary_key=True)
     actor: Mapped[str] = mapped_column(String(64), default="admin")
-    action: Mapped[str] = mapped_column(String(64))  # merge|split|block_user|set_trust|refresh_source…
+    action: Mapped[str] = mapped_column(String(64))  # merge|split|block_user|set_trust|refresh_source|admin_auth_failed…
     target_type: Mapped[str] = mapped_column(String(32), default="")
     target_id: Mapped[str] = mapped_column(String(64), default="")
     payload: Mapped[dict] = mapped_column(JSON, default=dict)

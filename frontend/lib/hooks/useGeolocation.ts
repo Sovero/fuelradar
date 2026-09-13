@@ -34,7 +34,9 @@ export function useGeolocation(): GeolocationState {
         setError(null);
       },
       (err) => {
-        setError(err.code === err.PERMISSION_DENIED ? "Доступ к геолокации запрещён — выберите точку вручную" : "Не удалось определить местоположение");
+        // PositionError exposes the numeric code on the error instance; the
+        // PERMISSION_DENIED constant is not an instance property in browsers.
+        setError(err.code === 1 ? "Доступ к геолокации запрещён — выберите точку вручную" : "Не удалось определить местоположение");
         setStatus("error");
       },
       { enableHighAccuracy: true, timeout: 10_000 },

@@ -1,0 +1,160 @@
+name: Desktop release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: desktop-release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: Build and publish Windows installer
+    runs-on: windows-latest
+    env:
+      NODE_VERSION: "22"
+
+    steps:
+      - name: Check out tagged source
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: |
+            frontend/package-lock.json
+            desktop/package-lock.json
+
+      - name: Validate tag matches desktop version
+        shell: pwsh
+        run: |
+          $tag = $env:GITHUB_REF_NAME
+          if ($tag -notmatch '^v\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?$') {
+            throw "Expected a semantic version tag such as v0.1.2, got '$tag'."
+          }
+
+          $tagVersion = $tag.Substring(1)
+          $packageVersion = node -p "require('./desktop/package.json').version"
+          if ($packageVersion -ne $tagVersion) {
+            throw "Tag $tag does not match desktop/package.json version $packageVersion. Bump the package version before tagging."
+          }
+
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci
+
+      - name: Install desktop dependencies
+        working-directory: desktop
+        run: npm ci
+
+      - name: Configure private update feed token
+        shell: pwsh
+        env:
+          UPDATE_FEED_TOKEN: ${{ secrets.UPDATE_FEED_TOKEN }}
+        run: |
+          if ([string]::IsNullOrWhiteSpace($env:UPDATE_FEED_TOKEN)) {
+            throw "The UPDATE_FEED_TOKEN repository secret is required for private GitHub Releases auto-updates."
+          }
+
+          $utf8NoBom = [System.Text.UTF8Encoding]::new($false)
+          [System.IO.File]::WriteAllText(
+            "desktop/.update-feed-token",
+            $env:UPDATE_FEED_TOKEN.Trim() + [Environment]::NewLine,
+            $utf8NoBom
+          )
+
+      - name: Configure Windows code signing
+        shell: pwsh
+        env:
+          WINDOWS_CERTIFICATE_BASE64: ${{ secrets.WINDOWS_CERTIFICATE_BASE64 }}
+          WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
+        run: |
+          if ([string]::IsNullOrWhiteSpace($env:WINDOWS_CERTIFICATE_BASE64)) {
+            throw "The WINDOWS_CERTIFICATE_BASE64 repository secret is required for signed desktop releases."
+          }
+          if ([string]::IsNullOrWhiteSpace($env:WINDOWS_CERTIFICATE_PASSWORD)) {
+            throw "The WINDOWS_CERTIFICATE_PASSWORD repository secret is required for signed desktop releases."
+          }
+
+          $certificatePath = Join-Path $env:RUNNER_TEMP "fuelradar-code-signing.pfx"
+          $certificateBytes = [Convert]::FromBase64String(($env:WINDOWS_CERTIFICATE_BASE64 -replace '\s', ''))
+          [System.IO.File]::WriteAllBytes($certificatePath, $certificateBytes)
+
+          # electron-builder reads these standard variables and signs both the
+          # unpacked application and the NSIS installer. The PFX stays in RUNNER_TEMP.
+          "WIN_CSC_LINK=$certificatePath" >> $env:GITHUB_ENV
+          "WIN_CSC_KEY_PASSWORD=$env:WINDOWS_CERTIFICATE_PASSWORD" >> $env:GITHUB_ENV
+          "CSC_LINK=$certificatePath" >> $env:GITHUB_ENV
+          "CSC_KEY_PASSWORD=$env:WINDOWS_CERTIFICATE_PASSWORD" >> $env:GITHUB_ENV
+
+      - name: Build signed Windows installer and update metadata
+        working-directory: desktop
+        run: npm run icon && npm run prepare:server && npx electron-builder --win nsis --publish never
+
+      - name: Verify release artifacts and Authenticode signatures
+        shell: pwsh
+        run: |
+          $installer = @(Get-ChildItem -Path "desktop/dist" -Filter "FuelRadar-Setup-*.exe" -File)
+          $blockmap = @(Get-ChildItem -Path "desktop/dist" -Filter "FuelRadar-Setup-*.exe.blockmap" -File)
+          $latest = @(Get-Item -Path "desktop/dist/latest.yml" -ErrorAction SilentlyContinue)
+          $application = @(Get-Item -Path "desktop/dist/win-unpacked/FuelRadar.exe" -ErrorAction SilentlyContinue)
+
+          if ($installer.Count -ne 1) { throw "Expected exactly one NSIS installer, found $($installer.Count)." }
+          if ($blockmap.Count -ne 1) { throw "Expected exactly one installer blockmap, found $($blockmap.Count)." }
+          if ($latest.Count -ne 1) { throw "Expected desktop/dist/latest.yml." }
+          if ($application.Count -ne 1) { throw "Expected the unpacked FuelRadar.exe for signature verification." }
+
+          foreach ($artifact in @($application[0], $installer[0])) {
+            $signature = Get-AuthenticodeSignature -FilePath $artifact.FullName
+            if ($signature.Status -ne "Valid") {
+              throw "$($artifact.Name) Authenticode signature is $($signature.Status), expected Valid. $($signature.StatusMessage)"
+            }
+            if (-not $signature.SignerCertificate) {
+              throw "$($artifact.Name) has no signer certificate."
+            }
+            Write-Host "$($artifact.Name) signed by: $($signature.SignerCertificate.Subject)"
+          }
+
+          Get-Item $application[0].FullName, $installer[0].FullName, $blockmap[0].FullName, $latest[0].FullName |
+            Select-Object FullName, Length
+
+      - name: Publish GitHub Release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $tag = $env:GITHUB_REF_NAME
+          $repo = $env:GITHUB_REPOSITORY
+          $assets = @(
+            (Get-ChildItem -Path "desktop/dist" -Filter "FuelRadar-Setup-*.exe" -File).FullName
+            (Get-ChildItem -Path "desktop/dist" -Filter "FuelRadar-Setup-*.exe.blockmap" -File).FullName
+            (Get-Item -Path "desktop/dist/latest.yml").FullName
+          )
+
+          gh release view $tag --repo $repo *> $null
+          if ($LASTEXITCODE -eq 0) {
+            gh release upload $tag @assets --repo $repo --clobber
+          } else {
+            gh release create $tag @assets --repo $repo --verify-tag --title "FuelRadar $tag" --generate-notes
+          }
+
+      - name: Remove signing and update-feed secrets from runner
+        if: always()
+        shell: pwsh
+        run: |
+          Remove-Item -Path "desktop/.update-feed-token" -Force -ErrorAction SilentlyContinue
+          $certificatePath = Join-Path $env:RUNNER_TEMP "fuelradar-code-signing.pfx"
+          Remove-Item -Path $certificatePath -Force -ErrorAction SilentlyContinue
+          Remove-Item Env:WIN_CSC_LINK -ErrorAction SilentlyContinue
+          Remove-Item Env:WIN_CSC_KEY_PASSWORD -ErrorAction SilentlyContinue
+          Remove-Item Env:CSC_LINK -ErrorAction SilentlyContinue
+          Remove-Item Env:CSC_KEY_PASSWORD -ErrorAction SilentlyContinue

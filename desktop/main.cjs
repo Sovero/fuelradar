@@ -22,7 +22,7 @@
  * обновлений честно не выполняется.
  */
 
-const { app, BrowserWindow, Menu, Notification, shell, dialog, ipcMain } = require("electron");
+const { app, BrowserWindow, Menu, Notification, shell, dialog, ipcMain, session } = require("electron");
 const { spawn } = require("node:child_process");
 const http = require("node:http");
 const net = require("node:net");
@@ -260,6 +260,38 @@ function handleExternalUrl(url) {
   }
 }
 
+// ---------- разрешения Chromium ----------
+
+function sameOrigin(candidate, expectedOrigin) {
+  try {
+    return new URL(candidate).origin === expectedOrigin;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Electron не показывает браузерный prompt для геолокации без permission
+ * handlers. Разрешаем её только встроенному локальному окну; Telegram popup и
+ * любые внешние страницы не получают доступ к координатам. Notifications
+ * оставлены в том же allowlist, потому что Web Push использует это разрешение.
+ */
+function configurePermissionHandlers(localOrigin) {
+  const allowedPermissions = new Set(["geolocation", "notifications"]);
+  const isAllowed = (permission, requestingUrl) =>
+    allowedPermissions.has(permission) && sameOrigin(requestingUrl, localOrigin);
+
+  const defaultSession = session.defaultSession;
+  defaultSession.setPermissionCheckHandler((_webContents, permission, requestingOrigin) =>
+    isAllowed(permission, requestingOrigin),
+  );
+
+  defaultSession.setPermissionRequestHandler((webContents, permission, callback, details) => {
+    const requestingUrl = details?.requestingUrl ?? webContents.getURL();
+    callback(isAllowed(permission, requestingUrl));
+  });
+}
+
 // ---------- автообновление (electron-updater, NSIS, приватный GitHub-фид) ----------
 
 /** Токен доступа к приватному фиду (resources/update-feed-token); нет файла — нет доступа. */
@@ -418,6 +450,7 @@ app.whenReady().then(async () => {
     proxyServer = proxy;
     const base = `http://127.0.0.1:${proxyPort}`;
     console.log(`[desktop] ui: ${nextBase} → public: ${base}`);
+    configurePermissionHandlers(base);
     createMainWindow(base);
     buildMenu();
     initAutoUpdate();

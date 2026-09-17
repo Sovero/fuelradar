@@ -22,7 +22,7 @@ const HEALTH_COLOR: Record<string, string> = {
 };
 
 export function AdminSourcesTable() {
-  const { markVerified, markInvalid } = useAdminAuth();
+  const { markVerified, markInvalid, isAdmin } = useAdminAuth();
   const { t } = useI18n();
   const [sources, setSources] = useState<AdminSourceOut[]>([]);
   const [loading, setLoading] = useState(true);
@@ -102,15 +102,17 @@ export function AdminSourcesTable() {
                   )}
                 </td>
                 <td className="py-2 pr-3">
-                  <button
-                    type="button"
-                    onClick={() => refresh(s.id)}
-                    disabled={refreshingId === s.id || s.status !== "ACTIVE"}
-                    title={s.status !== "ACTIVE" ? t("admin.sources.notActive") : undefined}
-                    className="rounded-md border border-gray-300 px-2 py-1 text-xs hover:bg-gray-50 disabled:opacity-40 dark:border-gray-700 dark:hover:bg-gray-800"
-                  >
-                    {refreshingId === s.id ? t("admin.sources.refreshing") : t("admin.sources.refreshNow")}
-                  </button>
+                    {isAdmin && (
+                      <button
+                        type="button"
+                        onClick={() => refresh(s.id)}
+                        disabled={refreshingId === s.id || s.status !== "ACTIVE"}
+                        title={s.status !== "ACTIVE" ? t("admin.sources.notActive") : undefined}
+                        className="rounded-md border border-gray-300 px-2 py-1 text-xs hover:bg-gray-50 disabled:opacity-40 dark:border-gray-700 dark:hover:bg-gray-800"
+                      >
+                        {refreshingId === s.id ? t("admin.sources.refreshing") : t("admin.sources.refreshNow")}
+                      </button>
+                    )}
                 </td>
               </tr>
             ))}

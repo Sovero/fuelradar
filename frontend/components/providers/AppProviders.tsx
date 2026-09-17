@@ -9,6 +9,7 @@ import { MapProviderPreferenceProvider } from "@/lib/hooks/useMapProviderPrefere
 import { PrivacyProvider } from "@/lib/hooks/usePrivacy";
 import { ObservationModeProvider } from "@/lib/hooks/useObservationMode";
 import { NetworkPreferencesProvider } from "@/lib/hooks/useNetworkPreferences";
+import { BootstrapGate } from "@/components/auth/BootstrapGate";
 
 /**
  * Общие провайдеры приложения — тема (R99), язык (R100), тур (R101), карта
@@ -23,11 +24,13 @@ export function AppProviders({ children }: { children: React.ReactNode }) {
           <OnboardingProvider>
             <MetaProvider>
               <AuthProvider>
-                <PrivacyProvider>
-                  <ObservationModeProvider>
-                    <NetworkPreferencesProvider>{children}</NetworkPreferencesProvider>
-                  </ObservationModeProvider>
-                </PrivacyProvider>
+                <BootstrapGate>
+                  <PrivacyProvider>
+                    <ObservationModeProvider>
+                      <NetworkPreferencesProvider>{children}</NetworkPreferencesProvider>
+                    </ObservationModeProvider>
+                  </PrivacyProvider>
+                </BootstrapGate>
               </AuthProvider>
             </MetaProvider>
           </OnboardingProvider>

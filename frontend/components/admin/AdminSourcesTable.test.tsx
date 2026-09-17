@@ -3,6 +3,7 @@ import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { AdminSourcesTable } from "@/components/admin/AdminSourcesTable";
 import { AdminAuthProvider } from "@/lib/hooks/useAdminAuth";
+import { AuthProvider } from "@/lib/hooks/useAuth";
 import { I18nProvider } from "@/lib/hooks/useI18n";
 import type { AdminSourceOut } from "@/lib/types";
 
@@ -31,17 +32,33 @@ const SOURCES: AdminSourceOut[] = [
   },
 ];
 
+const AUTH_USER = {
+  id: 1,
+  telegram_id: null,
+  email: "admin@example.com",
+  display_name: "Test administrator",
+  role: "ADMIN",
+  reliability_score: 1,
+};
+
 function jsonResponse(status: number, body: unknown) {
   return { ok: status < 400, status, text: async () => JSON.stringify(body) };
 }
 
-function renderTable(fetchMock: ReturnType<typeof vi.fn>) {
-  vi.stubGlobal("fetch", fetchMock);
+function renderTable(fetchMock: ReturnType<typeof vi.fn> & ((input: RequestInfo | URL, init?: RequestInit) => unknown)) {
+  vi.stubGlobal("fetch", (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = String(input);
+    if (url.includes("/auth/me")) return Promise.resolve(jsonResponse(200, { user: AUTH_USER }));
+    if (url.includes("/auth/bootstrap")) return Promise.resolve(jsonResponse(200, { required: false }));
+    return fetchMock(input, init);
+  });
   render(
     <I18nProvider>
-      <AdminAuthProvider>
-        <AdminSourcesTable />
-      </AdminAuthProvider>
+      <AuthProvider>
+        <AdminAuthProvider>
+          <AdminSourcesTable />
+        </AdminAuthProvider>
+      </AuthProvider>
     </I18nProvider>,
   );
 }
@@ -86,8 +103,8 @@ describe("AdminSourcesTable (R58)", () => {
     expect(buttons[1]).toBeDisabled();
   });
 
-  it("401 без токена — понятная ошибка, не падение экрана", async () => {
-    renderTable(vi.fn().mockResolvedValue(jsonResponse(401, { detail: "Требуется заголовок X-Admin-Token" })));
-    await waitFor(() => expect(screen.getByText("Требуется заголовок X-Admin-Token")).toBeInTheDocument());
+  it("401 без cookie-сессии — понятная ошибка, не падение экрана", async () => {
+    renderTable(vi.fn().mockResolvedValue(jsonResponse(401, { detail: "Требуется вход оператора" })));
+    await waitFor(() => expect(screen.getByText("Требуется вход оператора")).toBeInTheDocument());
   });
 });

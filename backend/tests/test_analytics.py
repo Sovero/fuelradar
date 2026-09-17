@@ -11,6 +11,7 @@ from sqlalchemy.pool import StaticPool
 
 from app.analytics.router import router
 from app.analytics.service import deficit_statistics, refresh_analytics, summarize
+from app.auth import COOKIE_NAME, create_access_token
 from app.db.base import Base
 from app.db.models import (
     FuelObservation,
@@ -19,6 +20,7 @@ from app.db.models import (
     SourceStationRecord,
     Station,
     StationCurrentStatus,
+    User,
 )
 from app.db.session import get_db
 
@@ -50,6 +52,9 @@ def analytics_db():
                                              (1, "b", "2"), (2, "x", "1")]:
             db.add(SourceStationRecord(source_provider_id=provider, external_id=external,
                                        station_id=station, latitude=45, longitude=38.1))
+        db.add_all([
+            User(id=9001, email="analytics-admin@example.com", role="ADMIN"),
+        ])
         db.commit()
         yield db
     engine.dispose()
@@ -141,11 +146,10 @@ def test_admin_routes_use_durable_cache_without_history_queries(analytics_db):
     app = FastAPI()
     app.include_router(router, prefix="/api/v1")
     app.dependency_overrides[get_db] = lambda: analytics_db
-    headers = {"X-Admin-Token": "test-admin-token"}
     with TestClient(app) as client:
         assert client.get("/api/v1/admin/coverage").status_code == 401
-        assert client.get("/api/v1/admin/coverage", headers={"X-Admin-Token": "bad"}).status_code == 403
-        assert client.get("/api/v1/admin/coverage", headers=headers).status_code == 503
+        client.cookies.set(COOKIE_NAME, create_access_token(9001))
+        assert client.get("/api/v1/admin/coverage").status_code == 503
         refresh_analytics(analytics_db, now=NOW)
         analytics_db.commit()
         statements = []
@@ -156,7 +160,7 @@ def test_admin_routes_use_durable_cache_without_history_queries(analytics_db):
         event.listen(analytics_db.bind, "before_cursor_execute", capture)
         try:
             for endpoint in ["coverage", "coverage-by-source", "fuel-index", "deficit-stats"]:
-                response = client.get(f"/api/v1/admin/{endpoint}?city=Pilot", headers=headers)
+                response = client.get(f"/api/v1/admin/{endpoint}?city=Pilot")
                 assert response.status_code == 200
                 assert response.json()["computed_at"]
             assert statements
@@ -164,5 +168,5 @@ def test_admin_routes_use_durable_cache_without_history_queries(analytics_db):
             assert all("station_current_status" not in statement for statement in statements)
         finally:
             event.remove(analytics_db.bind, "before_cursor_execute", capture)
-        assert client.get("/api/v1/admin/fuel-index?bbox=nan,0,1,1", headers=headers).status_code == 422
-        assert client.get("/api/v1/admin/fuel-index?bbox=1,2,3", headers=headers).status_code == 422
+        assert client.get("/api/v1/admin/fuel-index?bbox=nan,0,1,1").status_code == 422
+        assert client.get("/api/v1/admin/fuel-index?bbox=1,2,3").status_code == 422

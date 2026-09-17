@@ -3,7 +3,29 @@
 from sqlalchemy import create_engine, inspect, text
 
 
-def test_worker_migration_preserves_jobs_and_is_repeatable(tmp_path):
+def test_auth_migration_preserves_existing_users_and_is_repeatable(tmp_path):
+    from app.db.migrations import upgrade_auth
+
+    engine = create_engine(f"sqlite:///{tmp_path / 'old-users.db'}")
+    with engine.begin() as connection:
+        connection.execute(text(
+            "CREATE TABLE users (id INTEGER PRIMARY KEY, email VARCHAR(256), "
+            "reliability_score FLOAT DEFAULT 0.5, is_blocked BOOLEAN DEFAULT 0)"
+        ))
+        connection.execute(text("INSERT INTO users (id, email) VALUES (11, 'legacy@example.com')"))
+
+    upgrade_auth(engine)
+    upgrade_auth(engine)
+
+    columns = {column["name"] for column in inspect(engine).get_columns("users")}
+    assert {"display_name", "role", "password_hash"} <= columns
+    with engine.connect() as connection:
+        row = connection.execute(text("SELECT id, email, role, password_hash FROM users")).one()
+        assert row == (11, "legacy@example.com", "USER", None)
+    engine.dispose()
+
+
+
     from app.db.migrations import upgrade_worker_jobs
 
     engine = create_engine(f"sqlite:///{tmp_path / 'old.db'}")

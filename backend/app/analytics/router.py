@@ -6,13 +6,13 @@ from typing import Any
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
-from ..api.deps import require_admin
+from ..api.deps import require_operator
 from ..core.config import settings
 from ..db.session import get_db
 from .models import AnalyticsSnapshot
 from .service import deficit_by_region, summarize
 
-router = APIRouter(prefix="/admin", tags=["analytics"], dependencies=[Depends(require_admin)])
+router = APIRouter(prefix="/admin", tags=["analytics"], dependencies=[Depends(require_operator)])
 
 
 def cached_analytics(

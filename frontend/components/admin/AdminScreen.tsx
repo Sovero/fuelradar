@@ -1,6 +1,6 @@
 "use client";
 
-/** Админка (R58/R51/R52/T03/T07) — вкладки поверх admin-токена (R95i). */
+/** Админка (R58/R51/R52/T03/T07/M16) — cookie-сессия и RBAC. */
 
 import { useState } from "react";
 import Link from "next/link";

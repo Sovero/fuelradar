@@ -1,43 +1,35 @@
 "use client";
 
 /**
- * Состояние admin-токена на экране /admin (R95i). Токен вводит человек —
- * владелец ADMIN_TOKEN из backend `.env` — в простой форме-промпте; здесь
- * только хранение на время вкладки (sessionStorage, см. `lib/adminApi.ts`)
- * и общий признак «токен подтверждён рабочим запросом», чтобы не спрашивать
- * заново при переключении вкладок админки.
+ * RBAC-состояние админ-раздела (M16). Backend проверяет httpOnly-cookie и роль
+ * User; статический X-Admin-Token не является способом авторизации.
  */
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
-import { clearAdminToken, getAdminToken, setAdminToken } from "@/lib/adminApi";
+import { useAuth } from "@/lib/hooks/useAuth";
 
 interface AdminAuthState {
-  token: string | null;
   verified: boolean;
-  submit: (token: string) => void;
+  isAdmin: boolean;
+  isOperator: boolean;
   markVerified: () => void;
   markInvalid: (message: string) => void;
   error: string | null;
-  logout: () => void;
+  logout: () => Promise<void>;
 }
 
 const Ctx = createContext<AdminAuthState | null>(null);
 
 export function AdminAuthProvider({ children }: { children: React.ReactNode }) {
-  const [token, setToken] = useState<string | null>(null);
+  const { user, logout: authLogout } = useAuth();
   const [verified, setVerified] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    setToken(getAdminToken());
-  }, []);
-
-  const submit = useCallback((next: string) => {
-    setAdminToken(next);
-    setToken(next);
+    // A new login must not inherit a failed request from the previous account.
     setVerified(false);
     setError(null);
-  }, []);
+  }, [user?.id, user?.role]);
 
   const markVerified = useCallback(() => {
     setVerified(true);
@@ -49,16 +41,23 @@ export function AdminAuthProvider({ children }: { children: React.ReactNode }) {
     setError(message);
   }, []);
 
-  const logout = useCallback(() => {
-    clearAdminToken();
-    setToken(null);
+  const logout = useCallback(async () => {
+    await authLogout();
     setVerified(false);
     setError(null);
-  }, []);
+  }, [authLogout]);
 
   const value = useMemo<AdminAuthState>(
-    () => ({ token, verified, submit, markVerified, markInvalid, error, logout }),
-    [token, verified, submit, markVerified, markInvalid, error, logout],
+    () => ({
+      verified,
+      isAdmin: user?.role === "ADMIN",
+      isOperator: user?.role === "OPERATOR" || user?.role === "ADMIN",
+      markVerified,
+      markInvalid,
+      error,
+      logout,
+    }),
+    [user, verified, markVerified, markInvalid, error, logout],
   );
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;

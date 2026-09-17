@@ -1,10 +1,9 @@
-"""Общие зависимости API (T05): rate limiting (R66), пользователь, админ (R95i)."""
+"""Общие зависимости API (T05/M16): rate limiting, пользователь и RBAC."""
 
 from __future__ import annotations
 
 import logging
 import math
-import secrets
 import time
 from collections import defaultdict, deque
 from threading import Lock
@@ -43,10 +42,10 @@ def _client_ip(request: Request) -> str:
 
 
 def admin_rate_limit(request: Request) -> None:
-    """Строгий per-IP лимит всех запросов к admin-API.
+    """Строгий per-IP лимит всех запросов к защищённым admin-API.
 
-    В отличие от общего лимита API, этот бакет вызывается внутри `require_admin`
-    и поэтому защищает также GET и неуспешные проверки токена. 0 — выключен.
+    В отличие от общего лимита API, этот бакет вызывается внутри RBAC-зависимостей
+    и поэтому защищает также GET и неуспешные проверки сессии. 0 — выключен.
     """
     limit = settings.admin_rate_limit_per_minute
     if limit <= 0:
@@ -142,19 +141,51 @@ def require_user(user: User | None = Depends(optional_user)) -> User:
     return user
 
 
-def require_admin(request: Request, session: Session = Depends(get_db)) -> None:
-    """R95i: X-Admin-Token + отдельный строгий per-IP лимит админ-API."""
+def require_admin(
+    request: Request,
+    session: Session = Depends(get_db),
+    user: User | None = Depends(optional_user),
+) -> User:
+    """Require an authenticated ADMIN role for administrative mutations.
+
+    Authorization is tied to the database user and is reloaded on every request,
+    so role changes and blocks take effect immediately. Legacy ``X-Admin-Token``
+    headers are deliberately ignored and never grant access.
+    """
     admin_rate_limit(request)
-    if not settings.admin_token:
-        _audit_admin_auth_failure(session, request, "not_configured")
-        raise HTTPException(status_code=503, detail="Админ-API не настроен: задайте ADMIN_TOKEN в .env")
-    provided = request.headers.get("X-Admin-Token", "")
-    if not provided:
-        _audit_admin_auth_failure(session, request, "missing_token")
-        raise HTTPException(status_code=401, detail="Требуется заголовок X-Admin-Token")
-    if not secrets.compare_digest(provided, settings.admin_token):
-        _audit_admin_auth_failure(session, request, "invalid_token")
-        raise HTTPException(status_code=403, detail="Неверный админ-токен")
+    if user is None:
+        if request.headers.get("X-Admin-Token"):
+            reason = "legacy_header_ignored"
+        elif request.cookies.get(COOKIE_NAME):
+            reason = "invalid_session"
+        else:
+            reason = "missing_session"
+        _audit_admin_auth_failure(session, request, reason)
+        raise HTTPException(status_code=401, detail="Требуется вход администратора")
+    if user.role != "ADMIN":
+        _audit_admin_auth_failure(session, request, "forbidden_role")
+        raise HTTPException(status_code=403, detail="Недостаточно прав: требуется роль ADMIN")
+    return user
+
+
+def require_operator(
+    request: Request,
+    session: Session = Depends(get_db),
+    user: User | None = Depends(optional_user),
+) -> User:
+    """Require an authenticated OPERATOR or ADMIN for read-only operations."""
+    admin_rate_limit(request)
+    if user is None:
+        if request.headers.get("X-Admin-Token"):
+            reason = "legacy_header_ignored"
+        else:
+            reason = "missing_session"
+        _audit_admin_auth_failure(session, request, reason)
+        raise HTTPException(status_code=401, detail="Требуется вход оператора")
+    if user.role not in {"OPERATOR", "ADMIN"}:
+        _audit_admin_auth_failure(session, request, "forbidden_role")
+        raise HTTPException(status_code=403, detail="Недостаточно прав: требуется роль OPERATOR или ADMIN")
+    return user
 
 
 def set_auth_cookie(response_cookie_setter, token: str) -> None:

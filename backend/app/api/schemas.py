@@ -85,7 +85,50 @@ class DevLoginBody(BaseModel):
     email: str | None = None
 
 
+class PasswordLoginBody(BaseModel):
+    email: str
+    password: str = Field(min_length=1, max_length=256)
+
+    @field_validator("email")
+    @classmethod
+    def email_format(cls, v: str) -> str:
+        v = (v or "").strip().lower()
+        if "@" not in v or "." not in v.split("@")[-1]:
+            raise ValueError("укажите корректный email")
+        return v
+
+
+class BootstrapAdminBody(BaseModel):
+    display_name: str = Field(min_length=1, max_length=128)
+    email: str
+    password: str = Field(min_length=12, max_length=256)
+    password_confirm: str = Field(min_length=12, max_length=256)
+
+    @field_validator("display_name")
+    @classmethod
+    def display_name_format(cls, v: str) -> str:
+        value = " ".join((v or "").split())
+        if not value:
+            raise ValueError("укажите имя")
+        return value
+
+    @field_validator("email")
+    @classmethod
+    def email_format(cls, v: str) -> str:
+        v = (v or "").strip().lower()
+        if "@" not in v or "." not in v.split("@")[-1]:
+            raise ValueError("укажите корректный email")
+        return v
+
+    @model_validator(mode="after")
+    def passwords_match(self):
+        if self.password != self.password_confirm:
+            raise ValueError("пароли не совпадают")
+        return self
+
+
 class MagicLinkBody(BaseModel):
+
     email: str
 
     @field_validator("email")

@@ -10,7 +10,7 @@ import { ApiError } from "@/lib/api";
 import type { DedupCandidate } from "@/lib/types";
 
 export function AdminDedupQueue() {
-  const { markVerified, markInvalid } = useAdminAuth();
+  const { markVerified, markInvalid, isAdmin } = useAdminAuth();
   const { t } = useI18n();
   const [items, setItems] = useState<DedupCandidate[]>([]);
   const [loading, setLoading] = useState(true);
@@ -71,24 +71,26 @@ export function AdminDedupQueue() {
                 {t("admin.dedup.suggested")}: {c.suggested_station_id} ({c.score !== null ? `${Math.round(c.score * 100)}%` : "—"})
               </p>
             )}
-            <div className="mt-2 flex gap-2">
-              <button
-                type="button"
-                onClick={() => act(c, "merge")}
-                disabled={busyId === c.record_id || !c.suggested_record_id}
-                className="rounded-md bg-emerald-600 px-3 py-1 text-xs font-medium text-white hover:bg-emerald-700 disabled:opacity-40"
-              >
-                {t("admin.dedup.merge")}
-              </button>
-              <button
-                type="button"
-                onClick={() => act(c, "new_station")}
-                disabled={busyId === c.record_id}
-                className="rounded-md border border-gray-300 px-3 py-1 text-xs hover:bg-gray-50 disabled:opacity-40 dark:border-gray-700 dark:hover:bg-gray-800"
-              >
-                {t("admin.dedup.newStation")}
-              </button>
-            </div>
+            {isAdmin && (
+              <div className="mt-2 flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => act(c, "merge")}
+                  disabled={busyId === c.record_id || !c.suggested_record_id}
+                  className="rounded-md bg-emerald-600 px-3 py-1 text-xs font-medium text-white hover:bg-emerald-700 disabled:opacity-40"
+                >
+                  {t("admin.dedup.merge")}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => act(c, "new_station")}
+                  disabled={busyId === c.record_id}
+                  className="rounded-md border border-gray-300 px-3 py-1 text-xs hover:bg-gray-50 disabled:opacity-40 dark:border-gray-700 dark:hover:bg-gray-800"
+                >
+                  {t("admin.dedup.newStation")}
+                </button>
+              </div>
+            )}
           </li>
         ))}
       </ul>

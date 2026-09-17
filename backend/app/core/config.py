@@ -99,7 +99,6 @@ class Settings(BaseSettings):
     telegram_bot_token: str = ""
     vapid_public_key: str = ""
     vapid_private_key: str = ""
-    admin_token: str = ""
     smtp_url: str = ""
 
     # --- API и безопасность (T05, §14/§15) ---

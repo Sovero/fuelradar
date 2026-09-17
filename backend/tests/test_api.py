@@ -22,7 +22,8 @@ from app.db.models import (
 )
 from app.db.session import init_db
 
-ADMIN = {"X-Admin-Token": "test-admin-token"}
+ADMIN_EMAIL = "test-admin@example.com"
+ADMIN_PASSWORD = "test-admin-password-123"
 LAT, LON = 45.0355, 38.9753
 S1, S2, S3, S4 = "fr_station_950001", "fr_station_950002", "fr_station_950003", "fr_station_950004"
 
@@ -246,6 +247,14 @@ def test_meta(client) -> None:
     assert any(s["code"] == "osm_overpass" and "OpenStreetMap" in s["attribution"] for s in body["sources"])
 
 
+def _login_admin(client) -> None:
+    response = client.post(
+        "/api/v1/auth/login",
+        json={"email": ADMIN_EMAIL, "password": ADMIN_PASSWORD},
+    )
+    assert response.status_code == 200, response.text
+
+
 # ---------- права: аноним/пользователь/админ (R65/R95i) ----------
 
 
@@ -257,12 +266,15 @@ def test_personalization_requires_login(client) -> None:
 
 
 def test_admin_guards(client) -> None:
-    assert client.get("/api/v1/admin/sources").status_code == 401  # нет заголовка
-    client.post("/api/v1/auth/dev-login", json={"email": "ordinary-user@example.com"})
-    assert client.get("/api/v1/admin/sources").status_code == 401  # user-cookie не даёт admin-доступ
     client.post("/api/v1/auth/logout")
-    assert client.get("/api/v1/admin/sources", headers={"X-Admin-Token": "wrong"}).status_code == 403
-    r = client.get("/api/v1/admin/sources", headers=ADMIN)
+    assert client.get("/api/v1/admin/sources").status_code == 401  # нет cookie-сессии
+    client.post("/api/v1/auth/dev-login", json={"email": "ordinary-user@example.com"})
+    assert client.get("/api/v1/admin/sources").status_code == 403  # USER не получает admin-доступ
+    client.post("/api/v1/auth/logout")
+    # Legacy header больше не является обходом RBAC и игнорируется.
+    assert client.get("/api/v1/admin/sources", headers={"X-Admin-Token": "wrong"}).status_code == 401
+    _login_admin(client)
+    r = client.get("/api/v1/admin/sources")
     assert r.status_code == 200
     src = {s["code"]: s for s in r.json()}
     assert src["yandex"]["status"] == "RESEARCH_REQUIRED"
@@ -271,8 +283,9 @@ def test_admin_guards(client) -> None:
 
 def test_admin_refresh_creates_job(client, db_session) -> None:
     """R83: refresh не собирает синхронно — создаёт задание P2/manual для воркера (T06)."""
+    _login_admin(client)
     provider = db_session.scalar(select(SourceProvider).where(SourceProvider.code == "osm_overpass"))
-    r = client.post(f"/api/v1/admin/sources/{provider.id}/refresh", headers=ADMIN)
+    r = client.post(f"/api/v1/admin/sources/{provider.id}/refresh")
     assert r.status_code == 200
     job_id = r.json()["job_id"]
     job = db_session.get(CollectionJob, job_id)
@@ -288,7 +301,9 @@ def test_admin_refresh_creates_job(client, db_session) -> None:
 
 def test_admin_collection_log_lists_jobs_and_details(client, db_session) -> None:
     """Журнал загрузок (не снимок health) — ручные и плановые запуски, с деталями по одному."""
+    client.post("/api/v1/auth/logout")
     assert client.get("/api/v1/admin/collection-log").status_code == 401
+    _login_admin(client)
     provider = db_session.scalar(select(SourceProvider).where(SourceProvider.code == "osm_overpass"))
     job = CollectionJob(source_provider_id=provider.id, job_type="catalog", trigger="schedule",
                         priority="P4", status="DONE", records_count=4, error_count=0)
@@ -297,14 +312,14 @@ def test_admin_collection_log_lists_jobs_and_details(client, db_session) -> None
     db_session.add(CollectionLog(job_id=job.id, source_provider_id=provider.id, level="INFO", message="собрано 4 записи"))
     db_session.commit()
 
-    r = client.get("/api/v1/admin/collection-log", params={"provider_id": provider.id, "limit": 1}, headers=ADMIN)
+    r = client.get("/api/v1/admin/collection-log", params={"provider_id": provider.id, "limit": 1})
     assert r.status_code == 200
     body = r.json()
     assert body["total"] >= 1
     row = body["items"][0]
     assert row["provider_code"] == "osm_overpass" and row["records_count"] >= 0
 
-    details = client.get(f"/api/v1/admin/collection-log/{job.id}/details", headers=ADMIN)
+    details = client.get(f"/api/v1/admin/collection-log/{job.id}/details")
     assert details.status_code == 200
     assert any("собрано" in entry["message"] for entry in details.json())
 
@@ -312,33 +327,37 @@ def test_admin_collection_log_lists_jobs_and_details(client, db_session) -> None
 def test_admin_can_block_and_list_reports(client, db_session) -> None:
     """Бриф: «блокировать недостоверные пользовательские сообщения» — админ
     должен и увидеть отчёты чужих пользователей, и заблокировать автора."""
+    _login_admin(client)
     reporter = User(email="unreliable@example.com", reliability_score=0.1)
     db_session.add(reporter)
     db_session.commit()
     db_session.add(UserReport(user_id=reporter.id, station_id=None, idempotency_key=f"admintest-{reporter.id}"))
     db_session.commit()
 
-    r = client.get("/api/v1/admin/reports", params={"user_id": reporter.id}, headers=ADMIN)
+    r = client.get("/api/v1/admin/reports", params={"user_id": reporter.id})
     assert r.status_code == 200
     body = r.json()
     assert body["total"] >= 1
     assert body["items"][0]["user_id"] == reporter.id
     assert body["items"][0]["user_is_blocked"] is False
 
-    block = client.post(f"/api/v1/admin/users/{reporter.id}/block", headers=ADMIN)
+    block = client.post(f"/api/v1/admin/users/{reporter.id}/block")
     assert block.status_code == 200 and block.json()["is_blocked"] is True
     db_session.refresh(reporter)
     assert reporter.is_blocked is True
 
-    unblock = client.post(f"/api/v1/admin/users/{reporter.id}/block", json={"blocked": False}, headers=ADMIN)
+    unblock = client.post(f"/api/v1/admin/users/{reporter.id}/block", json={"blocked": False})
     assert unblock.status_code == 200 and unblock.json()["is_blocked"] is False
 
+    client.post("/api/v1/auth/logout")
     assert client.post(f"/api/v1/admin/users/{reporter.id}/block").status_code == 401
-    assert client.post("/api/v1/admin/users/999999/block", headers=ADMIN).status_code == 404
+    _login_admin(client)
+    assert client.post("/api/v1/admin/users/999999/block").status_code == 404
 
 
 def test_admin_merge_split_and_queue(client, db_session) -> None:
     """R10/R09.1: очередь дедупликации → подтверждение слияния → разделение."""
+    _login_admin(client)
     network = db_session.scalar(select(SourceProvider).where(SourceProvider.code == "network_import"))
     from app.dedup import DedupService
 
@@ -351,23 +370,23 @@ def test_admin_merge_split_and_queue(client, db_session) -> None:
     summary = DedupService(db_session).process_pending()
     assert summary["review"] >= 1
 
-    queue = client.get("/api/v1/admin/dedup-queue", headers=ADMIN).json()
+    queue = client.get("/api/v1/admin/dedup-queue").json()
     mine = [c for c in queue if c["external_id"] in ("t05-a", "t05-b")]
     assert mine and mine[0]["suggested_record_id"] is not None and mine[0]["weights"]
 
     review = next(c for c in mine if c["record_id"] == rec_b.id)
-    r = client.post("/api/v1/admin/dedup-queue", headers=ADMIN,
+    r = client.post("/api/v1/admin/dedup-queue",
                     json={"record_id": review["record_id"], "action": "merge",
                           "target_record_id": review["suggested_record_id"]})
     assert r.status_code == 200
     station_id = r.json()["station_id"]
 
-    r = client.post(f"/api/v1/admin/stations/{station_id}/split", headers=ADMIN,
+    r = client.post(f"/api/v1/admin/stations/{station_id}/split",
                     json={"record_id": rec_b.id})
     assert r.status_code == 200
     assert r.json()["new_station_id"] != station_id
 
-    r = client.post(f"/api/v1/admin/stations/{station_id}/merge", headers=ADMIN,
+    r = client.post(f"/api/v1/admin/stations/{station_id}/merge",
                     json={"record_id": rec_a.id})
     assert r.status_code in (200, 404)  # 404 допустим, если запись уже переехала при split
 

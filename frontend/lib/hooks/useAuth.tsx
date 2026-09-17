@@ -9,9 +9,21 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useState } 
 import { apiGet, apiPost } from "@/lib/api";
 import type { AuthUser } from "@/lib/types";
 
+interface BootstrapAdminInput {
+  display_name: string;
+  email: string;
+  password: string;
+  password_confirm: string;
+}
+
 interface AuthState {
   user: AuthUser | null;
   loading: boolean;
+  bootstrapRequired: boolean | null;
+  /** First-run setup: creates the only initial ADMIN account. */
+  bootstrapAdmin: (input: BootstrapAdminInput) => Promise<void>;
+  /** Normal email/password login for configured accounts. */
+  passwordLogin: (email: string, password: string) => Promise<void>;
   /** dev-вход (см. backend/app/api/login.py) — для пилота, пока не настроены SMTP/Telegram. */
   devLogin: (email: string) => Promise<void>;
   /** R66: письмо со ссылкой (POST /auth/magic-link) — активно только при заданном SMTP_URL. */
@@ -46,14 +58,19 @@ export function getOrCreateGuestEmail(): string {
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<AuthUser | null>(null);
   const [loading, setLoading] = useState(true);
+  const [bootstrapRequired, setBootstrapRequired] = useState<boolean | null>(null);
 
   const refresh = useCallback(async () => {
     try {
-      // Анонимный гость — 200 + {user: null} (не 401): probe не шумит ошибкой в консоли.
-      const res = await apiGet<{ user: AuthUser | null }>("/auth/me");
-      setUser(res.user);
+      const [auth, bootstrap] = await Promise.all([
+        apiGet<{ user: AuthUser | null }>("/auth/me"),
+        apiGet<{ required: boolean }>("/auth/bootstrap"),
+      ]);
+      setUser(auth.user);
+      setBootstrapRequired(bootstrap.required);
     } catch {
       setUser(null);
+      setBootstrapRequired(null);
     } finally {
       setLoading(false);
     }
@@ -62,6 +79,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     refresh();
   }, [refresh]);
+
+  const bootstrapAdmin = useCallback(async (input: BootstrapAdminInput) => {
+    const res = await apiPost<{ user: AuthUser }>("/auth/bootstrap", input);
+    setUser(res.user);
+    setBootstrapRequired(false);
+  }, []);
+
+  const passwordLogin = useCallback(async (email: string, password: string) => {
+    const res = await apiPost<{ user: AuthUser }>("/auth/login", { email, password });
+    setUser(res.user);
+  }, []);
 
   const devLogin = useCallback(
     async (email: string) => {
@@ -91,8 +119,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const value = useMemo<AuthState>(
-    () => ({ user, loading, devLogin, requestMagicLink, verifyMagicLink, telegramLogin, logout, refresh }),
-    [user, loading, devLogin, requestMagicLink, verifyMagicLink, telegramLogin, logout, refresh],
+    () => ({ user, loading, bootstrapRequired, bootstrapAdmin, passwordLogin, devLogin, requestMagicLink, verifyMagicLink, telegramLogin, logout, refresh }),
+    [user, loading, bootstrapRequired, bootstrapAdmin, passwordLogin, devLogin, requestMagicLink, verifyMagicLink, telegramLogin, logout, refresh],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

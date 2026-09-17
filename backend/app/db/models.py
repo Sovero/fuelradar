@@ -200,9 +200,26 @@ class User(Base):  # §83 users
     id: Mapped[int] = mapped_column(primary_key=True)
     telegram_id: Mapped[str | None] = mapped_column(String(64), nullable=True, unique=True)
     email: Mapped[str | None] = mapped_column(String(256), nullable=True)
+    display_name: Mapped[str] = mapped_column(String(128), default="")
+    role: Mapped[str] = mapped_column(String(16), default="USER")  # USER | OPERATOR | ADMIN
+    password_hash: Mapped[str | None] = mapped_column(Text, nullable=True)
     reliability_score: Mapped[float] = mapped_column(Float, default=0.5)  # R41
     is_blocked: Mapped[bool] = mapped_column(Boolean, default=False)  # R41.1
     created_at: Mapped[datetime] = mapped_column(DateTime, default=_now)
+
+
+class BootstrapState(Base):  # M16: one-time first-admin bootstrap gate
+    """Singleton state that closes the bootstrap endpoint after the first admin.
+
+    The conditional update in the bootstrap endpoint claims this row atomically,
+    so two first-run requests cannot create two administrators concurrently.
+    """
+
+    __tablename__ = "bootstrap_state"
+
+    id: Mapped[int] = mapped_column(primary_key=True, default=1)
+    completed: Mapped[bool] = mapped_column(Boolean, default=False)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
 
 class MonitoringZone(Base):  # §83 monitoring_zones

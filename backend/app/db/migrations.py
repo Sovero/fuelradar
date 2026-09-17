@@ -3,6 +3,31 @@
 from sqlalchemy import Engine, inspect, text
 
 
+def upgrade_auth(engine: Engine) -> None:
+    """Add role/password fields to existing users without dropping accounts.
+
+    ``create_all`` does not alter an already-existing table, so these additions
+    are deliberately kept as an idempotent post-init migration.  Existing
+    passwordless users remain ordinary USER accounts and can continue using
+    Telegram/magic-link authentication.
+    """
+    with engine.begin() as connection:
+        if connection.dialect.name == "postgresql":
+            connection.execute(text("SELECT pg_advisory_xact_lock(72819301)"))
+        inspector = inspect(connection)
+        if not inspector.has_table("users"):
+            return
+        columns = {column["name"] for column in inspector.get_columns("users")}
+        additions = {
+            "display_name": "VARCHAR(128) DEFAULT '' NOT NULL",
+            "role": "VARCHAR(16) DEFAULT 'USER' NOT NULL",
+            "password_hash": "TEXT",
+        }
+        for name, sql_type in additions.items():
+            if name not in columns:
+                connection.execute(text(f"ALTER TABLE users ADD COLUMN {name} {sql_type}"))
+
+
 def upgrade_spatial_index(engine: Engine) -> None:
     """Create the production geography column and its spatial search index."""
     if engine.dialect.name != "postgresql":

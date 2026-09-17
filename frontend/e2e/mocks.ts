@@ -132,6 +132,7 @@ const createdAlert = {
 export async function installApiMocks(page: Page) {
   await page.route("**/api/v1/meta", json(META));
   await page.route("**/api/v1/auth/me", json({ user: null }));
+  await page.route("**/api/v1/auth/bootstrap", json({ required: false }));
   // Минимально честная фильтрация как у backend: fuel/status из query сужают
   // выдачу (сама логика фильтров покрыта backend-тестами — тут фикс.truth).
   await page.route("**/api/v1/stations?*", (route) => {
@@ -202,7 +203,16 @@ export async function mockAuthUser(page: Page, telegramId = "e2e-user") {
     route.fulfill({
       status: 200,
       contentType: "application/json",
-      body: JSON.stringify({ user: { id: 1, telegram_id: telegramId, email: null, reliability_score: 0.5 } }),
+      body: JSON.stringify({
+        user: {
+          id: 1,
+          telegram_id: telegramId,
+          email: null,
+          display_name: "E2E user",
+          role: "USER",
+          reliability_score: 0.5,
+        },
+      }),
     }),
   );
 }

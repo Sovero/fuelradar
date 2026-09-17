@@ -14,18 +14,20 @@ from sqlalchemy.pool import StaticPool
 from app.analytics.heat import router as heat_router
 from app.analytics.router import router as admin_router
 from app.analytics.service import refresh_analytics
+from app.auth import COOKIE_NAME, create_access_token
 from app.db.base import Base
 from app.db.models import (
     FuelObservation,
     FuelType,
-    SourceProvider,
     Station,
     StationCurrentStatus,
+    User,
 )
 from app.db.session import get_db
 
 NOW = datetime.now(UTC).replace(tzinfo=None)
-ADMIN = {"X-Admin-Token": "test-admin-token"}
+ADMIN_EMAIL = "analytics-admin@example.com"
+ADMIN_TOKEN = create_access_token(9101)
 
 
 @pytest.fixture()
@@ -35,7 +37,7 @@ def t12_db():
     with Session(engine) as db:
         db.add_all([
             FuelType(id=1, code="AI_95", display_name_ru="95"),
-            SourceProvider(id=1, code="osm", name="OSM"),
+            User(id=9101, email=ADMIN_EMAIL, role="ADMIN"),
         ])
         for number in range(1, 6):
             db.add(Station(id=str(number), latitude=45.0 + number / 100, longitude=39.0 + number / 100,
@@ -160,7 +162,9 @@ def t12_client(t12_db):
     from app.api.stations import router as stations_router
     app.include_router(stations_router, prefix="/api/v1")
     app.dependency_overrides[get_db] = lambda: t12_db
-    return TestClient(app)
+    client = TestClient(app)
+    client.cookies.set(COOKIE_NAME, ADMIN_TOKEN)
+    return client
 
 
 def test_heat_cells_read_snapshot_only(t12_client, t12_db):
@@ -199,8 +203,7 @@ def test_heat_cells_read_snapshot_only(t12_client, t12_db):
 
 
 def test_deficit_by_region_endpoint_groups_with_sample_size(t12_client, t12_db):
-    assert t12_client.get("/api/v1/admin/deficit-by-region", headers=ADMIN).status_code == 503
-    assert t12_client.get("/api/v1/admin/deficit-by-region").status_code == 401
+    assert t12_client.get("/api/v1/admin/deficit-by-region").status_code == 503
 
     _seed_cycle(t12_db, "1", [(-300, -240), (-200, -100)])
     _seed_cycle(t12_db, "4", [(-90, -30)])
@@ -208,7 +211,7 @@ def test_deficit_by_region_endpoint_groups_with_sample_size(t12_client, t12_db):
     refresh_analytics(t12_db, now=NOW)
     t12_db.commit()
 
-    response = t12_client.get("/api/v1/admin/deficit-by-region?dimension=city", headers=ADMIN)
+    response = t12_client.get("/api/v1/admin/deficit-by-region?dimension=city")
     assert response.status_code == 200
     items = response.json()["items"]
     alpha = next(row for row in items if row["city"] == "Alpha")
@@ -218,7 +221,7 @@ def test_deficit_by_region_endpoint_groups_with_sample_size(t12_client, t12_db):
     assert beta["completed_outages"] == 1
     assert "pilot" in response.json()["note"]
     assert t12_client.get(
-        "/api/v1/admin/deficit-by-region?dimension=galaxy", headers=ADMIN
+        "/api/v1/admin/deficit-by-region?dimension=galaxy"
     ).status_code == 422
 
 

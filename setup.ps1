@@ -10,10 +10,10 @@
       1. Проверяет наличие git/python/node/npm.
       2. git pull (если это git-репозиторий и есть remote) — подтягивает обновления.
       3. Создаёт backend\.venv (если его ещё нет) и ставит зависимости из requirements.txt.
-      4. Создаёт .env из .env.example при первом запуске — с автосгенерированным
-         локальным ADMIN_TOKEN (не секрет внешнего сервиса, только для этой машины)
-         и DEBUG=true/CORS_ORIGINS для локальной разработки. Уже существующий .env
-         НЕ трогает — ваши правки (или вписанные ключи) не будут потеряны.
+      4. Создаёт .env из .env.example при первом запуске — с DEBUG=true/CORS_ORIGINS
+         для локальной разработки. Уже существующий .env НЕ трогает — ваши правки
+         (или вписанные ключи) не будут потеряны. Первый администратор создаётся
+         через мастер первоначальной настройки в интерфейсе (bootstrap, M16).
       5. npm install во frontend/, создаёт frontend\.env.local из примера при первом запуске.
       6. Наполняет каталог демо-данными из офлайн-фикстур (без сети), если БД пустая.
       7. Запускает backend (uvicorn) в отдельном окне и frontend (npm run dev) в текущем.
@@ -58,11 +58,6 @@ function Write-Step($text) {
 
 function Test-CommandExists($name) {
     return [bool](Get-Command $name -ErrorAction SilentlyContinue)
-}
-
-function New-RandomToken([int]$Length = 48) {
-    $chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789'
-    -join (1..$Length | ForEach-Object { $chars[(Get-Random -Maximum $chars.Length)] })
 }
 
 # ---------- 1. Проверка предпосылок ----------
@@ -141,14 +136,13 @@ if (-not (Test-Path $EnvFile)) {
 
     $content = Get-Content $EnvFile -Raw -Encoding UTF8
     $content = $content -replace '(?m)^DEBUG=false\s*$', 'DEBUG=true'
-    $content = $content -replace '(?m)^ADMIN_TOKEN=\s*$', "ADMIN_TOKEN=$(New-RandomToken)"
     if ($content -notmatch '(?m)^CORS_ORIGINS=') {
         $content += "`n# Добавлено setup.ps1: backend (:8000) и frontend (:3000) — разные origin для браузера в dev`nCORS_ORIGINS=http://localhost:3000`n"
     }
     Set-Content -Path $EnvFile -Value $content -Encoding UTF8 -NoNewline
 
-    Write-Host "  Готово. ADMIN_TOKEN сгенерирован автоматически — это локальный секрет только для этой" -ForegroundColor Green
-    Write-Host "  машины (не внешний сервис), посмотреть его можно в .env." -ForegroundColor Green
+    Write-Host "  Готово. Первый администратор создаётся через мастер первоначальной настройки:" -ForegroundColor Green
+    Write-Host "  при первом открытии интерфейса появится форма создания ADMIN-учётки (M16 bootstrap)." -ForegroundColor Green
     Write-Host "  Внешние интеграции (Telegram, Web Push, SMTP, Яндекс.Карты) — по-прежнему пустые" -ForegroundColor Green
     Write-Host "  placeholder'ы в .env: впишите свои ключи вручную, если они нужны." -ForegroundColor Green
 } else {
@@ -205,7 +199,7 @@ if ($SkipStart) {
 
 Write-Step "Запуск серверов"
 
-# .env уже содержит DEBUG/CORS_ORIGINS/ADMIN_TOKEN для локальной разработки (см. шаг 4),
+# .env уже содержит DEBUG/CORS_ORIGINS для локальной разработки (см. шаг 4),
 # uvicorn подхватит их сам через pydantic-settings — читать .env вручную не нужно.
 $BackendCmd = "cd '$BackendDir'; & '$VenvPython' -m uvicorn app.main:app --reload --port 8000"
 Write-Host "  Backend  -> новое окно PowerShell, http://localhost:8000"

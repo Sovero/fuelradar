@@ -1,8 +1,8 @@
-"""Админ-API (T05, §15, R95i/R67): источники, refresh, merge/split, очередь дедупликации.
+"""Административный API (T05/M16): источники, refresh, merge/split, очередь дедупликации.
 
-Доступ — только по заголовку X-Admin-Token (R95i). Все действия журналируются
-в admin_action_log (R67). Refresh ставит задание воркеру (T06) — без синхронного
-сбора (R83).
+Доступ определяется cookie-сессией и ролью USER/OPERATOR/ADMIN; все действия
+журналируются в admin_action_log (R67). Refresh ставит задание воркеру (T06) —
+без синхронного сбора (R83).
 """
 
 from __future__ import annotations
@@ -25,14 +25,14 @@ from ..db.models import (
 )
 from ..db.session import get_db
 from ..dedup import DedupService
-from .deps import require_admin
+from .deps import require_admin, require_operator
 from .schemas import AdminMergeBody, DedupQueueAction
 
 
 class BlockUserBody(BaseModel):
     blocked: bool = True
 
-router = APIRouter(prefix="/admin", tags=["admin"], dependencies=[Depends(require_admin)])
+router = APIRouter(prefix="/admin", tags=["admin"])
 
 
 _TARGET_TYPE_BY_ACTION = {"refresh_source": "source", "block_user": "user", "unblock_user": "user"}
@@ -50,7 +50,7 @@ def _provider_or_404(session: Session, provider_id: int) -> SourceProvider:
     return provider
 
 
-@router.get("/sources")
+@router.get("/sources", dependencies=[Depends(require_operator)])
 def list_sources(session: Session = Depends(get_db)) -> list[dict]:
     """Список источников: статус (ACTIVE/RESEARCH_REQUIRED), health, доверие (R57/R95i)."""
     health = {h.source_provider_id: h for h in session.scalars(select(SourceHealth))}
@@ -76,7 +76,7 @@ def list_sources(session: Session = Depends(get_db)) -> list[dict]:
     ]
 
 
-@router.get("/sources/{provider_id}/health")
+@router.get("/sources/{provider_id}/health", dependencies=[Depends(require_operator)])
 def source_health(provider_id: int, session: Session = Depends(get_db)) -> dict:
     provider = _provider_or_404(session, provider_id)
     health = session.scalar(select(SourceHealth).where(SourceHealth.source_provider_id == provider.id))
@@ -92,7 +92,7 @@ def source_health(provider_id: int, session: Session = Depends(get_db)) -> dict:
     }
 
 
-@router.post("/sources/{provider_id}/refresh")
+@router.post("/sources/{provider_id}/refresh", dependencies=[Depends(require_admin)])
 def refresh_source(provider_id: int, session: Session = Depends(get_db)) -> dict:
     """R83: не собирает синхронно — ставит задание в очередь воркера (T06, приоритет P2)."""
     provider = _provider_or_404(session, provider_id)
@@ -106,7 +106,7 @@ def refresh_source(provider_id: int, session: Session = Depends(get_db)) -> dict
     return {"job_id": job.id, "provider": provider.code, "status": job.status, "priority": job.priority}
 
 
-@router.get("/collection-log")
+@router.get("/collection-log", dependencies=[Depends(require_operator)])
 def collection_log(
     provider_id: int | None = None,
     limit: int = 50,
@@ -147,7 +147,7 @@ def collection_log(
     }
 
 
-@router.get("/collection-log/{job_id}/details")
+@router.get("/collection-log/{job_id}/details", dependencies=[Depends(require_operator)])
 def collection_log_details(job_id: int, session: Session = Depends(get_db)) -> list[dict]:
     """Построчные сообщения конкретного запуска (collection_logs, R84)."""
     job = session.get(CollectionJob, job_id)
@@ -159,7 +159,7 @@ def collection_log_details(job_id: int, session: Session = Depends(get_db)) -> l
     return [{"level": entry.level, "message": entry.message, "created_at": entry.created_at} for entry in logs]
 
 
-@router.get("/reports")
+@router.get("/reports", dependencies=[Depends(require_operator)])
 def list_reports(
     user_id: int | None = None,
     limit: int = 50,
@@ -194,7 +194,7 @@ def list_reports(
     }
 
 
-@router.post("/users/{user_id}/block")
+@router.post("/users/{user_id}/block", dependencies=[Depends(require_admin)])
 def block_user(user_id: int, body: BlockUserBody = BlockUserBody(), session: Session = Depends(get_db)) -> dict:
     """R41.1: блокировка недостоверного пользователя — закрывает доступ к новым
     отчётам сразу (`deps.require_user`/`current_active_user`), история остаётся видимой.
@@ -215,7 +215,7 @@ def _station_or_404(session: Session, station_id: str) -> Station:
     return station
 
 
-@router.post("/stations/{station_id}/merge")
+@router.post("/stations/{station_id}/merge", dependencies=[Depends(require_admin)])
 def merge_station(station_id: str, body: AdminMergeBody, session: Session = Depends(get_db)) -> dict:
     """Объединить запись (и её станцию, если есть) со станцией {station_id} (R09.1/R10)."""
     _station_or_404(session, station_id)
@@ -234,7 +234,7 @@ def merge_station(station_id: str, body: AdminMergeBody, session: Session = Depe
     return {"station_id": target, "merged_record_id": body.record_id}
 
 
-@router.post("/stations/{station_id}/split")
+@router.post("/stations/{station_id}/split", dependencies=[Depends(require_admin)])
 def split_station(station_id: str, body: AdminMergeBody, session: Session = Depends(get_db)) -> dict:
     """Выделить запись в отдельную станцию (R09.1): прежние внешние ID сохраняются."""
     _station_or_404(session, station_id)
@@ -250,7 +250,7 @@ def split_station(station_id: str, body: AdminMergeBody, session: Session = Depe
     return {"new_station_id": new_id, "record_id": body.record_id}
 
 
-@router.get("/dedup-queue")
+@router.get("/dedup-queue", dependencies=[Depends(require_operator)])
 def dedup_queue(session: Session = Depends(get_db)) -> list[dict]:
     """Кандидаты «на подтверждение» (R10): запись + предложение + разбор по весам."""
     service = DedupService(session)
@@ -263,7 +263,7 @@ def dedup_queue(session: Session = Depends(get_db)) -> list[dict]:
     return result
 
 
-@router.post("/dedup-queue")
+@router.post("/dedup-queue", dependencies=[Depends(require_admin)])
 def dedup_queue_action(body: DedupQueueAction, session: Session = Depends(get_db)) -> dict:
     """Подтвердить слияние (merge) или выделить запись в отдельную станцию (new_station)."""
     service = DedupService(session)

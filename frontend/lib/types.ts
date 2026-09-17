@@ -145,6 +145,8 @@ export interface AuthUser {
   id: number;
   telegram_id: string | null;
   email: string | null;
+  display_name: string;
+  role: "USER" | "OPERATOR" | "ADMIN";
   reliability_score: number;
 }
 
@@ -219,7 +221,7 @@ export interface NotificationsPage {
   unread_count: number;
 }
 
-/** Админ (R95i, X-Admin-Token) — backend/app/api/admin.py, backend/app/analytics/router.py. */
+/** Админ (M16 RBAC) — backend/app/api/admin.py, backend/app/analytics/router.py. */
 export interface AdminSourceHealth {
   state: string;
   last_check_at: string | null;

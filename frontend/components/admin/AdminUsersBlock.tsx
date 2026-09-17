@@ -20,7 +20,7 @@ import type { AdminReportsPage } from "@/lib/types";
 const PAGE_SIZE = 20;
 
 export function AdminUsersBlock() {
-  const { markVerified, markInvalid } = useAdminAuth();
+  const { markVerified, markInvalid, isAdmin } = useAdminAuth();
   const { t } = useI18n();
   const [page, setPage] = useState<AdminReportsPage | null>(null);
   const [offset, setOffset] = useState(0);
@@ -124,6 +124,7 @@ export function AdminUsersBlock() {
                     <td className="py-2 pr-3">{r.gps_confirmed ? "✓" : "—"}</td>
                     <td className="py-2 pr-3 text-gray-500 dark:text-gray-400">{formatUpdatedAt(r.created_at)}</td>
                     <td className="py-2 pr-3">
+                      {isAdmin && (
                       <button
                         type="button"
                         onClick={() => toggleBlock(r.user_id, !r.user_is_blocked)}
@@ -140,6 +141,7 @@ export function AdminUsersBlock() {
                             ? t("admin.users.unblock")
                             : t("admin.users.block")}
                       </button>
+                    )}
                     </td>
                   </tr>
                 ))}
@@ -175,28 +177,30 @@ export function AdminUsersBlock() {
         </>
       )}
 
-      <div className="mt-6 border-t border-gray-100 pt-4 dark:border-gray-800">
-        <h3 className="mb-2 text-sm font-medium">{t("admin.users.manualBlock")}</h3>
-        <div className="flex items-center gap-2">
-          <input
-            type="number"
-            min={1}
-            placeholder={t("admin.users.idPlaceholder")}
-            value={manualId}
-            onChange={(e) => setManualId(e.target.value)}
-            className="w-40 rounded-md border border-gray-300 px-2 py-1.5 text-sm dark:border-gray-700 dark:bg-gray-800"
-          />
-          <button
-            type="button"
-            onClick={blockManualId}
-            disabled={manualBusy || !manualId}
-            className="rounded-md bg-red-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-red-700 disabled:opacity-50"
-          >
-            {manualBusy ? t("admin.users.blocking") : t("admin.users.block")}
-          </button>
+      {isAdmin && (
+        <div className="mt-6 border-t border-gray-100 pt-4 dark:border-gray-800">
+          <h3 className="mb-2 text-sm font-medium">{t("admin.users.manualBlock")}</h3>
+          <div className="flex items-center gap-2">
+            <input
+              type="number"
+              min={1}
+              placeholder={t("admin.users.idPlaceholder")}
+              value={manualId}
+              onChange={(e) => setManualId(e.target.value)}
+              className="w-40 rounded-md border border-gray-300 px-2 py-1.5 text-sm dark:border-gray-700 dark:bg-gray-800"
+            />
+            <button
+              type="button"
+              onClick={blockManualId}
+              disabled={manualBusy || !manualId}
+              className="rounded-md bg-red-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-red-700 disabled:opacity-50"
+            >
+              {manualBusy ? t("admin.users.blocking") : t("admin.users.block")}
+            </button>
+          </div>
+          {manualError && <p className="mt-2 text-sm text-red-600 dark:text-red-400">{manualError}</p>}
         </div>
-        {manualError && <p className="mt-2 text-sm text-red-600 dark:text-red-400">{manualError}</p>}
-      </div>
+      )}
     </div>
   );
 }

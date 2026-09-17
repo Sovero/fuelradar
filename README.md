@@ -32,6 +32,14 @@ backend (новое окно) и frontend (текущее окно) — откр
 
 Переменные окружения — `cp .env.example .env`, секреты заполняются пользователем (R68).
 
+## Роли и доступ (M16)
+
+Первый `ADMIN` создаётся через мастер первоначальной настройки при первом открытии
+интерфейса (одноразовый bootstrap). Дальше доступ по ролям `USER`/`OPERATOR`/`ADMIN`
+через cookie-сессию: чтение админки — OPERATOR+, изменения — ADMIN. Выдача ролей —
+CLI: `python -m cli.roles list` / `set --user <email|id> --role OPERATOR` —
+подробности в [docs/roles.md](docs/roles.md).
+
 ## Состояние roadmap
 
 Завершены T01–T15: каталог и дедупликация, Confidence Engine, публичный API,

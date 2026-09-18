@@ -20,6 +20,16 @@ type CatalogGapsCandidate = {
   fields: string[];
 };
 
+function FieldTag({ field }: { field: string }) {
+  const { t } = useI18n();
+  const known = field === "brand" || field === "phone" || field === "address";
+  return (
+    <span className="mr-1 inline-block rounded bg-emerald-50 px-1.5 py-0.5 text-xs text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300">
+      {t(known ? (`admin.gaps.field.${field}` as const) : "admin.gaps.field.other")}
+    </span>
+  );
+}
+
 type CatalogGapsOut = {
   total: number;
   missing: { brand: number; phone: number; address: number; any: number };
@@ -52,6 +62,7 @@ export function AdminCatalogGaps() {
   const [data, setData] = useState<CatalogGapsOut | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [exporting, setExporting] = useState(false);
 
   useEffect(() => {
     adminGet<CatalogGapsOut>("/catalog-gaps")
@@ -66,6 +77,37 @@ export function AdminCatalogGaps() {
       .finally(() => setLoading(false));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // CSV приходит файлом из backend (формат krasnodar-unnamed-template.csv).
+  // fetch вручную, а не <a href>: запрос должен пойти с cookie-сессией.
+  const exportCsv = async () => {
+    setExporting(true);
+    try {
+      const res = await fetch("/api/v1/admin/catalog-gaps/export.csv", { credentials: "include" });
+      if (!res.ok) {
+        let message = `${res.status}`;
+        try {
+          message = (await res.json()).detail ?? message;
+        } catch {
+          /* не JSON — оставляем код статуса */
+        }
+        if (res.status === 401 || res.status === 403) markInvalid(message);
+        else setError(message);
+        return;
+      }
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = "catalog-gaps-enrichment-template.csv";
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch {
+      setError(t("admin.loadError"));
+    } finally {
+      setExporting(false);
+    }
+  };
 
   if (loading) return <p className="p-4 text-sm text-gray-400">{t("loading")}</p>;
   if (error) return <p className="p-4 text-sm text-red-600 dark:text-red-400">{error}</p>;
@@ -118,7 +160,18 @@ export function AdminCatalogGaps() {
       </section>
 
       <section>
-        <h2 className="mb-2 text-lg font-semibold">{t("admin.gaps.candidatesTitle")}</h2>
+        <div className="flex items-center justify-between gap-3">
+          <h2 className="text-lg font-semibold">{t("admin.gaps.candidatesTitle")}</h2>
+          <button
+            type="button"
+            onClick={exportCsv}
+            disabled={exporting}
+            className="shrink-0 rounded-md border border-emerald-300 px-3 py-1.5 text-sm font-medium text-emerald-700 hover:bg-emerald-50 disabled:opacity-50 dark:border-emerald-800 dark:text-emerald-300 dark:hover:bg-emerald-950"
+          >
+            {exporting ? t("admin.gaps.exporting") : t("admin.gaps.exportCsv")}
+          </button>
+        </div>
+        <p className="mb-3 mt-1 text-xs text-gray-400 dark:text-gray-500">{t("admin.gaps.exportHint")}</p>
         {data.candidates.length === 0 ? (
           <p className="text-sm text-gray-500 dark:text-gray-400">{t("admin.gaps.noCandidates")}</p>
         ) : (

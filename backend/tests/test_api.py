@@ -387,6 +387,52 @@ def test_admin_catalog_gaps_reports_missing_fields_and_enrichable(client, db_ses
     assert len(client.get("/api/v1/admin/catalog-gaps?limit=1").json()["candidates"]) == 1
 
 
+def test_admin_catalog_gaps_export_csv_matches_template_format(client, db_session) -> None:
+    """GET /admin/catalog-gaps/export.csv: формат заготовки обогащения.
+
+    CSV обязан читаться продакшен-парсером network_import.parse_csv, колонки
+    и семантика ref/osm_url — как в krasnodar-unnamed-template.csv.
+    """
+    _login_admin(client)
+    net = db_session.scalar(select(SourceProvider).where(SourceProvider.code == "network_import"))
+    g1 = "fr_station_950011"
+    if db_session.get(Station, g1) is None:
+        db_session.add(Station(id=g1, canonical_name="АЗС без бренда", latitude=LAT + 0.02,
+                               longitude=LON + 0.02, city="Краснодар"))
+    # запись с OSM-внешним id: даёт и бренд, и osm_url в экспорте
+    rec = SourceStationRecord(source_provider_id=net.id, external_id="node/447783364", station_id=g1,
+                              latitude=LAT + 0.02, longitude=LON + 0.02,
+                              brand_raw="Лукойл", name_raw="", address_raw="ул. Экспортная, 5", payload="{}")
+    db_session.add(rec)
+    db_session.commit()
+
+    r = client.get("/api/v1/admin/catalog-gaps/export.csv")
+    assert r.status_code == 200
+    assert "text/csv" in r.headers["content-type"]
+    assert "attachment" in r.headers["content-disposition"]
+
+    text = r.content.decode("utf-8")
+    import csv as _csv
+    import io as _io
+    table = list(_csv.reader(_io.StringIO(text)))
+    assert table[0] == ["name", "brand", "lat", "lon", "address", "phone", "ref", "city", "region", "osm_url"]
+    cells = next(row for row in table[1:] if "447783364" in row)
+    assert cells[1] == "Лукойл"  # бренд распознан и предзаполнен
+    assert cells[2] == f"{LAT + 0.02:.6f}" and cells[3] == f"{LON + 0.02:.6f}"
+    assert cells[4] == "ул. Экспортная, 5"  # запятая внутри значения экранируется csv
+    assert cells[6] == "447783364"  # ref = id объекта OSM без префикса node/
+    assert cells[9] == "https://www.openstreetmap.org/node/447783364"
+
+    # главный критерий: файл читается тем же парсером, что и реальный импорт
+    from app.sources.network_import import parse_csv
+    records = parse_csv(text)
+    assert any(r_.brand_raw == "Лукойл" and r_.address_raw == "ул. Экспортная, 5" for r_ in records), records
+
+    # RBAC: аноним → 401
+    client.post("/api/v1/auth/logout")
+    assert client.get("/api/v1/admin/catalog-gaps/export.csv").status_code == 401
+
+
 def test_admin_updates_source_trust_status_interval(client, db_session) -> None:
     """PATCH /admin/sources/{id} (M16): ADMIN меняет trust/статус/интервал, всё с аудитом."""
     client.post("/api/v1/auth/dev-login", json={"email": "sources-editor@example.com"})

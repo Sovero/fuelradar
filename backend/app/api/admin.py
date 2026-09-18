@@ -10,7 +10,7 @@ from __future__ import annotations
 from datetime import date as date_type
 from datetime import datetime, timedelta
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Response
 from pydantic import BaseModel
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
@@ -408,6 +408,56 @@ def split_station(station_id: str, body: AdminMergeBody, session: Session = Depe
     return {"new_station_id": new_id, "record_id": body.record_id}
 
 
+def _enrichable_candidates(session: Session) -> dict[str, dict]:
+    """Общая выборка кандидатов дозаполнения для /catalog-gaps и экспорта CSV.
+
+    source_station_records, привязанные к станции, у которых заполнены поля,
+    пустые в мастер-каталоге. Бренд берётся normalize_brand (тот же, что в
+    инжесте), чтобы кандидат обещал только то, что реально распознается при
+    повторном импорте.
+    """
+    stations_without_brand = {
+        row[0]
+        for row in session.execute(select(Station.id).where(Station.brand_id.is_(None))).all()
+    }
+    stations_without_address = {
+        row[0]
+        for row in session.execute(select(Station.id).where((Station.address == "") | (Station.address == "?"))).all()
+    }
+
+    rows = session.execute(
+        select(
+            SourceStationRecord,
+            Station.canonical_name,
+            SourceProvider.code,
+            SourceProvider.name,
+        )
+        .join(Station, SourceStationRecord.station_id == Station.id)
+        .join(SourceProvider, SourceStationRecord.source_provider_id == SourceProvider.id)
+        .order_by(SourceStationRecord.id)
+    ).all()
+
+    enrichable: dict[str, dict] = {}
+    for record, canonical, provider_code, provider_name in rows:
+        fields = set()
+        brand = normalize_brand(record.brand_raw)
+        if brand and record.station_id in stations_without_brand:
+            fields.add("brand")
+        if record.address_raw.strip() and record.station_id in stations_without_address:
+            fields.add("address")
+        if fields:
+            enrichable[record.station_id] = {
+                "station_id": record.station_id,
+                "station_name": canonical,
+                "provider_code": provider_code,
+                "provider_name": provider_name,
+                "fields": fields,
+                # для экспорта CSV: сырые значения источника и внешний id записи
+                "record": record,
+            }
+    return enrichable
+
+
 @router.get("/catalog-gaps", dependencies=[Depends(require_operator)])
 def catalog_gaps(limit: int = 20, session: Session = Depends(get_db)) -> dict:
     """Покрытие атрибутов мастер-каталога: где пусто и чем можно дозаполнить.
@@ -457,51 +507,11 @@ def catalog_gaps(limit: int = 20, session: Session = Depends(get_db)) -> dict:
         )
     ) or 0
 
-    # Кандидаты дозаполнения: source_station_records, привязанные к станции,
-    # у которых заполнены поля, пустые в мастер-каталоге. Бренд берётся
-    # normalize_brand (тот же, что в инжесте), чтобы кандидат обещал только
-    # то, что реально распознается при повторном импорте.
-    stations_without_brand = {
-        row[0]
-        for row in session.execute(select(Station.id).where(Station.brand_id.is_(None))).all()
-    }
-    stations_without_address = {
-        row[0]
-        for row in session.execute(select(Station.id).where((Station.address == "") | (Station.address == "?"))).all()
-    }
-
-    rows = session.execute(
-        select(
-            SourceStationRecord,
-            Station.canonical_name,
-            SourceProvider.code,
-            SourceProvider.name,
-        )
-        .join(Station, SourceStationRecord.station_id == Station.id)
-        .join(SourceProvider, SourceStationRecord.source_provider_id == SourceProvider.id)
-        .order_by(SourceStationRecord.id)
-    ).all()
-
-    enrichable: dict[str, dict] = {}
-    for record, canonical, provider_code, provider_name in rows:
-        fields = set()
-        brand = normalize_brand(record.brand_raw)
-        if brand and record.station_id in stations_without_brand:
-            fields.add("brand")
-        if record.address_raw.strip() and record.station_id in stations_without_address:
-            fields.add("address")
-        if fields:
-            enrichable[record.station_id] = {
-                "station_id": record.station_id,
-                "station_name": canonical,
-                "provider_code": provider_code,
-                "provider_name": provider_name,
-                "fields": fields,
-            }
+    enrichable = _enrichable_candidates(session)
 
     candidates = []
     for item in sorted(enrichable.values(), key=lambda x: (-len(x["fields"]), x["station_id"]))[:limit]:
-        candidates.append({**item, "fields": sorted(item["fields"])})
+        candidates.append({k: v for k, v in item.items() if k != "record"} | {"fields": sorted(item["fields"])})
 
     by_source: dict[str, dict[str, int]] = {}
     for item in enrichable.values():
@@ -522,6 +532,49 @@ def catalog_gaps(limit: int = 20, session: Session = Depends(get_db)) -> dict:
         ],
         "candidates": candidates,
     }
+
+
+@router.get("/catalog-gaps/export.csv", dependencies=[Depends(require_operator)])
+def catalog_gaps_export_csv(session: Session = Depends(get_db)) -> Response:
+    """Кандидаты дозаполнения в CSV формата krasnodar-unnamed-template.csv.
+
+    Готовый файл для ручного обогащения: колонки — алиасы парсера
+    network_import (name, brand, lat, lon, address, phone, ref, city, region),
+    плюс osm_url для сверки. brand/address предзаполняются из данных источника
+    (то, что кандидат и обещал дозаполнить), остальные колонки пустые — их
+    заполняет оператор. ref — внешний id записи источника: по нему и по
+    совпадающим координатам дедуп свяжет строку с существующей станцией.
+    """
+    import csv
+    import io
+
+    enrichable = _enrichable_candidates(session)
+    buffer = io.StringIO()
+    writer = csv.writer(buffer, lineterminator="\n")
+    writer.writerow(("name", "brand", "lat", "lon", "address", "phone", "ref", "city", "region", "osm_url"))
+    for item in sorted(enrichable.values(), key=lambda x: (-len(x["fields"]), x["station_id"])):
+        record = item["record"]
+        brand = normalize_brand(record.brand_raw)
+        ext = (record.external_id or "").strip()
+        # node/<id> (OSM) → прямая ссылка на объект; остальное — сам id.
+        osm_url = f"https://www.openstreetmap.org/{ext}" if "/" in ext else ""
+        writer.writerow(
+            (
+                item["station_name"] or item["station_id"],
+                brand,
+                f"{record.latitude:.6f}",
+                f"{record.longitude:.6f}",
+                record.address_raw.strip(),
+                "",
+                ext.split("/")[-1] if ext else record.id,
+                "",
+                "",
+                osm_url,
+            )
+        )
+
+    headers = {"Content-Disposition": 'attachment; filename="catalog-gaps-enrichment-template.csv"'}
+    return Response(content=buffer.getvalue(), media_type="text/csv; charset=utf-8", headers=headers)
 
 
 @router.get("/dedup-queue", dependencies=[Depends(require_operator)])

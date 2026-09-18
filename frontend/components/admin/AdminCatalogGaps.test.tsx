@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { render, screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { AdminCatalogGaps } from "@/components/admin/AdminCatalogGaps";
 import { AdminAuthProvider } from "@/lib/hooks/useAdminAuth";
 import { AuthProvider } from "@/lib/hooks/useAuth";
@@ -94,6 +95,50 @@ afterEach(() => {
 });
 
 describe("AdminCatalogGaps (пост-M16)", () => {
+  it("кнопка «Скачать CSV» скачивает файл экспорта с cookie-сессией", async () => {
+    const user = userEvent.setup();
+    const csvBody = "name,brand,lat,lon,address,phone,ref,city,region,osm_url\nАЗС без бренда,Лукойл,45.055500,38.995300,,,,,,,https://www.openstreetmap.org/node/1\n";
+    const fetchMock = vi.fn().mockImplementation((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("catalog-gaps/export.csv")) {
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          blob: async () => new Blob([csvBody], { type: "text/csv" }),
+        });
+      }
+      return Promise.resolve(jsonResponse(200, GAPS));
+    });
+    renderGaps(fetchMock as unknown as ReturnType<typeof vi.fn> & ((input: RequestInfo | URL, init?: RequestInit) => unknown));
+
+    await waitFor(() => expect(screen.getByRole("button", { name: "Скачать CSV для заполнения" })).toBeInTheDocument());
+    const created: Array<{ href: string; download: string }> = [];
+    vi.stubGlobal("URL", {
+      ...URL,
+      createObjectURL: () => "blob:mock",
+      revokeObjectURL: () => {},
+    });
+    const origCreate = document.createElement.bind(document);
+    vi.spyOn(document, "createElement").mockImplementation((tag: string, opts?: ElementCreationOptions) => {
+      const el = origCreate(tag, opts) as HTMLAnchorElement;
+      if (tag === "a") {
+        Object.defineProperty(el, "click", { value: () => created.push({ href: el.href, download: el.download }) });
+      }
+      return el;
+    });
+
+    await user.click(screen.getByRole("button", { name: "Скачать CSV для заполнения" }));
+
+    await waitFor(() => expect(created).toHaveLength(1));
+    expect(created[0].download).toBe("catalog-gaps-enrichment-template.csv");
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/v1/admin/catalog-gaps/export.csv",
+      expect.objectContaining({ credentials: "include" }),
+    );
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+  });
+
   it("показывает покрытие пустых полей и кандидатов дозаполнения", async () => {
     renderGaps(vi.fn().mockResolvedValue(jsonResponse(200, GAPS)));
 

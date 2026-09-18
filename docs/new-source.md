@@ -1,0 +1,143 @@
+# Подключение нового источника данных FuelRadar
+
+Пошаговый гайд по добавлению источника в систему — от адаптера до включения через админку.
+Живые образцы в коде: `backend/app/sources/network_lists.py` (HTTP-адаптер, подключён по этому гайду),
+`overpass.py` (HTTP), `network_import.py` (файловый).
+
+## 0. Определить роль источника
+
+Три возможности (задаются в `capabilities` и определяют, что система от него ждёт):
+
+| capability | Что даёт | Что делает система |
+|---|---|---|
+| `discovery` | Физический перечень АЗС | Пополняет мастер-каталог (`stations/ingest.py` → дедуп) |
+| `availability` | Наличие топлива сейчас | Пишет наблюдения, голосует в Confidence Engine |
+| `queue` | Очередь на АЗС | `queue_observations` → статус очереди |
+
+По ТЗ ни один внешний сервис не считается полным источником перечня АЗС —
+discovery-источники всегда **дополняют** каталог, а не заменяют его.
+
+## 1. Класс адаптера — `backend/app/sources/<имя>.py`
+
+Наследник `SourceAdapter` из `sources/base.py`:
+
+```python
+class MyAdapter(SourceAdapter):
+    provider_code = "my_source"            # код = ключ везде (БД, registry, jobs)
+    provider_name = "Человекочитаемое имя"
+    attribution = "© Кто владеет данными"   # R81 — обязателен для внешних данных
+    research_required = False               # True только у заглушек research.py
+    capabilities = {"discovery": True, "availability": False, "queue": False}
+
+    def discover_stations(self, region):    # region = {city, lat, lon, radius_km} | {bbox}
+        ...  # -> list[SourceRecord]
+
+    def health_check(self) -> HealthResult:  # ONLINE/DEGRADED/OFFLINE/RATE_LIMITED/AUTH_ERROR
+        ...
+```
+
+Правила контракта:
+
+- **`SourceRecord`**: стабильный `external_id` (по нему живёт дедуп и
+  `station_external_ids`!), координаты, `brand_raw`/`name_raw` (нормализуются
+  дальше в `normalization/`), `payload` — сырой ответ источника (R84, диагностика);
+- **сеть — через инъекцию** `http_get: Callable` с дефолтным httpx-транспортом:
+  тесты идут без сети, а транспорт маппит `429 → RateLimitedError`,
+  `403 → AuthError`, остальное → `AdapterError` — по этим классам воркер
+  ставит корректный health и backoff;
+- availability/queue-методы базово возвращают `[]`/`None`, если источник этих
+  данных не даёт — **не выдумывать данные** (R89);
+- источник **не должен** иметь сетевого кода, пока `research_required = True`.
+
+## 2. Зарегистрировать в реестре — `sources/registry.py`
+
+Импорт класса + строка в `ADAPTER_CLASSES` (`provider_code → класс`):
+
+```python
+from .my_source import MyAdapter
+
+ADAPTER_CLASSES: dict[str, type[SourceAdapter]] = {
+    ...
+    MyAdapter.provider_code: MyAdapter,
+}
+```
+
+Отсюда `build_adapter(code)` достают инжест и воркер — больше нигде адаптеры не создаются.
+
+## 3. Конфиг — `core/config.py` + `.env.example`
+
+Только дефолты и имена переменных: эндпоинт, таймаут, путь — по образцу
+`network_lists_urls` / `network_lists_timeout_seconds`. `core/config.py` —
+единственное место дефолтов, ничего не дублировать в других модулях.
+Секреты — только имена в `.env.example`, значения в `.env` (R68).
+
+## 4. Сид источника — `db/session.py`, список `SOURCE_PROVIDERS`
+
+```python
+{"code": "my_source", "name": "…", "capabilities": {…},   # = capabilities класса
+ "status": "NOT_USED", "min_interval_minutes": 1440,
+ "attribution": "…", "trust": 0.7}
+```
+
+- `status`:
+  - **ACTIVE** — сразу в работе;
+  - **NOT_USED** — адаптер реален, но ждёт настройки (URL/файл);
+  - **RESEARCH_REQUIRED** — только для заглушек без сетевого кода;
+- **не ставить ACTIVE, пока адаптер не реализован** (R12/R89) — заглушки бросают
+  `ResearchRequiredError`, и это проверяется инвариантом в `test_sources.py`;
+- `min_interval_minutes` — потолок частоты сбора (R54);
+- `trust` 0–1 — вес голоса источника в Confidence Engine (R18/R95i).
+
+Сид идемпотентный: существующая строка в БД не перезаписывается.
+
+## 5. Тесты — `tests/test_sources.py` (+ `test_schema.py`)
+
+Фикстуры в `tests/fixtures/`, транспорт — лямбда/фейк:
+
+- парсинг всех поддерживаемых форматов (фикстура файла/ответа);
+- bbox-фильтр/валидация записей (что попадает, что отбрасывается);
+- все ветки health: ONLINE, 429 → RATE_LIMITED, 403 → AUTH_ERROR, сеть → OFFLINE, нет конфигурации → DEGRADED/AdapterError;
+- в `test_schema.py` — ожидаемый статус сида;
+- если адаптер реальный — добавить его код в исключения инварианта
+  `test_research_adapters_raise_and_never_network` (там перечислены все НЕ-заглушки).
+
+## 6. Дальше система работает сама (писать не нужно)
+
+- воркер перечитывает источники **ACTIVE**, ставит jobs по интервалам (P1–P4),
+  при сбоях — backoff; инвариант «один активный job на источник+тип+станцию»
+  держит партиционный индекс `uq_collection_active`;
+- catalog-job → `discover_stations` → `source_station_records` → дедуп
+  (авто-слияние/REVIEW) → мастер-каталог `stations`;
+- availability-job → наблюдения (новая строка, R17) → Confidence
+  (голос с весом `trust`) → `station_current_status` → публичный API;
+- health пишется в `source_health` → виден в админке.
+
+API-процесс источники **никогда не дёргает** (R83) — только очередь воркера.
+
+## 7. Включение через админку
+
+1. Заполнить конфиг источника в `.env` (URL/путь) и перезапустить api+worker;
+2. Админка → «Источники»: источник уже виден (OPERATOR+) со статусом и health;
+3. ADMIN → «Изменить» → статус **ACTIVE** (+ при необходимости trust/интервал)
+   → «Сохранить» — изменение уйдёт в журнал действий (`source_update`,
+   кто/что/когда);
+4. «Обновить сейчас» — первый прогон без ожидания тика: ставит job P1,
+   синхронного сбора нет (R83).
+
+## 8. Проверка и эксплуатация
+
+- «Журнал загрузок» — записи/ошибки первого сбора;
+- «Покрытие» — вклад источника «до/после дедупа»;
+- при деградации health покажет OFFLINE/RATE_LIMITED/AUTH_ERROR и число ошибок;
+  источник можно тут же деактивировать кнопкой «Изменить» (статус NOT_USED) —
+  данные не удаляются, воркер просто перестаёт опрашивать (R84);
+- локальный прогон вне воркера: `python -m cli.seed --region krasnodar`
+  (сбор через тот же инжест).
+
+## Чего не делать
+
+- не дёргать источники из API-процесса (R83 — только через очередь воркера);
+- не хардкодить trust/интервалы в коде — только конфиг/админка;
+- не обновлять существующие строки истории наблюдений (R17 — только новые);
+- не конвертировать UNKNOWN ↔ UNAVAILABLE (R15);
+- не выдавать вымышленных данных из нереализованных источников (R89).

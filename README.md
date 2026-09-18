@@ -40,6 +40,13 @@ backend (новое окно) и frontend (текущее окно) — откр
 CLI: `python -m cli.roles list` / `set --user <email|id> --role OPERATOR` —
 подробности в [docs/roles.md](docs/roles.md).
 
+## Источники данных
+
+Каталог строится из нескольких источников (OSM/Overpass, файловый импорт списков
+сетей, пользовательские отчёты; HTTP-адаптер сетевых списков — `network_lists` —
+ждёт настройки `NETWORK_LISTS_URLS`). Как подключить новый источник — от адаптера
+до включения через админку: [docs/new-source.md](docs/new-source.md).
+
 ## Состояние roadmap
 
 Завершены T01–T15: каталог и дедупликация, Confidence Engine, публичный API,

@@ -12,6 +12,7 @@ from pydantic import BaseModel
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from ..auth.service import USER_ROLES
 from ..db.models import (
     AdminActionLog,
     CollectionJob,
@@ -32,6 +33,10 @@ from .schemas import AdminMergeBody, DedupQueueAction
 class BlockUserBody(BaseModel):
     blocked: bool = True
 
+
+class UserRoleBody(BaseModel):
+    role: str
+
 router = APIRouter(prefix="/admin", tags=["admin"])
 
 
@@ -43,11 +48,99 @@ def _journal(session: Session, action: str, target_id: str, payload: dict) -> No
     session.add(AdminActionLog(actor="admin", action=action, target_type=target_type, target_id=target_id, payload=payload))
 
 
+@router.get("/action-log", dependencies=[Depends(require_operator)])
+def action_log(
+    action: str | None = None,
+    limit: int = 50,
+    offset: int = 0,
+    session: Session = Depends(get_db),
+) -> dict:
+    """Журнал административных действий (R67): кто, что и когда менял.
+
+    Append-only: только чтение, без редактирования и удаления. payload включает
+    только безопасные данные (email, old→new роль) — секретов и токенов тут нет
+    по построению (R68).
+    """
+    limit = max(1, min(limit, 200))
+    query = select(AdminActionLog).order_by(AdminActionLog.id.desc())
+    if action:
+        query = query.where(AdminActionLog.action == action)
+    total = session.scalar(select(func.count()).select_from(query.subquery()))
+    rows = session.scalars(query.offset(offset).limit(limit)).all()
+    return {
+        "total": total,
+        "items": [
+            {
+                "id": entry.id,
+                "actor": entry.actor,
+                "action": entry.action,
+                "target_type": entry.target_type,
+                "target_id": entry.target_id,
+                "payload": entry.payload or {},
+                "created_at": entry.created_at,
+            }
+            for entry in rows
+        ],
+    }
+
+
 def _provider_or_404(session: Session, provider_id: int) -> SourceProvider:
     provider = session.get(SourceProvider, provider_id)
     if provider is None:
         raise HTTPException(status_code=404, detail="Источник не найден")
     return provider
+
+
+@router.get("/users", dependencies=[Depends(require_operator)])
+def list_users(limit: int = 50, offset: int = 0, session: Session = Depends(get_db)) -> dict:
+    """Список пользователей с ролями (M16): кто чем управляет, кого можно менять/блокировать."""
+    limit = max(1, min(limit, 200))
+    total = session.scalar(select(func.count()).select_from(User))
+    rows = session.scalars(select(User).order_by(User.id).offset(offset).limit(limit)).all()
+    return {
+        "total": total,
+        "items": [
+            {
+                "id": u.id,
+                "display_name": u.display_name or "",
+                "email": u.email,
+                "telegram_id": u.telegram_id,
+                "role": u.role,
+                "is_blocked": u.is_blocked,
+                "reliability_score": u.reliability_score,
+            }
+            for u in rows
+        ],
+    }
+
+
+@router.post("/users/{user_id}/role", dependencies=[Depends(require_admin)])
+def change_user_role(user_id: int, body: UserRoleBody, session: Session = Depends(get_db)) -> dict:
+    """Сменить роль (M16 RBAC). Применяется сразу: deps перечитывают пользователя из БД.
+
+    Последнего ADMIN понизить нельзя: bootstrap одноразовый, администратора было бы
+    некому вернуть. Так же защищён CLI cli/roles.py.
+    """
+    role = (body.role or "").strip().upper()
+    if role not in USER_ROLES:
+        raise HTTPException(status_code=422, detail=f"Роль должна быть одной из {', '.join(sorted(USER_ROLES))}")
+    user = session.get(User, user_id)
+    if user is None:
+        raise HTTPException(status_code=404, detail="Пользователь не найден")
+    if user.role == role:
+        return {"id": user.id, "role": user.role, "changed": False}
+    if user.role == "ADMIN" and role != "ADMIN":
+        admins = session.scalar(select(func.count()).select_from(User).where(User.role == "ADMIN"))
+        if admins <= 1:
+            raise HTTPException(
+                status_code=409,
+                detail="Это последний администратор — понизить нельзя. Сначала назначьте второго ADMIN.",
+            )
+    old_role = user.role
+    user.role = role
+    _journal(session, "role_change", str(user_id), {"from": old_role, "to": role, "email": user.email})
+    session.commit()
+    return {"id": user.id, "role": role, "changed": True, "previous_role": old_role}
 
 
 @router.get("/sources", dependencies=[Depends(require_operator)])

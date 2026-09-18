@@ -285,6 +285,38 @@ export interface AdminReportsPage {
   items: AdminReportItem[];
 }
 
+/** Пользователь из админ-списка (M16): роль видна, смена — только ADMIN. */
+export interface AdminUserRow {
+  id: number;
+  display_name: string;
+  email: string | null;
+  telegram_id: string | null;
+  role: "USER" | "OPERATOR" | "ADMIN";
+  is_blocked: boolean;
+  reliability_score: number | null;
+}
+
+export interface AdminUsersPage {
+  total: number;
+  items: AdminUserRow[];
+}
+
+/** Запись журнала действий (R67): append-only, наружу без секретов (R68). */
+export interface AdminActionLogEntry {
+  id: number;
+  actor: string;
+  action: string;
+  target_type: string;
+  target_id: string;
+  payload: Record<string, unknown>;
+  created_at: string;
+}
+
+export interface AdminActionLogPage {
+  total: number;
+  items: AdminActionLogEntry[];
+}
+
 export interface CoverageOut {
   computed_at: string;
   stale: boolean;

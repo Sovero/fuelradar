@@ -355,6 +355,98 @@ def test_admin_can_block_and_list_reports(client, db_session) -> None:
     assert client.post("/api/v1/admin/users/999999/block").status_code == 404
 
 
+def test_admin_lists_users_and_changes_roles(client, db_session) -> None:
+    """M16 RBAC: админ видит пользователей с ролями и меняет их; последний ADMIN защищён.
+
+    Чтение списка — OPERATOR+, смена — только ADMIN (проверка через dev-login USER).
+    """
+    target = User(email="role-target@example.com", display_name="Role Target", role="USER")
+    db_session.add(target)
+    db_session.commit()
+
+    # USER не видит список пользователей
+    client.post("/api/v1/auth/dev-login", json={"email": "no-admin-views@example.com"})
+    assert client.get("/api/v1/admin/users").status_code == 403
+    client.post("/api/v1/auth/dev-login", json={"email": "no-admin-views@example.com"})
+    assert client.post(f"/api/v1/admin/users/{target.id}/role", json={"role": "OPERATOR"}).status_code == 403
+    client.post("/api/v1/auth/logout")
+
+    # аноним — 401
+    assert client.get("/api/v1/admin/users").status_code == 401
+
+    _login_admin(client)
+    r = client.get("/api/v1/admin/users", params={"limit": 200})
+    assert r.status_code == 200
+    body = r.json()
+    assert body["total"] >= 2
+    row = next(u for u in body["items"] if u["id"] == target.id)
+    assert row["role"] == "USER" and row["email"] == "role-target@example.com"
+
+    # смена роли USER → OPERATOR → ADMIN
+    assert client.post(f"/api/v1/admin/users/{target.id}/role", json={"role": "operator"}).json()["changed"] is True
+    db_session.refresh(target)
+    assert target.role == "OPERATOR"
+    assert client.post(f"/api/v1/admin/users/{target.id}/role", json={"role": "ADMIN"}).json()["changed"] is True
+    db_session.refresh(target)
+    assert target.role == "ADMIN"
+
+    # аудит role_change записан
+    log = db_session.scalar(select(AdminActionLog).order_by(AdminActionLog.id.desc()))
+    assert log.action == "role_change" and log.payload["to"] == "ADMIN" and log.payload["from"] == "OPERATOR"
+
+    # понижение не-последнего ADMIN разрешено (второй админ есть — тестовый)
+    assert client.post(f"/api/v1/admin/users/{target.id}/role", json={"role": "USER"}).status_code == 200
+
+    # идемпотентность: та же роль — changed=False, аудит не пишется
+    r = client.post(f"/api/v1/admin/users/{target.id}/role", json={"role": "USER"})
+    assert r.json()["changed"] is False
+    logs_after = db_session.scalars(select(AdminActionLog).where(AdminActionLog.action == "role_change")).all()
+    assert sum(1 for entry in logs_after if entry.target_id == str(target.id)) == 3  # USER→OPERATOR→ADMIN→USER
+
+    # защита последнего ADMIN: понижаем всех, кроме одного
+    admin = db_session.scalar(select(User).where(User.role == "ADMIN", User.id != target.id).order_by(User.id))
+    others = db_session.scalars(select(User).where(User.role == "ADMIN", User.id != admin.id)).all()
+    for other in others:
+        other.role = "USER"
+    db_session.commit()
+    r = client.post(f"/api/v1/admin/users/{admin.id}/role", json={"role": "USER"})
+    assert r.status_code == 409 and "последний администратор" in r.json()["detail"]
+    db_session.refresh(admin)
+    assert admin.role == "ADMIN"
+
+    # невалидная роль — 422; несуществующий пользователь — 404
+    assert client.post(f"/api/v1/admin/users/{target.id}/role", json={"role": "SUPERUSER"}).status_code == 422
+    assert client.post("/api/v1/admin/users/999999/role", json={"role": "USER"}).status_code == 404
+
+
+def test_admin_action_log_lists_entries(client, db_session) -> None:
+    """Журнал действий (R67): только чтение, с фильтром по action; OPERATOR читает, USER — нет."""
+    client.post("/api/v1/auth/dev-login", json={"email": "action-log-visitor@example.com"})
+    assert client.get("/api/v1/admin/action-log").status_code == 403
+    client.post("/api/v1/auth/logout")
+    assert client.get("/api/v1/admin/action-log").status_code == 401
+
+    _login_admin(client)
+    target = User(email="audit-target@example.com", role="USER")
+    db_session.add(target)
+    db_session.commit()
+    # одно реальное действие через API — оно попадёт в журнал
+    assert client.post(f"/api/v1/admin/users/{target.id}/role", json={"role": "OPERATOR"}).status_code == 200
+
+    r = client.get("/api/v1/admin/action-log", params={"action": "role_change", "limit": 10})
+    assert r.status_code == 200
+    body = r.json()
+    assert body["total"] >= 1
+    entry = next(e for e in body["items"] if e["target_id"] == str(target.id))
+    assert entry["actor"] == "admin"
+    assert entry["payload"]["from"] == "USER" and entry["payload"]["to"] == "OPERATOR"
+    assert entry["created_at"] is not None
+
+    # фильтр по несуществующему action — пусто, но 200
+    empty = client.get("/api/v1/admin/action-log", params={"action": "no_such_action"}).json()
+    assert empty["total"] == 0
+
+
 def test_admin_merge_split_and_queue(client, db_session) -> None:
     """R10/R09.1: очередь дедупликации → подтверждение слияния → разделение."""
     _login_admin(client)

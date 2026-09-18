@@ -12,10 +12,11 @@ import { AdminCoverage } from "@/components/admin/AdminCoverage";
 import { AdminDeficitByRegion } from "@/components/admin/AdminDeficitByRegion";
 import { AdminDedupQueue } from "@/components/admin/AdminDedupQueue";
 import { AdminUsersBlock } from "@/components/admin/AdminUsersBlock";
+import { AdminActionLogView } from "@/components/admin/AdminActionLogView";
 import { useI18n } from "@/lib/hooks/useI18n";
 
-type AdminTab = "sources" | "log" | "coverage" | "bi" | "dedup" | "users";
-const TABS: AdminTab[] = ["sources", "log", "coverage", "bi", "dedup", "users"];
+type AdminTab = "sources" | "log" | "coverage" | "bi" | "dedup" | "users" | "audit";
+const TABS: AdminTab[] = ["sources", "log", "coverage", "bi", "dedup", "users", "audit"];
 
 function AdminTabs() {
   const [tab, setTab] = useState<AdminTab>("sources");
@@ -46,6 +47,7 @@ function AdminTabs() {
         {tab === "bi" && <AdminDeficitByRegion />}
         {tab === "dedup" && <AdminDedupQueue />}
         {tab === "users" && <AdminUsersBlock />}
+        {tab === "audit" && <AdminActionLogView />}
       </div>
     </div>
   );

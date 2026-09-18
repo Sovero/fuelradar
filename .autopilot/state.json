@@ -59,8 +59,8 @@
   ],
   "requirements": {
     "total": 111,
-    "done": 106,
-    "inTicket": 4,
+    "done": 111,
+    "inTicket": 0,
     "inSpec": 0,
     "placeholder": 0,
     "deferred": 0,

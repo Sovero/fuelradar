@@ -6,9 +6,11 @@
 
 Геометрия компонентов:
   - coordinates: 1.0 до 100 м, линейный спад до 0 на 1 км (дальше — разные АЗС);
-  - brand: канонический бренд равен → 1.0; оба пустые → 0.5 (нейтрально);
-  - address/name: максимум из Jaccard и containment по токенам (пусто — 0.5);
-  - phone: последние 10 цифр равны → 1.0 (обе пустые → 0.5).
+  - brand: канонический бренд равен → 1.0; разные → 0.0; пустая сторона
+    (или обе) → 0.5 (нейтрально: нет ни подтверждения, ни противоречия —
+    обогащение записи не штрафуется, см. R84-кейс ручного импорта);
+  - address/name: максимум из Jaccard и containment по токенам; пустая сторона → 0.5;
+  - phone: последние 10 цифр равны → 1.0; пустая сторона → 0.5.
 """
 
 from __future__ import annotations
@@ -77,18 +79,14 @@ def _brand_component(brand_a: str, brand_b: str) -> float:
     ca, cb = normalize_brand(brand_a), normalize_brand(brand_b)
     if ca and cb:
         return 1.0 if ca == cb else 0.0
-    if not ca and not cb:
-        return 0.5
-    return 0.0
+    return 0.5  # хотя бы одна сторона пуста — нейтрально (обогащение не штрафуем)
 
 
 def _token_component(text_a: str, text_b: str, stopwords: frozenset[str]) -> float:
     ta = tokens(text_a) - stopwords
     tb = tokens(text_b) - stopwords
-    if not ta and not tb:
-        return 0.5
     if not ta or not tb:
-        return 0.0
+        return 0.5  # пустая сторона — нейтрально (обогащение не штрафуем)
     inter = len(ta & tb)
     jaccard = inter / len(ta | tb)
     containment = inter / min(len(ta), len(tb))
@@ -98,10 +96,8 @@ def _token_component(text_a: str, text_b: str, stopwords: frozenset[str]) -> flo
 def _phone_component(phone_a: str, phone_b: str) -> float:
     da = "".join(_PHONE_DIGITS.findall(phone_a or ""))
     db = "".join(_PHONE_DIGITS.findall(phone_b or ""))
-    if not da and not db:
-        return 0.5
     if not da or not db:
-        return 0.0
+        return 0.5  # пустая сторона — нейтрально (обогащение не штрафуем)
     return 1.0 if da[-10:] == db[-10:] else 0.0
 
 

@@ -92,6 +92,10 @@ export function apiPut<T>(path: string, body?: unknown, init?: RequestInit): Pro
   return request<T>(path, { ...init, method: "PUT", body: body !== undefined ? JSON.stringify(body) : undefined });
 }
 
+export function apiPatch<T>(path: string, body?: unknown, init?: RequestInit): Promise<T> {
+  return request<T>(path, { ...init, method: "PATCH", body: body !== undefined ? JSON.stringify(body) : undefined });
+}
+
 export function apiDelete<T>(path: string, init?: RequestInit): Promise<T> {
   return request<T>(path, { ...init, method: "DELETE" });
 }

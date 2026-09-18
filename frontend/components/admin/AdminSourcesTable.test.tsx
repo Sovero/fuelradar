@@ -107,4 +107,33 @@ describe("AdminSourcesTable (R58)", () => {
     renderTable(vi.fn().mockResolvedValue(jsonResponse(401, { detail: "Требуется вход оператора" })));
     await waitFor(() => expect(screen.getByText("Требуется вход оператора")).toBeInTheDocument());
   });
+
+  it("ADMIN редактирует trust/статус/интервал — PATCH с изменёнными значениями", async () => {
+    const fetchMock = vi.fn().mockImplementation((url: string, init?: RequestInit) => {
+      if (init?.method === "PATCH" && url.includes("/sources/1")) {
+        return Promise.resolve(jsonResponse(200, { id: 1, code: "osm_overpass", changed: true, changes: { trust: { from: 0.7, to: 0.9 } } }));
+      }
+      return Promise.resolve(jsonResponse(200, SOURCES));
+    });
+    renderTable(fetchMock);
+    await waitFor(() => expect(screen.getByText("OSM/Overpass")).toBeInTheDocument());
+
+    const user = userEvent.setup();
+    await user.click(screen.getAllByText("Изменить")[0]);
+    const trustInput = screen.getAllByDisplayValue("0.7")[0];
+    await user.clear(trustInput);
+    await user.type(trustInput, "0.9");
+    const intervalInput = screen.getAllByDisplayValue("60")[0];
+    await user.clear(intervalInput);
+    await user.type(intervalInput, "30");
+    await user.click(screen.getAllByText("Сохранить")[0]);
+
+    await waitFor(() => expect(screen.getByText("Изменения сохранены")).toBeInTheDocument());
+    const patchCall = fetchMock.mock.calls.find(([url, init]) => String(url).includes("/sources/1") && (init as RequestInit)?.method === "PATCH");
+    expect(patchCall).toBeDefined();
+    const body = JSON.parse((patchCall![1] as RequestInit).body as string);
+    expect(body.trust).toBe(0.9);
+    expect(body.min_interval_minutes).toBe(30);
+    expect(body.status).toBe("ACTIVE");
+  });
 });

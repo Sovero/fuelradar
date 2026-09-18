@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 
 import pytest
-from sqlalchemy import select
+from sqlalchemy import func, select
 
 from app.confidence import StatusService
 from app.core.config import settings
@@ -299,6 +299,49 @@ def test_admin_refresh_creates_job(client, db_session) -> None:
     db_session.commit()
 
 
+def test_admin_updates_source_trust_status_interval(client, db_session) -> None:
+    """PATCH /admin/sources/{id} (M16): ADMIN меняет trust/статус/интервал, всё с аудитом."""
+    client.post("/api/v1/auth/dev-login", json={"email": "sources-editor@example.com"})
+    # USER не может менять источники
+    provider = db_session.scalar(select(SourceProvider).where(SourceProvider.code == "osm_overpass"))
+    assert client.patch(f"/api/v1/admin/sources/{provider.id}", json={"trust": 0.5}).status_code == 403
+    client.post("/api/v1/auth/logout")
+    assert client.patch(f"/api/v1/admin/sources/{provider.id}", json={"trust": 0.5}).status_code == 401
+
+    _login_admin(client)
+    old_trust = provider.trust
+    r = client.patch(f"/api/v1/admin/sources/{provider.id}", json={
+        "trust": 0.9, "status": "ACTIVE", "min_interval_minutes": 30,
+    })
+    assert r.status_code == 200
+    assert r.json()["changed"] is True
+    db_session.expire_all()
+    db_session.refresh(provider)
+    assert provider.trust == 0.9 and provider.min_interval_minutes == 30
+
+    log = db_session.scalar(select(AdminActionLog).order_by(AdminActionLog.id.desc()))
+    assert log.action == "source_update" and log.target_id == "osm_overpass"
+    assert log.payload["trust"]["from"] == old_trust and log.payload["trust"]["to"] == 0.9
+    assert log.payload["min_interval_minutes"]["to"] == 30
+    # статус не менялся — в payload его нет
+    assert "status" not in log.payload
+
+    # no-op: те же значения — changed=False, без записи в аудит
+    before = db_session.scalar(select(func.count()).select_from(AdminActionLog))
+    r2 = client.patch(f"/api/v1/admin/sources/{provider.id}", json={"trust": 0.9, "min_interval_minutes": 30})
+    assert r2.status_code == 200 and r2.json()["changed"] is False
+    after = db_session.scalar(select(func.count()).select_from(AdminActionLog))
+    assert after == before
+
+    # валидация: недопустимый trust/статус/интервал, пустое тело
+    assert client.patch(f"/api/v1/admin/sources/{provider.id}", json={"trust": 1.5}).status_code == 422
+    assert client.patch(f"/api/v1/admin/sources/{provider.id}", json={"trust": -0.1}).status_code == 422
+    assert client.patch(f"/api/v1/admin/sources/{provider.id}", json={"status": "BROKEN"}).status_code == 422
+    assert client.patch(f"/api/v1/admin/sources/{provider.id}", json={"min_interval_minutes": 0}).status_code == 422
+    assert client.patch(f"/api/v1/admin/sources/{provider.id}", json={}).status_code == 422
+    assert client.patch("/api/v1/admin/sources/999999", json={"trust": 0.5}).status_code == 404
+
+
 def test_admin_collection_log_lists_jobs_and_details(client, db_session) -> None:
     """Журнал загрузок (не снимок health) — ручные и плановые запуски, с деталями по одному."""
     client.post("/api/v1/auth/logout")
@@ -445,6 +488,20 @@ def test_admin_action_log_lists_entries(client, db_session) -> None:
     # фильтр по несуществующему action — пусто, но 200
     empty = client.get("/api/v1/admin/action-log", params={"action": "no_such_action"}).json()
     assert empty["total"] == 0
+
+    # фильтр по actor — подстрока без регистра
+    by_actor = client.get("/api/v1/admin/action-log", params={"actor": "ADM"}).json()
+    assert by_actor["total"] >= 1
+    assert all(e["actor"].lower().find("adm") != -1 for e in by_actor["items"])
+    assert client.get("/api/v1/admin/action-log", params={"actor": "нет-такого-актёра"}).json()["total"] == 0
+
+    # фильтр по датам: интервал, содержащий «сейчас», находит записи; узкий прошлый интервал — пусто
+    today = datetime.now(UTC).date().isoformat()
+    ranged = client.get("/api/v1/admin/action-log", params={"date_from": today, "date_to": today}).json()
+    assert ranged["total"] >= 1
+    yesterday = (datetime.now(UTC) - timedelta(days=1)).date().isoformat()
+    assert client.get("/api/v1/admin/action-log", params={"date_from": "2020-01-01", "date_to": "2020-01-02"}).json()["total"] == 0
+    assert client.get("/api/v1/admin/action-log", params={"date_to": yesterday}).json()["total"] == 0
 
 
 def test_admin_merge_split_and_queue(client, db_session) -> None:

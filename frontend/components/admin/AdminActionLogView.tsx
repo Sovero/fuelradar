@@ -24,6 +24,9 @@ export function AdminActionLogView() {
   const [page, setPage] = useState<AdminActionLogPage | null>(null);
   const [offset, setOffset] = useState(0);
   const [actionFilter, setActionFilter] = useState("");
+  const [actorFilter, setActorFilter] = useState("");
+  const [dateFrom, setDateFrom] = useState("");
+  const [dateTo, setDateTo] = useState("");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -33,6 +36,9 @@ export function AdminActionLogView() {
       limit: PAGE_SIZE,
       offset,
       action: actionFilter || undefined,
+      actor: actorFilter || undefined,
+      date_from: dateFrom || undefined,
+      date_to: dateTo || undefined,
     })
       .then((data) => {
         setPage(data);
@@ -44,7 +50,7 @@ export function AdminActionLogView() {
         setError(err instanceof ApiError ? err.message : t("admin.loadError"));
       })
       .finally(() => setLoading(false));
-  }, [offset, actionFilter, markVerified, markInvalid, t]);
+  }, [offset, actionFilter, actorFilter, dateFrom, dateTo, markVerified, markInvalid, t]);
 
   useEffect(() => {
     load();
@@ -55,7 +61,7 @@ export function AdminActionLogView() {
       <h2 className="mb-1 text-lg font-semibold">{t("admin.audit.title")}</h2>
       <p className="mb-3 text-xs text-gray-500 dark:text-gray-400">{t("admin.audit.hint")}</p>
 
-      <div className="mb-3 flex items-center gap-2">
+      <div className="mb-3 flex flex-wrap items-center gap-2">
         <input
           type="text"
           placeholder={t("admin.audit.filterPlaceholder")}
@@ -64,8 +70,57 @@ export function AdminActionLogView() {
             setActionFilter(e.target.value);
             setOffset(0);
           }}
-          className="w-64 rounded-md border border-gray-300 px-2 py-1.5 text-sm dark:border-gray-700 dark:bg-gray-800"
+          className="w-56 rounded-md border border-gray-300 px-2 py-1.5 text-sm dark:border-gray-700 dark:bg-gray-800"
         />
+        <input
+          type="text"
+          placeholder={t("admin.audit.actorPlaceholder")}
+          value={actorFilter}
+          onChange={(e) => {
+            setActorFilter(e.target.value);
+            setOffset(0);
+          }}
+          className="w-56 rounded-md border border-gray-300 px-2 py-1.5 text-sm dark:border-gray-700 dark:bg-gray-800"
+        />
+        <label className="flex items-center gap-1 text-xs text-gray-500 dark:text-gray-400">
+          {t("admin.audit.dateFrom")}
+          <input
+            type="date"
+            value={dateFrom}
+            onChange={(e) => {
+              setDateFrom(e.target.value);
+              setOffset(0);
+            }}
+            className="rounded-md border border-gray-300 px-2 py-1 text-sm dark:border-gray-700 dark:bg-gray-800"
+          />
+        </label>
+        <label className="flex items-center gap-1 text-xs text-gray-500 dark:text-gray-400">
+          {t("admin.audit.dateTo")}
+          <input
+            type="date"
+            value={dateTo}
+            onChange={(e) => {
+              setDateTo(e.target.value);
+              setOffset(0);
+            }}
+            className="rounded-md border border-gray-300 px-2 py-1 text-sm dark:border-gray-700 dark:bg-gray-800"
+          />
+        </label>
+        {(actionFilter || actorFilter || dateFrom || dateTo) && (
+          <button
+            type="button"
+            onClick={() => {
+              setActionFilter("");
+              setActorFilter("");
+              setDateFrom("");
+              setDateTo("");
+              setOffset(0);
+            }}
+            className="rounded-md border border-gray-300 px-2 py-1 text-xs text-gray-500 hover:bg-gray-100 dark:border-gray-700 dark:text-gray-400 dark:hover:bg-gray-800"
+          >
+            {t("admin.audit.reset")}
+          </button>
+        )}
       </div>
 
       {loading && !page ? (

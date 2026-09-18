@@ -7,6 +7,9 @@
 
 from __future__ import annotations
 
+from datetime import date as date_type
+from datetime import datetime, timedelta
+
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy import func, select
@@ -37,6 +40,14 @@ class BlockUserBody(BaseModel):
 class UserRoleBody(BaseModel):
     role: str
 
+
+class SourceUpdateBody(BaseModel):
+    """PATCH источника (M16-админка): какие поля менять — None = не трогать."""
+
+    trust: float | None = None
+    status: str | None = None
+    min_interval_minutes: int | None = None
+
 router = APIRouter(prefix="/admin", tags=["admin"])
 
 
@@ -51,6 +62,9 @@ def _journal(session: Session, action: str, target_id: str, payload: dict) -> No
 @router.get("/action-log", dependencies=[Depends(require_operator)])
 def action_log(
     action: str | None = None,
+    actor: str | None = None,
+    date_from: date_type | None = None,
+    date_to: date_type | None = None,
     limit: int = 50,
     offset: int = 0,
     session: Session = Depends(get_db),
@@ -59,12 +73,20 @@ def action_log(
 
     Append-only: только чтение, без редактирования и удаления. payload включает
     только безопасные данные (email, old→new роль) — секретов и токенов тут нет
-    по построению (R68).
+    по построению (R68). Фильтры: action, actor (подстрока, без регистра),
+    date_from/date_to — включительно, даты интерпретируются в UTC.
     """
     limit = max(1, min(limit, 200))
     query = select(AdminActionLog).order_by(AdminActionLog.id.desc())
     if action:
         query = query.where(AdminActionLog.action == action)
+    if actor:
+        query = query.where(func.lower(AdminActionLog.actor).like(f"%{actor.lower()}%"))
+    if date_from is not None:
+        query = query.where(AdminActionLog.created_at >= datetime(date_from.year, date_from.month, date_from.day))
+    if date_to is not None:
+        end = datetime(date_to.year, date_to.month, date_to.day) + timedelta(days=1)
+        query = query.where(AdminActionLog.created_at < end)
     total = session.scalar(select(func.count()).select_from(query.subquery()))
     rows = session.scalars(query.offset(offset).limit(limit)).all()
     return {
@@ -197,6 +219,49 @@ def refresh_source(provider_id: int, session: Session = Depends(get_db)) -> dict
     _journal(session, "refresh_source", provider.code, {"job_id": job.id})
     session.commit()
     return {"job_id": job.id, "provider": provider.code, "status": job.status, "priority": job.priority}
+
+
+SOURCE_STATUSES = {"ACTIVE", "RESEARCH_REQUIRED", "NOT_USED"}
+
+
+@router.patch("/sources/{provider_id}", dependencies=[Depends(require_admin)])
+def update_source(provider_id: int, body: SourceUpdateBody, session: Session = Depends(get_db)) -> dict:
+    """ADMIN-управление источником: доверие (trust), статус, интервал сбора.
+
+    Все изменения пишутся одним действием в admin_action_log (R67) со старыми и
+    новыми значениями. Деактивация (NOT_USED/RESEARCH_REQUIRED) не трогает данные
+    и задания: воркер просто перестаёт опрашивать источник (R84), набор коллекции
+    меняется только на новых запусках. Запрос без изменений (все значения равны
+    текущим) — no-op без записи в аудит.
+    """
+    provider = _provider_or_404(session, provider_id)
+
+    if body.trust is not None and not (0.0 <= body.trust <= 1.0):
+        raise HTTPException(status_code=422, detail="trust должен быть числом от 0 до 1")
+    if body.status is not None and body.status not in SOURCE_STATUSES:
+        raise HTTPException(status_code=422, detail="Недопустимый статус источника")
+    if body.min_interval_minutes is not None and body.min_interval_minutes <= 0:
+        raise HTTPException(status_code=422, detail="Интервал должен быть положительным числом минут")
+    if body.trust is None and body.status is None and body.min_interval_minutes is None:
+        raise HTTPException(status_code=422, detail="Не передано ни одного поля для изменения")
+
+    changes: dict = {}
+    if body.trust is not None and body.trust != provider.trust:
+        changes["trust"] = {"from": provider.trust, "to": body.trust}
+        provider.trust = body.trust
+    if body.status is not None and body.status != provider.status:
+        changes["status"] = {"from": provider.status, "to": body.status}
+        provider.status = body.status
+    if body.min_interval_minutes is not None and body.min_interval_minutes != provider.min_interval_minutes:
+        changes["min_interval_minutes"] = {"from": provider.min_interval_minutes, "to": body.min_interval_minutes}
+        provider.min_interval_minutes = body.min_interval_minutes
+
+    if not changes:
+        return {"id": provider.id, "code": provider.code, "changed": False}
+
+    _journal(session, "source_update", provider.code, changes)
+    session.commit()
+    return {"id": provider.id, "code": provider.code, "changed": True, "changes": changes}
 
 
 @router.get("/collection-log", dependencies=[Depends(require_operator)])

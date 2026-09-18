@@ -8,6 +8,7 @@ import { AdminAuthProvider } from "@/lib/hooks/useAdminAuth";
 import { AdminTokenGate } from "@/components/admin/AdminTokenGate";
 import { AdminSourcesTable } from "@/components/admin/AdminSourcesTable";
 import { AdminCollectionLog } from "@/components/admin/AdminCollectionLog";
+import { AdminCatalogGaps } from "@/components/admin/AdminCatalogGaps";
 import { AdminCoverage } from "@/components/admin/AdminCoverage";
 import { AdminDeficitByRegion } from "@/components/admin/AdminDeficitByRegion";
 import { AdminDedupQueue } from "@/components/admin/AdminDedupQueue";
@@ -15,8 +16,8 @@ import { AdminUsersBlock } from "@/components/admin/AdminUsersBlock";
 import { AdminActionLogView } from "@/components/admin/AdminActionLogView";
 import { useI18n } from "@/lib/hooks/useI18n";
 
-type AdminTab = "sources" | "log" | "coverage" | "bi" | "dedup" | "users" | "audit";
-const TABS: AdminTab[] = ["sources", "log", "coverage", "bi", "dedup", "users", "audit"];
+type AdminTab = "sources" | "log" | "gaps" | "coverage" | "bi" | "dedup" | "users" | "audit";
+const TABS: AdminTab[] = ["sources", "log", "gaps", "coverage", "bi", "dedup", "users", "audit"];
 
 function AdminTabs() {
   const [tab, setTab] = useState<AdminTab>("sources");
@@ -43,6 +44,7 @@ function AdminTabs() {
       <div className="flex-1 overflow-y-auto">
         {tab === "sources" && <AdminSourcesTable />}
         {tab === "log" && <AdminCollectionLog />}
+        {tab === "gaps" && <AdminCatalogGaps />}
         {tab === "coverage" && <AdminCoverage />}
         {tab === "bi" && <AdminDeficitByRegion />}
         {tab === "dedup" && <AdminDedupQueue />}

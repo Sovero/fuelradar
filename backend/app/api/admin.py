@@ -29,6 +29,7 @@ from ..db.models import (
 )
 from ..db.session import get_db
 from ..dedup import DedupService
+from ..normalization.names import normalize_brand
 from .deps import require_admin, require_operator
 from .schemas import AdminMergeBody, DedupQueueAction
 
@@ -47,7 +48,6 @@ class SourceUpdateBody(BaseModel):
     trust: float | None = None
     status: str | None = None
     min_interval_minutes: int | None = None
-
 router = APIRouter(prefix="/admin", tags=["admin"])
 
 
@@ -406,6 +406,122 @@ def split_station(station_id: str, body: AdminMergeBody, session: Session = Depe
     _journal(session, "split", station_id, {"record_id": body.record_id, "new_station_id": new_id})
     session.commit()
     return {"new_station_id": new_id, "record_id": body.record_id}
+
+
+@router.get("/catalog-gaps", dependencies=[Depends(require_operator)])
+def catalog_gaps(limit: int = 20, session: Session = Depends(get_db)) -> dict:
+    """Покрытие атрибутов мастер-каталога: где пусто и чем можно дозаполнить.
+
+    Читающая сводка для оператора пилота (пост-M16, R58/R94i): сколько станций
+    без бренда/телефона/адреса и по каким полям у каждой записи источника
+    есть данные, которых в мастере нет. Никаких записей не меняет: обогащение
+    выполняется штатным инжестом (NETWORK_IMPORT_PATH / network_lists), а
+    слияние — через очередь дедупа. Лимит списка кандидатов: 1–100.
+    """
+    limit = max(1, min(limit, 100))
+
+    total = session.scalar(select(func.count()).select_from(Station))
+    if total == 0:
+        return {
+            "total": 0,
+            "missing": {"brand": 0, "phone": 0, "address": 0, "any": 0},
+            "sources": [],
+            "candidates": [],
+        }
+
+    def _blank(column) -> int:
+        # Пусто = '' (дефолт модели); '?' — известный OSM-заглушечный маркер отсутствия.
+        return (
+            session.scalar(
+                select(func.count())
+                .select_from(Station)
+                .where((column == "") | (column == "?"))
+            )
+            or 0
+        )
+
+    missing_brand = session.scalar(
+        select(func.count()).select_from(Station).where(Station.brand_id.is_(None))
+    ) or 0
+    missing_phone = _blank(Station.phone)
+    missing_address = _blank(Station.address)
+    missing_any = session.scalar(
+        select(func.count())
+        .select_from(Station)
+        .where(
+            (Station.brand_id.is_(None))
+            | (Station.phone == "")
+            | (Station.phone == "?")
+            | (Station.address == "")
+            | (Station.address == "?")
+        )
+    ) or 0
+
+    # Кандидаты дозаполнения: source_station_records, привязанные к станции,
+    # у которых заполнены поля, пустые в мастер-каталоге. Бренд берётся
+    # normalize_brand (тот же, что в инжесте), чтобы кандидат обещал только
+    # то, что реально распознается при повторном импорте.
+    stations_without_brand = {
+        row[0]
+        for row in session.execute(select(Station.id).where(Station.brand_id.is_(None))).all()
+    }
+    stations_without_address = {
+        row[0]
+        for row in session.execute(select(Station.id).where((Station.address == "") | (Station.address == "?"))).all()
+    }
+
+    rows = session.execute(
+        select(
+            SourceStationRecord,
+            Station.canonical_name,
+            SourceProvider.code,
+            SourceProvider.name,
+        )
+        .join(Station, SourceStationRecord.station_id == Station.id)
+        .join(SourceProvider, SourceStationRecord.source_provider_id == SourceProvider.id)
+        .order_by(SourceStationRecord.id)
+    ).all()
+
+    enrichable: dict[str, dict] = {}
+    for record, canonical, provider_code, provider_name in rows:
+        fields = set()
+        brand = normalize_brand(record.brand_raw)
+        if brand and record.station_id in stations_without_brand:
+            fields.add("brand")
+        if record.address_raw.strip() and record.station_id in stations_without_address:
+            fields.add("address")
+        if fields:
+            enrichable[record.station_id] = {
+                "station_id": record.station_id,
+                "station_name": canonical,
+                "provider_code": provider_code,
+                "provider_name": provider_name,
+                "fields": fields,
+            }
+
+    candidates = []
+    for item in sorted(enrichable.values(), key=lambda x: (-len(x["fields"]), x["station_id"]))[:limit]:
+        candidates.append({**item, "fields": sorted(item["fields"])})
+
+    by_source: dict[str, dict[str, int]] = {}
+    for item in enrichable.values():
+        agg = by_source.setdefault(item["provider_code"], {"name": item["provider_name"], "stations": 0, "fields": 0})
+        agg["stations"] += 1
+        agg["fields"] += len(item["fields"])
+
+    return {
+        "total": total,
+        "missing": {
+            "brand": missing_brand,
+            "phone": missing_phone,
+            "address": missing_address,
+            "any": missing_any,
+        },
+        "sources": [
+            {"code": code, **data} for code, data in sorted(by_source.items(), key=lambda kv: -kv[1]["fields"])
+        ],
+        "candidates": candidates,
+    }
 
 
 @router.get("/dedup-queue", dependencies=[Depends(require_operator)])

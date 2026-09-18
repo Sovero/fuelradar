@@ -247,6 +247,27 @@ def test_meta(client) -> None:
     assert any(s["code"] == "osm_overpass" and "OpenStreetMap" in s["attribution"] for s in body["sources"])
 
 
+def _add_test_provider(session, code: str) -> SourceProvider:
+    """Одноразовый TEST-провайдер для записей этого тест-файла.
+
+    Тесты живут на общей session-scope БД: SourceStationRecord под кодами
+    osm_overpass/network_import считаются тестами ingest (upsert-подсчёт),
+    поэтому свои записи пишем под уникальный код со статусом TEST — такой
+    провайдер не попадает в дефолтный выбор seed/воркера.
+    """
+    provider = session.scalar(select(SourceProvider).where(SourceProvider.code == code))
+    if provider is None:
+        provider = SourceProvider(
+            code=code,
+            name=code,
+            capabilities={"discovery": True, "availability": False, "queue": False},
+            status="TEST",
+        )
+        session.add(provider)
+        session.flush()
+    return provider
+
+
 def _login_admin(client) -> None:
     response = client.post(
         "/api/v1/auth/login",
@@ -297,6 +318,73 @@ def test_admin_refresh_creates_job(client, db_session) -> None:
     # в test_ingest.py через партиционный uq_collection_active.
     job.status = "DONE"
     db_session.commit()
+
+
+def test_admin_catalog_gaps_reports_missing_fields_and_enrichable(client, db_session) -> None:
+    """GET /admin/catalog-gaps: покрытие бренда/телефона/адреса + кандидаты дозаполнения.
+
+    Проверяем и агрегаты, и смысл «откуда дозаполнить»: кандидат появляется
+    только когда у source-записи распознаётся бренд (normalize_brand) или есть
+    адрес, а в мастер-каталоге это поле пусто.
+    """
+    client.post("/api/v1/auth/logout")
+    assert client.get("/api/v1/admin/catalog-gaps").status_code == 401
+    client.post("/api/v1/auth/dev-login", json={"email": "gaps-viewer@example.com"})
+    assert client.get("/api/v1/admin/catalog-gaps").status_code == 403  # OPERATOR+
+    client.post("/api/v1/auth/logout")
+
+    _login_admin(client)
+
+    # Специальные станции для сценария: G1 без бренда и адреса, G2 полный.
+    # osm-запись кандидата — под одноразовый TEST-провайдер: SourceStationRecord
+    # под osm_overpass/network_import утверждается test_ingest (session-scope БД).
+    osm_test = _add_test_provider(db_session, "osm_osm_test")
+    net = db_session.scalar(select(SourceProvider).where(SourceProvider.code == "network_import"))
+    g1, g2 = "fr_station_950011", "fr_station_950012"
+    if db_session.get(Station, g1) is None:
+        db_session.add(Station(id=g1, canonical_name="АЗС без бренда", latitude=LAT + 0.02,
+                               longitude=LON + 0.02, city="Краснодар"))  # brand_id None, address ""
+    if db_session.get(Station, g2) is None:
+        brand = db_session.scalar(select(StationBrand).where(StationBrand.name == "Лукойл"))
+        db_session.add(Station(id=g2, canonical_name="АЗС полная", brand_id=brand.id,
+                               latitude=LAT + 0.03, longitude=LON + 0.03, city="Краснодар",
+                               address="ул. Полная, 1", phone="+7 861 000-00-00"))
+    db_session.commit()
+
+    db_session.add_all([
+        # источник знает бренд для безбрендовой G1 → кандидат brand
+        SourceStationRecord(source_provider_id=net.id, external_id="gap-1", station_id=g1,
+                            latitude=LAT + 0.02, longitude=LON + 0.02,
+                            brand_raw="Лукойл", name_raw="", address_raw="", payload="{}"),
+        # адрес есть у записи, но G2 уже с адресом → не кандидат.
+        # Провайдер — osm_osm_test (одноразовый код TEST-провайдера): тесты живут
+        # на общей session-scope БД, и осмысленные записи (SourceStationRecord) под
+        # osm_overpass утверждает test_ingest (upsert-подсчёт). Не пересекаться.
+        SourceStationRecord(source_provider_id=osm_test.id, external_id="gap-2", station_id=g2,
+                            latitude=LAT + 0.03, longitude=LON + 0.03,
+                            brand_raw="", name_raw="АЗС полная", address_raw="ул. Полная, 1", payload="{}"),
+    ])
+    db_session.commit()
+
+    r = client.get("/api/v1/admin/catalog-gaps")
+    assert r.status_code == 200
+    body = r.json()
+    assert body["total"] >= 6
+    for key, at_least in (("brand", 1), ("phone", 1), ("address", 1), ("any", 1)):
+        assert body["missing"][key] >= at_least, body["missing"]
+
+    cand = {c["station_id"]: c for c in body["candidates"]}
+    assert g1 in cand
+    assert cand[g1]["fields"] == ["brand"]  # бренд распознаётся normalize_brand
+    assert cand[g1]["provider_code"] == "network_import"
+    assert "phone" not in cand[g1]["fields"]  # телефон источник не даёт
+    assert g2 not in cand  # полная станция — не кандидат
+
+    codes = {s["code"]: s for s in body["sources"]}
+    assert codes["network_import"]["stations"] >= 1 and codes["network_import"]["fields"] >= 1
+
+    # limit ограничивает список кандидатов
+    assert len(client.get("/api/v1/admin/catalog-gaps?limit=1").json()["candidates"]) == 1
 
 
 def test_admin_updates_source_trust_status_interval(client, db_session) -> None:

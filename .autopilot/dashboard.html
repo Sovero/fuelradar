@@ -239,7 +239,7 @@
   "briefFile": "2026-09-07-brief.md",
   "memoryFile": "AGENTS.md",
   "startedAt": "2026-09-07T18:54:27+03:00",
-  "updatedAt": "2026-09-12T22:36:11+03:00",
+  "updatedAt": "2026-09-18T22:47:00+03:00",
   "finishedAt": null,
   "stages": [
     {
@@ -290,8 +290,8 @@
     }
   ],
   "requirements": {
-    "total": 106,
-    "done": 102,
+    "total": 111,
+    "done": 106,
     "inTicket": 4,
     "inSpec": 0,
     "placeholder": 0,
@@ -932,11 +932,203 @@
         "Моки перехватывают /api/v1/* на уровне страницы — service worker в E2E отключён (disableServiceWorker), иначе после его активации SW-запросы идут мимо page.route и проваливаются в реальный backend.",
         "Zero-console-error — проверка в каждом спеке (assertNoConsoleErrors), не глобальный репортер; Playwright CDN недоступен, глобальный webReporter не настраивался."
       ]
+    },
+    {
+      "id": "16",
+      "title": "Bootstrap-админ и cookie-RBAC (M16)",
+      "requirements": [
+        "R95i",
+        "R105"
+      ],
+      "blockedBy": [],
+      "wave": 13,
+      "zone": [
+        "backend/app/auth/",
+        "backend/app/api/login.py",
+        "backend/app/api/deps.py",
+        "backend/app/db/",
+        "backend/cli/roles.py",
+        "frontend/components/admin/",
+        "frontend/components/onboarding/"
+      ],
+      "status": "done",
+      "retries": 0,
+      "startedAt": "2026-09-17T18:00:00+03:00",
+      "finishedAt": "2026-09-17T19:54:33+03:00",
+      "files": [
+        "backend/app/auth/service.py",
+        "backend/app/api/login.py",
+        "backend/app/api/deps.py",
+        "backend/app/api/admin.py",
+        "backend/app/db/models.py",
+        "backend/app/db/migrations.py",
+        "backend/cli/roles.py",
+        "docs/roles.md",
+        "backend/tests/test_security.py"
+      ],
+      "tests": {
+        "passed": 226,
+        "failed": 0
+      },
+      "commit": "3088976",
+      "concerns": [
+        "Одноразовый bootstrap-мастер первого ADMIN (BootstrapState): после создания endpoint блокируется, повторные попытки → 409; попытка legacy X-Admin-Token → 401 + аудит admin_auth_failed.",
+        "Пароли — scrypt (стойкий эквивалент Argon2id без новой runtime-зависимости); роли USER/OPERATOR/ADMIN перечитываются из БД на каждый запрос (require_admin/require_operator).",
+        "CLI выдачи ролей (python -m cli.roles): защита последнего ADMIN, аудит role_change; операционная инструкция — docs/roles.md."
+      ]
+    },
+    {
+      "id": "17",
+      "title": "Роли и журнал действий в админке",
+      "requirements": [
+        "R106"
+      ],
+      "blockedBy": [
+        "16"
+      ],
+      "wave": 13,
+      "zone": [
+        "backend/app/api/admin.py",
+        "frontend/components/admin/"
+      ],
+      "status": "done",
+      "retries": 0,
+      "startedAt": "2026-09-18T18:00:00+03:00",
+      "finishedAt": "2026-09-18T20:43:15+03:00",
+      "files": [
+        "backend/app/api/admin.py",
+        "frontend/components/admin/AdminUsersBlock.tsx",
+        "frontend/components/admin/AdminActionLogView.tsx",
+        "frontend/components/admin/AdminScreen.tsx",
+        "frontend/lib/i18n.ts",
+        "backend/tests/test_api.py"
+      ],
+      "tests": {
+        "passed": 208,
+        "failed": 0
+      },
+      "commit": "251cd72",
+      "concerns": [
+        "GET /admin/users + POST /admin/users/{id}/role: только ADMIN, смена последнего ADMIN → 409, no-op без записи в аудит.",
+        "Вкладка «Журнал действий»: фильтры action/actor (подстрока, без регистра)/date_from/date_to (UTC, включительно) + пагинация; запись admin_action_log — единая точка аудита."
+      ]
+    },
+    {
+      "id": "18",
+      "title": "ADMIN-управление источниками",
+      "requirements": [
+        "R58",
+        "R107"
+      ],
+      "blockedBy": [
+        "16"
+      ],
+      "wave": 13,
+      "zone": [
+        "backend/app/api/admin.py",
+        "frontend/components/admin/AdminSourcesTable.tsx",
+        "frontend/lib/"
+      ],
+      "status": "done",
+      "retries": 0,
+      "startedAt": "2026-09-18T20:00:00+03:00",
+      "finishedAt": "2026-09-18T21:31:00+03:00",
+      "files": [
+        "backend/app/api/admin.py",
+        "frontend/components/admin/AdminSourcesTable.tsx",
+        "frontend/lib/api.ts",
+        "frontend/lib/adminApi.ts",
+        "frontend/lib/i18n.ts",
+        "backend/tests/test_api.py"
+      ],
+      "tests": {
+        "passed": 208,
+        "failed": 0
+      },
+      "commit": "251cd72",
+      "concerns": [
+        "PATCH /admin/sources/{id}: trust (0–1)/статус (ACTIVE/RESEARCH_REQUIRED/NOT_USED)/интервал сбора; все ветки валидации → 422, пустое тело → 422, no-op молча.",
+        "Изменение — одна запись source_update в журнал (actor/action/target/payload со старыми и новыми значениями); деактивация не трогает данные — воркер перестаёт опрашивать источник."
+      ]
+    },
+    {
+      "id": "19",
+      "title": "Адаптер network_lists + разведка источников",
+      "requirements": [
+        "R94i",
+        "R108"
+      ],
+      "blockedBy": [],
+      "wave": 13,
+      "zone": [
+        "backend/app/sources/",
+        "backend/app/core/config.py",
+        "backend/app/db/session.py"
+      ],
+      "status": "done",
+      "retries": 0,
+      "startedAt": "2026-09-18T20:30:00+03:00",
+      "finishedAt": "2026-09-18T21:31:19+03:00",
+      "files": [
+        "backend/app/sources/network_lists.py",
+        "backend/app/sources/registry.py",
+        "backend/app/core/config.py",
+        "backend/app/db/session.py",
+        ".env.example",
+        "backend/tests/test_sources.py",
+        "backend/tests/fixtures/network_lists_krasnodar.geojson"
+      ],
+      "tests": {
+        "passed": 216,
+        "failed": 0
+      },
+      "commit": "1356687",
+      "concerns": [
+        "Первый RESEARCH_REQUIRED-кандидат реализован как реальный HTTP-адаптер: GeoJSON/JSON/CSV, bbox-клиппинг региона, health по образцу Overpass; сид — NOT_USED до настройки NETWORK_LISTS_URLS, активация через админку (R107).",
+        "Разведка 2026-09-18: публичных GeoJSON/CSV-файлов сетей не найдено (карты сетей — JS, агрегаторы — без координат); каталог пилота уже покрыт OSM — 76 АЗС в Краснодаре, идентичность 85% (92% с операторами), 12 АГЗС, 11 безымянных → R109."
+      ]
+    },
+    {
+      "id": "20",
+      "title": "CSV-заготовка обогащения и фикс дедупа",
+      "requirements": [
+        "R10",
+        "R109"
+      ],
+      "blockedBy": [
+        "19"
+      ],
+      "wave": 13,
+      "zone": [
+        "backend/data/import/",
+        "backend/app/dedup/",
+        "backend/scripts/"
+      ],
+      "status": "done",
+      "retries": 0,
+      "startedAt": "2026-09-18T21:40:00+03:00",
+      "finishedAt": "2026-09-18T22:22:08+03:00",
+      "files": [
+        "backend/data/import/krasnodar-unnamed-template.csv",
+        "backend/data/import/README.md",
+        "backend/app/dedup/compare.py",
+        "backend/scripts/e2e_manual_enrich.py",
+        "backend/tests/test_dedup.py"
+      ],
+      "tests": {
+        "passed": 226,
+        "failed": 0
+      },
+      "commit": "33799c5",
+      "concerns": [
+        "E2E-прогон обогащения вскрыл дефект compare_records: пустая сторона поля считалась конфликтом 0.0 вместо нейтрали 0.5 — обогащение безымянных OSM-записей не проходило порог авто-слияния; фикс + 10 юнит-тестов нейтральности.",
+        "Итог workflow: именованные OSM-АЗС сливаются с заполненным CSV автоматически, безымянные — через очередь REVIEW и подтверждение admin_merge оператором."
+      ]
     }
   ],
   "singlePass": null,
   "tests": {
-    "passed": 192,
+    "passed": 226,
     "failed": 0
   },
   "debt": {
@@ -946,19 +1138,20 @@
       "dev-БД SQLite + haversine, prod PostGIS в docker-compose",
       "Redis опционален, иначе in-memory",
       "APScheduler вместо Celery",
+      "network_lists — реальный адаптер, но NOT_USED: публичных URL списков АЗС нет, активация при появлении файла (R108)",
       "Деплой не выполняется — только по команде пользователя"
     ],
     "emptyEnv": [
       "TELEGRAM_BOT_TOKEN",
       "VAPID_PRIVATE_KEY",
       "VAPID_PUBLIC_KEY",
-      "ADMIN_TOKEN",
       "SMTP_URL",
       "JWT_SECRET",
+      "NETWORK_LISTS_URLS",
       "NEXT_PUBLIC_YANDEX_MAPS_API_KEY"
     ],
     "notes": [
-      "Frontend: 98 passed (vitest, 28 файлов) + 5 E2E (Playwright/Chromium, включая zero-console smoke), typecheck/build чистые; backend: 192 passed, ruff чистый."
+      "Пост-M16 волна (R105–R109): bootstrap+RBAC, роли/журнал в админке, ADMIN-управление источниками, адаптер network_lists, CSV-обогащение + фикс нейтральности дедупа. Backend: 226 passed, ruff чист; frontend: 110 passed, typecheck/build чистые; 5 E2E (Playwright/Chromium)."
     ]
   },
   "additions": [

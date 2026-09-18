@@ -7,10 +7,12 @@
 
 from __future__ import annotations
 
+import os
 from datetime import date as date_type
 from datetime import datetime, timedelta
+from pathlib import Path
 
-from fastapi import APIRouter, Depends, HTTPException, Response
+from fastapi import APIRouter, Depends, HTTPException, Response, UploadFile
 from pydantic import BaseModel
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
@@ -48,6 +50,10 @@ class SourceUpdateBody(BaseModel):
     trust: float | None = None
     status: str | None = None
     min_interval_minutes: int | None = None
+
+
+# Потолок размера загружаемого CSV обогащения (2 МБ с запасом: 10k строк ~ 1.5 МБ)
+_CSV_MAX_BYTES = 2 * 1024 * 1024
 router = APIRouter(prefix="/admin", tags=["admin"])
 
 
@@ -575,6 +581,55 @@ def catalog_gaps_export_csv(session: Session = Depends(get_db)) -> Response:
 
     headers = {"Content-Disposition": 'attachment; filename="catalog-gaps-enrichment-template.csv"'}
     return Response(content=buffer.getvalue(), media_type="text/csv; charset=utf-8", headers=headers)
+
+
+def _csv_upload_dir() -> Path:
+    """Каталог загруженных файлов импорта.
+
+    По умолчанию — backend/data/import (рядом с krasnodar-unnamed-template.csv);
+    FUELRADAR_CSV_UPLOAD_DIR переопределяет его (docker: общий volume api+worker,
+    например /data/import — воркер собирает в отдельном контейнере).
+    """
+    d = Path(os.environ.get("FUELRADAR_CSV_UPLOAD_DIR") or (Path(__file__).resolve().parents[2] / "data" / "import"))
+    d.mkdir(parents=True, exist_ok=True)
+    return d
+
+
+@router.post("/catalog-gaps/import-csv", dependencies=[Depends(require_admin)])
+async def import_catalog_csv(file: UploadFile, session: Session = Depends(get_db)) -> dict:
+    """Загрузка заполненного CSV обогащения напрямую, без правки .env.
+
+    Файл сохраняется в каталог импорта, settings.network_import_path указывает
+    на него и наследуется процессом воркера (same-env) — сбор проходит штатным
+    инжестом через очередь (R83): создаётся задание P1/manual. Валидация — тем
+    же парсером network_import: битый файл отклоняется до записи (422).
+    """
+    from ..sources.network_import import parse_csv
+    from ..worker import schedule_priority_job
+
+    raw = await file.read()
+    if len(raw) > _CSV_MAX_BYTES:
+        raise HTTPException(status_code=422, detail="Файл больше 2 МБ")
+    if not (file.filename or "").lower().endswith(".csv"):
+        raise HTTPException(status_code=422, detail="Нужен файл .csv")
+    try:
+        text = raw.decode("utf-8-sig")
+        records = parse_csv(text)
+    except (UnicodeDecodeError, ValueError) as exc:
+        raise HTTPException(status_code=422, detail=f"Файл не разобран: {exc}") from exc
+    if not records:
+        raise HTTPException(status_code=422, detail="В файле нет строк со станциями")
+
+    path = _csv_upload_dir() / "catalog-enrichment.csv"
+    path.write_text(text, encoding="utf-8")
+
+    provider = session.scalar(select(SourceProvider).where(SourceProvider.code == "network_import"))
+    if provider is None:
+        raise HTTPException(status_code=409, detail="Источник network_import не заведён")
+    job = schedule_priority_job(session, provider.id, priority="P1", trigger="manual")
+    _journal(session, "csv_import", path.name, {"rows": len(records), "job_id": job.id, "path": str(path)})
+    session.commit()
+    return {"saved": str(path), "rows": len(records), "job_id": job.id, "provider": provider.code}
 
 
 @router.get("/dedup-queue", dependencies=[Depends(require_operator)])

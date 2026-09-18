@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 
 import pytest
 from sqlalchemy import func, select
@@ -431,6 +432,59 @@ def test_admin_catalog_gaps_export_csv_matches_template_format(client, db_sessio
     # RBAC: аноним → 401
     client.post("/api/v1/auth/logout")
     assert client.get("/api/v1/admin/catalog-gaps/export.csv").status_code == 401
+
+
+def test_admin_catalog_csv_import_saves_and_enqueues(client, db_session, monkeypatch, tmp_path) -> None:
+    """POST /admin/catalog-gaps/import-csv: файл сохраняется, джоб P1, аудит; битый CSV → 422."""
+    # Каталог загрузки — временный, чтобы тест не трогал реальный data/import
+    monkeypatch.setenv("FUELRADAR_CSV_UPLOAD_DIR", str(tmp_path))
+
+    client.post("/api/v1/auth/logout")
+    assert client.post("/api/v1/admin/catalog-gaps/import-csv").status_code == 401
+    client.post("/api/v1/auth/dev-login", json={"email": "csv-importer@example.com"})
+    assert client.post("/api/v1/admin/catalog-gaps/import-csv").status_code == 403  # только ADMIN
+    client.post("/api/v1/auth/logout")
+    _login_admin(client)
+
+    good = (
+        "name,brand,lat,lon,address,phone,ref,city,region\n"
+        "АЗС без бренда,Лукойл,45.055500,38.995300,ул. Импортная 1,,447783364,Краснодар,\n"
+    )
+    r = client.post(
+        "/api/v1/admin/catalog-gaps/import-csv",
+        files={"file": ("enrichment.csv", good.encode("utf-8"), "text/csv")},
+    )
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["rows"] == 1 and body["provider"] == "network_import"
+    assert Path(body["saved"]).read_text(encoding="utf-8").startswith("name,brand")
+
+    # задание воркеру создано и завершено (не висит в uq_collection_active)
+    job = db_session.get(CollectionJob, body["job_id"])
+    assert job is not None and job.status in ("PENDING", "DONE")
+    if job.status == "PENDING":
+        job.status = "DONE"
+        db_session.commit()
+
+    log = db_session.scalar(select(AdminActionLog).order_by(AdminActionLog.id.desc()))
+    assert log.action == "csv_import" and log.payload["rows"] == 1
+
+    # битые файлы отклоняются до записи: не-csv, кривая строка, пустой файл
+    bad = client.post(
+        "/api/v1/admin/catalog-gaps/import-csv",
+        files={"file": ("notes.txt", b"hello", "text/plain")},
+    )
+    assert bad.status_code == 422
+    broken = client.post(
+        "/api/v1/admin/catalog-gaps/import-csv",
+        files={"file": ("bad.csv", "name,brand,lat,lon\nнет координат,Лукойл,,".encode(), "text/csv")},
+    )
+    assert broken.status_code == 422
+    empty = client.post(
+        "/api/v1/admin/catalog-gaps/import-csv",
+        files={"file": ("empty.csv", b"name,brand,lat,lon\n", "text/csv")},
+    )
+    assert empty.status_code == 422
 
 
 def test_admin_updates_source_trust_status_interval(client, db_session) -> None:

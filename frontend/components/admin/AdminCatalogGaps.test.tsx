@@ -66,7 +66,7 @@ const GAPS = {
 };
 
 function jsonResponse(status: number, body: unknown) {
-  return { ok: status < 400, status, text: async () => JSON.stringify(body) };
+  return { ok: status < 400, status, text: async () => JSON.stringify(body), json: async () => body };
 }
 
 function renderGaps(
@@ -95,6 +95,46 @@ afterEach(() => {
 });
 
 describe("AdminCatalogGaps (пост-M16)", () => {
+  it("кнопка «Импортировать CSV» отправляет файл с cookie-сессией и показывает результат", async () => {
+    const user = userEvent.setup();
+    const fetchMock = vi.fn().mockImplementation((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("catalog-gaps/import-csv")) {
+        return Promise.resolve(jsonResponse(200, { saved: "/data/import/catalog-enrichment.csv", rows: 3, job_id: 42, provider: "network_import" }));
+      }
+      return Promise.resolve(jsonResponse(200, GAPS));
+    });
+    renderGaps(fetchMock as unknown as ReturnType<typeof vi.fn> & ((input: RequestInfo | URL, init?: RequestInit) => unknown));
+
+    await waitFor(() => expect(screen.getByRole("button", { name: "Импортировать CSV" })).toBeInTheDocument());
+    await user.upload(document.querySelector('input[type="file"]') as HTMLInputElement, new File(["name,brand\n"], "filled.csv", { type: "text/csv" }));
+
+    await waitFor(() => expect(screen.getByText(/№42/)).toBeInTheDocument());
+    expect(screen.getByText(/строк сохранено — 3/)).toBeInTheDocument();
+    const importCall = fetchMock.mock.calls.find(([u]) => String(u).includes("import-csv"));
+    expect(importCall).toBeTruthy();
+    const [, init] = importCall as unknown as [string, RequestInit];
+    expect(init.method).toBe("POST");
+    expect(init.body).toBeInstanceOf(FormData);
+  });
+
+  it("ошибка импорта (битый файл) показывается честно", async () => {
+    const user = userEvent.setup();
+    const fetchMock = vi.fn().mockImplementation((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("catalog-gaps/import-csv")) {
+        return Promise.resolve(jsonResponse(422, { detail: "Файл не разобран: строка 1: нет координат lat/lon" }));
+      }
+      return Promise.resolve(jsonResponse(200, GAPS));
+    });
+    renderGaps(fetchMock as unknown as ReturnType<typeof vi.fn> & ((input: RequestInfo | URL, init?: RequestInit) => unknown));
+
+    await waitFor(() => expect(screen.getByRole("button", { name: "Импортировать CSV" })).toBeInTheDocument());
+    await user.upload(document.querySelector('input[type="file"]') as HTMLInputElement, new File(["garbage"], "bad.csv", { type: "text/csv" }));
+
+    await waitFor(() => expect(screen.getByText(/Файл не разобран/)).toBeInTheDocument());
+  });
+
   it("кнопка «Скачать CSV» скачивает файл экспорта с cookie-сессией", async () => {
     const user = userEvent.setup();
     const csvBody = "name,brand,lat,lon,address,phone,ref,city,region,osm_url\nАЗС без бренда,Лукойл,45.055500,38.995300,,,,,,,https://www.openstreetmap.org/node/1\n";

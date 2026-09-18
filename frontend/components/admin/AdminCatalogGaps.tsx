@@ -6,7 +6,7 @@
  * штатный инжест (NETWORK_IMPORT_PATH / network_lists), слияние — очередь дедупа.
  */
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { adminGet } from "@/lib/adminApi";
 import { useAdminAuth } from "@/lib/hooks/useAdminAuth";
 import { useI18n } from "@/lib/hooks/useI18n";
@@ -63,6 +63,11 @@ export function AdminCatalogGaps() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [exporting, setExporting] = useState(false);
+  const [importing, setImporting] = useState(false);
+  const [imported, setImported] = useState<{ rows: number; job_id: number } | null>(null);
+  // Ошибки кнопок (экспорт/импорт) показываются инлайн, не вместо таблиц
+  const [actionError, setActionError] = useState<string | null>(null);
+  const fileInput = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     adminGet<CatalogGapsOut>("/catalog-gaps")
@@ -78,6 +83,41 @@ export function AdminCatalogGaps() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Импорт заполненного файла: multipart/form-data на backend (ADMIN), который
+  // сохраняет его в каталог импорта и ставит задание сбора воркеру (R83).
+  const importCsv = async (file: File) => {
+    setImporting(true);
+    setActionError(null);
+    setImported(null);
+    try {
+      const form = new FormData();
+      form.append("file", file);
+      const res = await fetch("/api/v1/admin/catalog-gaps/import-csv", {
+        method: "POST",
+        body: form,
+        credentials: "include",
+      });
+      if (!res.ok) {
+        let message = `${res.status}`;
+        try {
+          message = (await res.json()).detail ?? message;
+        } catch {
+          /* тело не JSON — оставляем код статуса */
+        }
+        if (res.status === 401 || res.status === 403) markInvalid(message);
+        else setActionError(message);
+        return;
+      }
+      setImported(await res.json());
+      // каталог меняется не мгновенно — сбор идёт воркером; кандидатов
+      // перечитаем при следующем открытии вкладки
+    } catch {
+      setActionError(t("admin.loadError"));
+    } finally {
+      setImporting(false);
+    }
+  };
+
   // CSV приходит файлом из backend (формат krasnodar-unnamed-template.csv).
   // fetch вручную, а не <a href>: запрос должен пойти с cookie-сессией.
   const exportCsv = async () => {
@@ -92,7 +132,7 @@ export function AdminCatalogGaps() {
           /* не JSON — оставляем код статуса */
         }
         if (res.status === 401 || res.status === 403) markInvalid(message);
-        else setError(message);
+        else setActionError(message);
         return;
       }
       const blob = await res.blob();
@@ -103,7 +143,7 @@ export function AdminCatalogGaps() {
       a.click();
       URL.revokeObjectURL(url);
     } catch {
-      setError(t("admin.loadError"));
+      setActionError(t("admin.loadError"));
     } finally {
       setExporting(false);
     }
@@ -160,18 +200,49 @@ export function AdminCatalogGaps() {
       </section>
 
       <section>
-        <div className="flex items-center justify-between gap-3">
+        <div className="flex flex-wrap items-center justify-between gap-3">
           <h2 className="text-lg font-semibold">{t("admin.gaps.candidatesTitle")}</h2>
-          <button
-            type="button"
-            onClick={exportCsv}
-            disabled={exporting}
-            className="shrink-0 rounded-md border border-emerald-300 px-3 py-1.5 text-sm font-medium text-emerald-700 hover:bg-emerald-50 disabled:opacity-50 dark:border-emerald-800 dark:text-emerald-300 dark:hover:bg-emerald-950"
-          >
-            {exporting ? t("admin.gaps.exporting") : t("admin.gaps.exportCsv")}
-          </button>
+          <div className="flex shrink-0 items-center gap-2">
+            <button
+              type="button"
+              onClick={exportCsv}
+              disabled={exporting}
+              className="rounded-md border border-emerald-300 px-3 py-1.5 text-sm font-medium text-emerald-700 hover:bg-emerald-50 disabled:opacity-50 dark:border-emerald-800 dark:text-emerald-300 dark:hover:bg-emerald-950"
+            >
+              {exporting ? t("admin.gaps.exporting") : t("admin.gaps.exportCsv")}
+            </button>
+            <button
+              type="button"
+              onClick={() => fileInput.current?.click()}
+              disabled={importing}
+              className="rounded-md border border-gray-300 px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50 dark:border-gray-700 dark:text-gray-200 dark:hover:bg-gray-800"
+            >
+              {importing ? t("admin.gaps.importing") : t("admin.gaps.importCsv")}
+            </button>
+            <input
+              ref={fileInput}
+              type="file"
+              accept=".csv"
+              className="hidden"
+              onChange={(e) => {
+                const f = e.target.files?.[0];
+                if (f) void importCsv(f);
+                e.target.value = ""; // повторный выбор того же файла тоже срабатывает
+              }}
+            />
+          </div>
         </div>
         <p className="mb-3 mt-1 text-xs text-gray-400 dark:text-gray-500">{t("admin.gaps.exportHint")}</p>
+        {actionError && (
+          <p className="mb-3 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700 dark:border-red-900 dark:bg-red-950 dark:text-red-300">
+            {actionError}
+          </p>
+        )}
+        {imported && (
+          <p className="mb-3 rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-800 dark:border-emerald-900 dark:bg-emerald-950 dark:text-emerald-200">
+            {t("admin.gaps.importedOk").replace("{rows}", String(imported.rows)).replace("{jobId}", String(imported.job_id))}
+          </p>
+        )}
         {data.candidates.length === 0 ? (
           <p className="text-sm text-gray-500 dark:text-gray-400">{t("admin.gaps.noCandidates")}</p>
         ) : (

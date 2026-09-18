@@ -7,6 +7,7 @@ httpx>=0.27
 PyJWT>=2.9
 redis>=5.0
 pywebpush>=2.0  # T14 (R64): Web Push Protocol + VAPID для реальной доставки push
+python-multipart>=0.0.12  # загрузка CSV обогащения в админке (multipart/form-data)
 
 # dev/test
 pytest>=8.3

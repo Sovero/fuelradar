@@ -108,6 +108,61 @@ def test_compare_empty_fields_are_neutral() -> None:
     assert settings.dedup_needs_review <= r.score < settings.dedup_auto_merge
 
 
+# ---------- пустая сторона одного поля: нейтрально (обогащение не штрафуем, R84) ----------
+
+
+@pytest.mark.parametrize("side", ["a", "b"], ids=["пустая-слева", "пустая-справа"])
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("brand_raw", "Лукойл"),
+        ("address_raw", "ул. Северная 1"),
+        ("name_raw", "АЗС Лукойл №47"),
+        ("phone", "+7 (861) 123-45-67"),
+    ],
+    ids=["brand", "address", "name", "phone"],
+)
+def test_compare_one_empty_side_is_neutral_per_field(side: str, field: str, value: str) -> None:
+    """Пустая сторона любого поля — 0.5 независимо от того, слева она или справа.
+
+    До фикса пустая сторона считалась противоречием (0.0) и ручное обогащение
+    безымянных OSM-записей не проходило порог слияния.
+    """
+    kw_a = {field: value} if side == "a" else {}
+    kw_b = {} if side == "a" else {field: value}
+    a = CompareInput(45.0, 39.0, **kw_a)
+    b = CompareInput(45.0, 39.0, **kw_b)
+    component = {"brand_raw": "brand", "address_raw": "address", "name_raw": "name", "phone": "phone"}[field]
+    r = compare_records(a, b)
+    assert r.components[component] == 0.5
+
+
+def test_compare_enrichment_of_unnamed_osm_is_review_band() -> None:
+    """Реальный кейс заготовки обогащения: безымянная OSM + заполненный CSV.
+
+    Все непустые поля CSV против пустых OSM-полей → всё нейтрально, доказательство
+    только в координатах: ровно 0.75 — нижняя граница REVIEW, тихое авто-слияние
+    невозможно (порог 0.85), оператор подтверждает вручную.
+    """
+    osm = CompareInput(45.01, 38.995)  # node без name/brand/operator
+    csv = CompareInput(45.01, 38.995, brand_raw="Лукойл", name_raw="АЗС №4 (обогащено)", address_raw="ул. Тестовая 4")
+    r = compare_records(csv, osm)
+    assert r.score == pytest.approx(0.75)
+    assert r.components == {"coordinates": 1.0, "brand": 0.5, "address": 0.5, "name": 0.5, "phone": 0.5}
+    assert settings.dedup_needs_review <= r.score < settings.dedup_auto_merge
+
+
+def test_compare_filled_brand_conflict_stays_zero() -> None:
+    """Регресс-щит фикса: нейтральность не ослабила детекцию конфликта брендов."""
+    a = CompareInput(45.0, 39.0, brand_raw="Лукойл")
+    b = CompareInput(45.0, 39.0, brand_raw="Роснефть")
+    assert compare_records(a, b).components["brand"] == 0.0
+    # разные телефоны при обеих заполненных сторонах — тоже конфликт
+    c = CompareInput(45.0, 39.0, phone="+7 (861) 111-22-33")
+    d = CompareInput(45.0, 39.0, phone="+7 (861) 444-55-66")
+    assert compare_records(c, d).components["phone"] == 0.0
+
+
 # ---------- интеграция: процесс дедупликации ----------
 
 def test_auto_merge_two_sources_one_station(db_session) -> None:

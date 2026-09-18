@@ -94,6 +94,8 @@ class Settings(BaseSettings):
     overpass_endpoint: str = "https://overpass-api.de/api/interpreter"
     overpass_timeout_seconds: int = 30
     network_import_path: str = ""  # файл CSV/JSON со списками сетей (иначе DEGRADED)
+    network_lists_urls: str = ""  # URL списков АЗС сетей (HTTP); «;» или перевод строки — разделитель
+    network_lists_timeout_seconds: int = 30
 
     # --- секреты (R68): только имена в .env.example, значения никогда в код ---
     telegram_bot_token: str = ""

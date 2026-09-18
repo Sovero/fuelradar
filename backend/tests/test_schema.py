@@ -28,4 +28,5 @@ def test_seeds_present(db_session):
     assert {"AI_92", "AI_95", "DIESEL"} <= codes
     providers = {p.code: p.status for p in db_session.query(SourceProvider).all()}
     assert providers.get("osm_overpass") == "ACTIVE"
+    assert providers.get("network_lists") == "NOT_USED"  # реальный адаптер, ждёт NETWORK_LISTS_URLS
     assert providers.get("yandex") == "RESEARCH_REQUIRED"  # R12

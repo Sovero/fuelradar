@@ -11,6 +11,7 @@ from sqlalchemy import select
 
 from .base import SourceAdapter
 from .network_import import NetworkImportAdapter
+from .network_lists import NetworkListsAdapter
 from .overpass import OverpassAdapter
 from .research import (
     GazpromAdapter,
@@ -27,6 +28,7 @@ from .user_reports import UserReportAdapter
 ADAPTER_CLASSES: dict[str, type[SourceAdapter]] = {
     OverpassAdapter.provider_code: OverpassAdapter,
     NetworkImportAdapter.provider_code: NetworkImportAdapter,
+    NetworkListsAdapter.provider_code: NetworkListsAdapter,
     UserReportAdapter.provider_code: UserReportAdapter,
     YandexAdapter.provider_code: YandexAdapter,
     TwoGisAdapter.provider_code: TwoGisAdapter,

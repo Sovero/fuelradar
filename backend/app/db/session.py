@@ -47,6 +47,8 @@ SOURCE_PROVIDERS: list[dict] = [
      "status": "ACTIVE", "min_interval_minutes": 1440, "attribution": "", "trust": 0.7},
     {"code": "user_reports", "name": "Пользовательские отчёты", "capabilities": {"discovery": False, "availability": True, "queue": True},
      "status": "ACTIVE", "min_interval_minutes": 5, "attribution": "", "trust": 0.4},
+    {"code": "network_lists", "name": "Сетевые списки АЗС (HTTP)", "capabilities": {"discovery": True, "availability": False, "queue": False},
+     "status": "NOT_USED", "min_interval_minutes": 1440, "attribution": "", "trust": 0.7},
     {"code": "yandex", "name": "Яндекс Карты", "capabilities": {}, "status": "RESEARCH_REQUIRED", "min_interval_minutes": 60, "attribution": "", "trust": 0.0},
     {"code": "twogis", "name": "2ГИС", "capabilities": {}, "status": "RESEARCH_REQUIRED", "min_interval_minutes": 60, "attribution": "", "trust": 0.0},
     {"code": "lukoil", "name": "Лукойл", "capabilities": {}, "status": "RESEARCH_REQUIRED", "min_interval_minutes": 60, "attribution": "", "trust": 0.0},

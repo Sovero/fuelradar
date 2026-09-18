@@ -14,6 +14,7 @@ from app.sources.base import (
     SourceAdapter,
 )
 from app.sources.network_import import NetworkImportAdapter, parse_csv, parse_file
+from app.sources.network_lists import NetworkListsAdapter, parse_stations_payload, split_urls
 from app.sources.overpass import OverpassAdapter, bbox_from_region, parse_overpass_element
 from app.sources.registry import ADAPTER_CLASSES
 
@@ -118,11 +119,90 @@ def test_network_import_health_no_file() -> None:
     assert adapter.health_check().health == "DEGRADED"
 
 
+# ---------- сетевые списки АЗС по HTTP (network_lists) ----------
+
+NETWORK_LISTS_URL = "https://sources.example.com/krasnodar.geojson"
+
+
+def _lists_adapter(http_get) -> NetworkListsAdapter:
+    return NetworkListsAdapter(urls=[NETWORK_LISTS_URL], http_get=http_get)
+
+
+def test_split_urls() -> None:
+    assert split_urls("a; b\n\nc") == ["a", "b", "c"]
+    assert split_urls("") == []
+
+
+def test_parse_geojson_fixture() -> None:
+    text = (FIXTURES / "network_lists_krasnodar.geojson").read_text("utf-8")
+    records = parse_stations_payload(text)
+    assert len(records) == 3
+    by_ref = {r.external_id: r for r in records}
+    lukoil = by_ref["Лукойл-12"]
+    assert lukoil.brand_raw == "Лукойл"
+    assert lukoil.latitude == pytest.approx(45.0302)
+    assert lukoil.longitude == pytest.approx(38.9402)
+    assert "Северная" in lukoil.address_raw
+    # ref попадает в external_id (контракт record_from_row), а не в extra
+    assert lukoil.external_id == "Лукойл-12"
+
+
+def test_parse_csv_via_http_adapter() -> None:
+    csv_text = "name,brand,lat,lon,address,ref\nАЗС 7,Тест,45.05,38.95,ул. Пример,7\n"
+    adapter = _lists_adapter(lambda url: csv_text)
+    records = adapter.discover_stations(REGION)
+    assert len(records) == 1
+    assert records[0].external_id == "Тест-7"
+
+
+def test_lists_bbox_filter_keeps_only_region_stations() -> None:
+    text = (FIXTURES / "network_lists_krasnodar.geojson").read_text("utf-8")
+    adapter = _lists_adapter(lambda url: text)
+    records = adapter.discover_stations(REGION)
+    # третья станция фикстуры — вне bbox Краснодара
+    assert len(records) == 2
+    assert all(r.external_id != "Газпромнефть-9" for r in records)
+
+
+def test_lists_discovery_only_and_records_raw_payload() -> None:
+    text = (FIXTURES / "network_lists_krasnodar.geojson").read_text("utf-8")
+    adapter = _lists_adapter(lambda url: text)
+    assert adapter.get_fuel_availability("x") == []  # discovery-only
+    records = adapter.discover_stations(REGION)
+    payload = json.loads(records[0].payload)
+    assert payload["brand"] == "Лукойл"  # сырой properties сохранён (R84)
+
+
+def test_lists_no_urls_raises_adapter_error() -> None:
+    adapter = NetworkListsAdapter(urls=[], http_get=lambda url: "{}")
+    with pytest.raises(AdapterError):
+        adapter.discover_stations(REGION)
+
+
+def test_lists_health_statuses() -> None:
+    from app.sources.base import AuthError, RateLimitedError
+
+    ok = _lists_adapter(lambda url: "{\"type\": \"FeatureCollection\", \"features\": []}")
+    assert ok.health_check().health == "ONLINE"
+    limited = _lists_adapter(lambda url: (_ for _ in ()).throw(RateLimitedError("429")))
+    assert limited.health_check().health == "RATE_LIMITED"
+    auth = _lists_adapter(lambda url: (_ for _ in ()).throw(AuthError("403")))
+    assert auth.health_check().health == "AUTH_ERROR"
+    down = _lists_adapter(lambda url: (_ for _ in ()).throw(AdapterError("boom")))
+    assert down.health_check().health == "OFFLINE"
+
+
+def test_lists_no_urls_health_degraded() -> None:
+    adapter = NetworkListsAdapter(urls=[])
+    assert adapter.health_check().health == "DEGRADED"
+
+
 # ---------- RESEARCH_REQUIRED (R89): без сети, без выдуманных данных ----------
 
 def test_research_adapters_raise_and_never_network() -> None:
     for code, cls in ADAPTER_CLASSES.items():
-        if code in ("osm_overpass", "network_import", "user_reports"):
+        # network_lists — реальный адаптер (NOT_USED до настройки NETWORK_LISTS_URLS)
+        if code in ("osm_overpass", "network_import", "user_reports", "network_lists"):
             continue
         adapter = cls()
         assert isinstance(adapter, SourceAdapter)

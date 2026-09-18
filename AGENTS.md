@@ -55,7 +55,7 @@ backend/app/
   main.py            — точка входа FastAPI: /health /ready /metrics, монтирует api_router + alerts/analytics/reports роутеры, CORS, обработчик 422
   core/               — config.py (Settings — pydantic-settings, единственный источник дефолтов), metrics.py (in-memory счётчики)
   db/                 — models.py (все таблицы), session.py (SessionLocal/get_db/init_db), migrations.py (идемпотентные post-init миграции), base.py (Base)
-  sources/            — SourceAdapter (base.py) + overpass/network_import/user_reports (ACTIVE), research.py (RESEARCH_REQUIRED-заглушки без сети), registry.py
+  sources/            — SourceAdapter (base.py) + overpass/network_import/user_reports (ACTIVE) + network_lists (реальный HTTP-адаптер сетевых списков АЗС, NOT_USED до настройки NETWORK_LISTS_URLS, активация через админку), research.py (RESEARCH_REQUIRED-заглушки без сети), registry.py
   stations/           — ingest.py: source_station_records → мастер-каталог
   normalization/      — fuel.py, names.py — нормализация топлива/брендов/названий
   dedup/              — compare.py (compare_records — чистая функция), service.py (DedupService: авто-слияние/REVIEW/admin_merge/admin_split)

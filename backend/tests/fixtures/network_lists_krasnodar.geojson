@@ -1,0 +1,21 @@
+{
+  "type": "FeatureCollection",
+  "name": "azs_krasnodar_demo",
+  "features": [
+    {
+      "type": "Feature",
+      "geometry": {"type": "Point", "coordinates": [38.9402, 45.0302]},
+      "properties": {"brand": "Лукойл", "name": "АЗС №12", "address": "ул. Северная, 300", "ref": "12"}
+    },
+    {
+      "type": "Feature",
+      "geometry": {"type": "Point", "coordinates": [38.9605, 45.0488]},
+      "properties": {"brand": "Роснефть", "name": "Роснефть №55", "address": "ул. Красная, 155", "ref": "55"}
+    },
+    {
+      "type": "Feature",
+      "geometry": {"type": "Point", "coordinates": [39.8500, 44.6000]},
+      "properties": {"brand": "Газпромнефть", "name": "АЗС №9", "address": "вне Краснодара", "ref": "9"}
+    }
+  ]
+}

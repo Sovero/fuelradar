@@ -47,6 +47,12 @@ CLI: `python -m cli.roles list` / `set --user <email|id> --role OPERATOR` —
 ждёт настройки `NETWORK_LISTS_URLS`). Как подключить новый источник — от адаптера
 до включения через админку: [docs/new-source.md](docs/new-source.md).
 
+## Production-запуск пилота
+
+Чек-лист перевода проекта в эксплуатацию — секреты и конфигурация, деплой и
+периметр, источники и качество каталога, роли, мониторинг, бэкапы и критерии
+готовности: **[docs/pilot-readiness.md](docs/pilot-readiness.md)**.
+
 ## Состояние roadmap
 
 Завершены T01–T15: каталог и дедупликация, Confidence Engine, публичный API,

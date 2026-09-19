@@ -583,6 +583,12 @@ def catalog_gaps_export_csv(session: Session = Depends(get_db)) -> Response:
     return Response(content=buffer.getvalue(), media_type="text/csv; charset=utf-8", headers=headers)
 
 
+# Имя файла, куда admin-импорт сохраняет загруженный CSV. Единственный источник
+# правды: на него же указывает NETWORK_IMPORT_PATH в docker-compose.yml (воркер
+# читает загрузку по этому пути), инвариант сверяет tests/test_compose_config.py.
+CSV_IMPORT_FILENAME = "catalog-enrichment.csv"
+
+
 def _csv_upload_dir() -> Path:
     """Каталог загруженных файлов импорта.
 
@@ -620,7 +626,7 @@ async def import_catalog_csv(file: UploadFile, session: Session = Depends(get_db
     if not records:
         raise HTTPException(status_code=422, detail="В файле нет строк со станциями")
 
-    path = _csv_upload_dir() / "catalog-enrichment.csv"
+    path = _csv_upload_dir() / CSV_IMPORT_FILENAME
     path.write_text(text, encoding="utf-8")
 
     provider = session.scalar(select(SourceProvider).where(SourceProvider.code == "network_import"))

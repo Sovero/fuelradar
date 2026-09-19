@@ -50,22 +50,33 @@
    (см. «Как дедуп свяжет CSV с OSM»), действие журналируется в «Журнале
    действий» (`csv_import`: кто, когда, сколько строк).
 
-Однократная настройка: воркер находит загруженный файл по `NETWORK_IMPORT_PATH` —
-укажите в `.env` путь к файлу, куда админка сохраняет загрузки:
+Воркер находит загруженный файл по `NETWORK_IMPORT_PATH`, а админка сохраняет
+его в каталог `FUELRADAR_CSV_UPLOAD_DIR` — это должны быть один файл и один
+каталог. **В docker compose настроено из коробки** (`docker-compose.yml`:
+`FUELRADAR_CSV_UPLOAD_DIR=/data/import` у `api`, `NETWORK_IMPORT_PATH=/data/import/
+catalog-enrichment.csv` у `worker`, оба сервиса монтируют том `fuelradar-data`
+в `/data`) — править `.env` не нужно, ни разу. Проверяет инвариант
+`backend/tests/test_compose_config.py`, а сквозной прогон имитации
+контейнерного разделения (два процесса, две ФС, без docker) —
+`cd backend && python scripts/e2e_csv_import_split.py`.
+
+Свои значения — только если каталог импорта вынесен в другое место; менять
+**парой**, иначе воркер не увидит загрузку админки:
 
 ```bash
-# dev (путь от рабочего каталога backend):
+# без docker (путь от рабочего каталога backend):
+FUELRADAR_CSV_UPLOAD_DIR=data/import
 NETWORK_IMPORT_PATH=data/import/catalog-enrichment.csv
 
-# docker (api и worker в разных контейнерах — общий volume):
+# docker, свой каталог (например, хост-папка внутри контейнеров):
 FUELRADAR_CSV_UPLOAD_DIR=/data/import
 NETWORK_IMPORT_PATH=/data/import/catalog-enrichment.csv
 ```
 
-После этого каждый импорт из админки перезаписывает этот же файл — `.env`
-больше не правится.
+После первичной настройки каждый импорт из админки перезаписывает этот же
+файл — `.env` больше не правится.
 
-### Через `NETWORK_IMPORT_PATH` — без админки
+### Через `NETWORK_IMPORT_PATH` — без админки (файл с диска)
 
 ```bash
 # .env (backend):

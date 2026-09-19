@@ -11,6 +11,7 @@ python-multipart>=0.0.12  # загрузка CSV обогащения в адм�
 
 # dev/test
 pytest>=8.3
+PyYAML>=6.0  # разбор docker-compose*.yml в тестах (tests/test_compose_config.py)
 ruff>=0.7
 APScheduler>=3.10,<4
 psycopg[binary]>=3.2

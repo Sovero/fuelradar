@@ -18,6 +18,9 @@ services:
       SMTP_FROM: ${SMTP_FROM:-noreply@localhost}
       PUBLIC_APP_URL: ${PUBLIC_APP_URL:-http://localhost:3000}
       DEFAULT_REGION_CITY: ${DEFAULT_REGION_CITY:-Краснодар}
+      # Источники-файлы (T02): api пишет загрузку из админки сюда — каталог лежит
+      # на общем томе fuelradar-data (/data), иначе воркер её не увидит.
+      FUELRADAR_CSV_UPLOAD_DIR: ${FUELRADAR_CSV_UPLOAD_DIR:-/data/import}
     volumes:
       - fuelradar-data:/data
 
@@ -32,6 +35,15 @@ services:
       VAPID_PUBLIC_KEY: ${VAPID_PUBLIC_KEY:-}
       VAPID_PRIVATE_KEY: ${VAPID_PRIVATE_KEY:-}
       DEFAULT_REGION_CITY: ${DEFAULT_REGION_CITY:-Краснодар}
+      # Файловые источники (T02). NETWORK_IMPORT_PATH указывает на тот самый файл,
+      # который пишет api: путь внутри FUELRADAR_CSV_UPLOAD_DIR, имя фиксировано
+      # эндпоинтом /admin/catalog-gaps/import-csv. Менять эти две переменные нужно
+      # парой (см. backend/data/import/README.md), инвариант проверяет
+      # tests/test_compose_config.py.
+      NETWORK_IMPORT_PATH: ${NETWORK_IMPORT_PATH:-/data/import/catalog-enrichment.csv}
+      # HTTP-списки сетей: пусто → источник network_lists отвечает «не настроено»
+      # и не выполняет сеть; задаётся в .env, активация источника — в админке.
+      NETWORK_LISTS_URLS: ${NETWORK_LISTS_URLS:-}
     volumes:
       - fuelradar-data:/data
 

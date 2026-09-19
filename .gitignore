@@ -24,6 +24,11 @@ desktop/dist/
 desktop/server-dist/
 desktop/build/
 
+# Загрузки оператора в каталоге импорта (пишет POST /admin/catalog-gaps/import-csv,
+# см. backend/data/import/README.md): данные, а не код. Шаблон-заготовка — в git.
+backend/data/import/*.csv
+!backend/data/import/krasnodar-unnamed-template.csv
+
 # system
 .DS_Store
 Thumbs.db

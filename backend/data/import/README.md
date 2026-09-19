@@ -74,7 +74,8 @@ NETWORK_IMPORT_PATH=/data/import/catalog-enrichment.csv
 ```
 
 После первичной настройки каждый импорт из админки перезаписывает этот же
-файл — `.env` больше не правится.
+файл — `.env` больше не правится. В git загрузки не попадают: каталог исключён
+(`.gitignore`), в репозитории живёт только шаблон `krasnodar-unnamed-template.csv`.
 
 ### Через `NETWORK_IMPORT_PATH` — без админки (файл с диска)
 

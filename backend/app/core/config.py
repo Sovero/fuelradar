@@ -8,6 +8,7 @@ import os
 from functools import lru_cache
 from pathlib import Path
 
+from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 # Абсолютный путь до .env в корне репозитория (не backend/.env — .env.example
@@ -93,7 +94,11 @@ class Settings(BaseSettings):
     # --- источники (T02) ---
     overpass_endpoint: str = "https://overpass-api.de/api/interpreter"
     overpass_timeout_seconds: int = 30
-    network_import_path: str = ""  # файл CSV/JSON со списками сетей (иначе DEGRADED)
+    network_import_path: str = ""  # явный файл CSV/JSON источника network_import; пусто → загрузка из csv_upload_dir
+    # Каталог загрузок админского импорта CSV; пусто → backend/data/import.
+    # Имя переменной историческое и не совпадает с именем поля (его задают и в
+    # .env, и в docker compose) — без алиаса pydantic читал бы CSV_UPLOAD_DIR.
+    csv_upload_dir: str = Field(default="", validation_alias="FUELRADAR_CSV_UPLOAD_DIR")
     network_lists_urls: str = ""  # URL списков АЗС сетей (HTTP); «;» или перевод строки — разделитель
     network_lists_timeout_seconds: int = 30
 

@@ -230,6 +230,25 @@ export interface AdminSourceHealth {
   last_error: string;
 }
 
+/**
+ * Файл-вход файлового источника (R58): что именно читает адаптер и когда файл
+ * правился. Только для источников, читающих локальный файл (network_import).
+ */
+export interface AdminSourceFile {
+  path: string;
+  name: string;
+  directory: string;
+  exists: boolean;
+  size_bytes: number | null;
+  modified_at: string | null;
+  /** Путь задан явно (NETWORK_IMPORT_PATH / --file), а не каталогом загрузки админки. */
+  explicit: boolean;
+  /** Каталог, в который пишет админский импорт CSV — совпадает не всегда. */
+  upload_dir?: string;
+  /** Время последнего успешного сбора источника (source_health), только в /catalog-gaps. */
+  last_read_at?: string | null;
+}
+
 export interface AdminSourceOut {
   id: number;
   code: string;
@@ -240,6 +259,8 @@ export interface AdminSourceOut {
   attribution: string;
   min_interval_minutes: number;
   health: AdminSourceHealth;
+  /** Файл-вход источника (R58); null/undefined — источник читает файл не с диска. */
+  file?: AdminSourceFile | null;
 }
 
 export interface CollectionLogItem {

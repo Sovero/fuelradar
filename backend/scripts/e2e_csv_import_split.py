@@ -1,23 +1,23 @@
 """E2E: админский импорт CSV при разделении api и worker (как в контейнерах).
 
 Главный риск у пилота — не docker сам по себе, а **разные файловые системы**:
-админка (процесс `api`) сохраняет загрузку в свой каталог
-(`FUELRADAR_CSV_UPLOAD_DIR`), а воркер — отдельный процесс — ищет файл по
-`NETWORK_IMPORT_PATH`. Если это не один и тот же файл на общем томе, задание
-падает с `FileNotFoundError`, а карта молча живёт без обогащённого каталога.
+админка (процесс `api`) сохраняет загрузку в каталог `FUELRADAR_CSV_UPLOAD_DIR`,
+а воркер — отдельный процесс — читает этот же каталог (файл
+`catalog-enrichment.csv` берётся оттуда без отдельной переменной пути). Если
+воркер смотрит не на общий том, задание падает с `FileNotFoundError`, а карта
+молча живёт без обогащённого каталога.
 
 Docker в CI и на машине разработчика может отсутствовать, поэтому скрипт
-воспроизводит то же разделение без контейнеров: две переменные как в
-`docker-compose.yml` (см. `tests/test_compose_config.py`), два процесса, и у
-воркера **сознательно нет** `FUELRADAR_CSV_UPLOAD_DIR` — ему он и не нужен.
+воспроизводит то же разделение без контейнеров: одна переменная как в
+`docker-compose.yml` (см. `tests/test_compose_config.py`), два процесса.
 
   1. `api` (TestClient, env как у сервиса `api`): bootstrap ADMIN →
      `POST /admin/catalog-gaps/import-csv` → файл лёг в каталог загрузки;
-  2. фаза «как было»: тик воркера **без** `NETWORK_IMPORT_PATH` — задание
-     обязано упасть (`FileNotFoundError`), это исходный дефект;
-  3. фаза «как в compose»: повторный импорт и тик воркера с
-     `NETWORK_IMPORT_PATH=<каталог загрузки>/catalog-enrichment.csv` — задание
-     DONE, записи источника и станции мастер-каталога на месте.
+  2. фаза «воркер мимо общего тома»: тик воркера с **другим** каталогом загрузки
+     — задание обязано упасть (`FileNotFoundError`), это и есть исходный дефект;
+  3. фаза «как в compose»: повторный импорт и тик воркера с тем же
+     `FUELRADAR_CSV_UPLOAD_DIR`, что у api, — задание DONE, записи источника и
+     станции мастер-каталога на месте.
 
 Запуск:  cd backend && python scripts/e2e_csv_import_split.py
 Офлайн:  сеть не используется — активным остаётся только файловый источник.
@@ -50,7 +50,6 @@ sys.path.insert(0, str(_BACKEND))
 
 from sqlalchemy import select, update  # noqa: E402
 
-from app.api.admin import CSV_IMPORT_FILENAME  # noqa: E402
 from app.db.models import (  # noqa: E402
     CollectionJob,
     SourceHealth,
@@ -59,6 +58,7 @@ from app.db.models import (  # noqa: E402
     Station,
 )
 from app.db.session import SessionLocal, init_db  # noqa: E402
+from app.sources.network_import import CSV_IMPORT_FILENAME  # noqa: E402
 
 # Координаты внутри пилотного региона (Краснодар), строки — как из админского экспорта.
 CSV_TEXT = (
@@ -83,10 +83,8 @@ WORKER_CODE = (
 
 
 def worker_env(**extra: str) -> dict[str, str]:
-    """Env воркера как в docker-compose.yml: без FUELRADAR_CSV_UPLOAD_DIR."""
-    env = {**os.environ, "NETWORK_LISTS_URLS": "", **extra}
-    env.pop("FUELRADAR_CSV_UPLOAD_DIR", None)
-    return env
+    """Env воркера как в docker-compose.yml (тот же каталог загрузки)."""
+    return {**os.environ, "NETWORK_LISTS_URLS": "", **extra}
 
 
 def run_worker(**extra: str) -> subprocess.CompletedProcess:
@@ -154,7 +152,7 @@ def main() -> int:  # noqa: C901 — сценарий читается свер�
         raise SystemExit(f"bootstrap не прошёл: {boot.status_code} {boot.text}")
 
     ok = True
-    print("=== ФАЗА 1: как было (воркер без NETWORK_IMPORT_PATH) ===")
+    print("=== ФАЗА 1: воркер мимо общего тома (другой каталог загрузки) ===")
     first = upload(client, CSV_TEXT)
     saved = Path(first["saved"])
     in_shared_dir = saved.is_file() and _IMPORT_DIR in saved.parents
@@ -163,7 +161,7 @@ def main() -> int:  # noqa: C901 — сценарий читается свер�
     ok &= in_shared_dir
     ok &= saved.name == CSV_IMPORT_FILENAME
 
-    proc = run_worker()
+    proc = run_worker(FUELRADAR_CSV_UPLOAD_DIR=str(Path(_TMP) / "other-container"))
     if proc.returncode != 0:
         print(proc.stdout, proc.stderr)
         return 1
@@ -177,16 +175,16 @@ def main() -> int:  # noqa: C901 — сценарий читается свер�
         print(f"  health источника: {health.health if health else '—'}")
         ok &= expected_failure
 
-    print("\n=== ФАЗА 2: как в compose (NETWORK_IMPORT_PATH на тот же файл) ===")
+    print("\n=== ФАЗА 2: как в compose (общий каталог загрузки) ===")
     second = upload(client, CSV_TEXT)
     # Повторный импорт перезаписывает тот же файл, а не заводит новый — иначе
     # воркер читал бы прошлую загрузку.
     ok &= Path(second["saved"]) == saved
-    proc = run_worker(NETWORK_IMPORT_PATH=str(saved))
+    proc = run_worker()
     if proc.returncode != 0:
         print(proc.stdout, proc.stderr)
         return 1
-    print(f"  воркер получил NETWORK_IMPORT_PATH={saved}")
+    print(f"  воркер получил FUELRADAR_CSV_UPLOAD_DIR={_IMPORT_DIR} (файл {CSV_IMPORT_FILENAME})")
 
     with SessionLocal() as session:
         job = last_job(session, provider_id)

@@ -6,17 +6,60 @@
   JSON — список объектов с теми же ключами либо {"stations": [...]}.
 Ключи-алиасы (русские/английские варианты) принимаются. health_check проверяет
 доступность файла: нет файла → DEGRADED (источник включён, но ждёт данных).
+
+Файл по умолчанию — загрузка админского импорта CSV (вкладка «Покрытие
+каталога»): тот же каталог загрузки, поэтому отдельного пути к файлу не нужно,
+одна переменная окружения `FUELRADAR_CSV_UPLOAD_DIR` на api и worker
+(см. import_file_path). Явный путь (`NETWORK_IMPORT_PATH` или `--file` у
+`cli.seed`) остаётся переопределением — для CSV/JSON вне каталога загрузки.
 """
 
 from __future__ import annotations
 
 import csv
 import json
+import os
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
 from ..core.config import settings
 from .base import HEALTH_DEGRADED, HEALTH_ONLINE, HealthResult, SourceAdapter, SourceRecord
+
+# Имя файла, под которым админский импорт сохраняет загрузку оператора. Живёт
+# здесь, а не в api/admin.py: владелец файла — источник, который его читает
+# (api только пишет; см. api.admin.import_catalog_csv).
+CSV_IMPORT_FILENAME = "catalog-enrichment.csv"
+
+# Без FUELRADAR_CSV_UPLOAD_DIR каталогом загрузки считается backend/data/import —
+# рядом с шаблоном-заготовкой krasnodar-unnamed-template.csv (dev-запуск
+# без docker работает из коробки: админка пишет, источник читает тот же файл).
+DEFAULT_UPLOAD_DIR = Path(__file__).resolve().parents[2] / "data" / "import"
+
+
+def upload_dir() -> Path:
+    """Каталог загрузок админского импорта (FUELRADAR_CSV_UPLOAD_DIR).
+
+    Читается на каждом вызове, а не из settings: каталог подменяют тесты
+    (`monkeypatch.setenv`), а settings кэшированы на процесс. Приоритет:
+    переменная окружения (тесты, docker) → .env через settings → дефолт.
+    """
+    return Path(
+        os.environ.get("FUELRADAR_CSV_UPLOAD_DIR") or settings.csv_upload_dir or DEFAULT_UPLOAD_DIR
+    )
+
+
+def import_file_path() -> Path:
+    """Файл, который читает network_import.
+
+    По умолчанию — загрузка админского импорта CSV из каталога загрузки, то есть
+    контракт «админка пишет — источник читает» держится одной переменной
+    окружения на оба процесса. Явный NETWORK_IMPORT_PATH переопределяет его,
+    если файл лежит вне каталога загрузки (путь «без админки»).
+    """
+    explicit = os.environ.get("NETWORK_IMPORT_PATH") or settings.network_import_path
+    return Path(explicit) if explicit else upload_dir() / CSV_IMPORT_FILENAME
+
 
 # алиасы колонок: каноническое имя -> допустимые заголовки (без учёта регистра)
 COLUMN_ALIASES: dict[str, tuple[str, ...]] = {
@@ -116,14 +159,58 @@ class NetworkImportAdapter(SourceAdapter):
     capabilities = {"discovery": True, "availability": False, "queue": False}
 
     def __init__(self, path: str | Path | None = None) -> None:
-        self.path = Path(path) if path is not None else Path(settings.network_import_path or "")
+        # Явный путь — переопределение (CLI `--file`, файл вне каталога загрузки);
+        # None → загрузка админского импорта (import_file_path), разрешается лениво.
+        self.explicit_path = Path(path) if path is not None else None
+
+    def resolve_path(self) -> Path:
+        """Файл для чтения: явный путь либо загрузка из каталога импорта."""
+        return self.explicit_path or import_file_path()
 
     def discover_stations(self, region: dict[str, Any]) -> list[SourceRecord]:
-        if not self.path or not self.path.is_file():
-            raise FileNotFoundError(f"файл импорта не задан или не найден: {self.path}")
-        return parse_file(self.path)
+        path = self.resolve_path()
+        if not path.is_file():
+            raise FileNotFoundError(f"файл импорта не найден: {path}")
+        return parse_file(path)
 
     def health_check(self) -> HealthResult:
-        if self.path and self.path.is_file():
-            return HealthResult(HEALTH_ONLINE, f"файл доступен: {self.path.name}")
-        return HealthResult(HEALTH_DEGRADED, "файл импорта не задан (settings.network_import_path)")
+        path = self.resolve_path()
+        if path.is_file():
+            return HealthResult(HEALTH_ONLINE, f"файл доступен: {path.name}")
+        return HealthResult(HEALTH_DEGRADED, f"файл импорта не найден: {path}")
+
+    def file_state(self) -> dict[str, Any]:
+        """Что именно читает источник и когда этот файл обновлялся (R58).
+
+        Оператор видит это в админке («Источники» и «Покрытие каталога»), поэтому
+        возвращаем и путь, и признак «путь задан явно»: если источник читает файл
+        по NETWORK_IMPORT_PATH вне каталога загрузки, импорт из админки в него не
+        попадёт — это надо видеть сразу, а не выяснять по «Джоба упала».
+        Время — naive-UTC ISO, как остальные даты в API (фронтенд дочитывает «Z»).
+        """
+        path = self.resolve_path()
+        exists = path.is_file()
+        size: int | None = None
+        modified: str | None = None
+        if exists:
+            try:
+                stat = path.stat()
+                size = stat.st_size
+                modified = datetime.fromtimestamp(stat.st_mtime, tz=UTC).replace(tzinfo=None).isoformat()
+            except OSError:
+                # Права/битая ссылка: честнее сказать «файла нет», чем показать
+                # путь как рабочий и молчать о том, что прочитать его не выйдет.
+                exists = False
+        explicit = self.explicit_path is not None or bool(
+            os.environ.get("NETWORK_IMPORT_PATH") or settings.network_import_path
+        )
+        return {
+            "path": str(path),
+            "name": path.name,
+            "directory": str(path.parent),
+            "exists": exists,
+            "size_bytes": size,
+            "modified_at": modified,
+            "explicit": explicit,
+            "upload_dir": str(upload_dir()),
+        }

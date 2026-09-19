@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
@@ -13,7 +14,13 @@ from app.sources.base import (
     ResearchRequiredError,
     SourceAdapter,
 )
-from app.sources.network_import import NetworkImportAdapter, parse_csv, parse_file
+from app.sources.network_import import (
+    CSV_IMPORT_FILENAME,
+    NetworkImportAdapter,
+    import_file_path,
+    parse_csv,
+    parse_file,
+)
 from app.sources.network_lists import NetworkListsAdapter, parse_stations_payload, split_urls
 from app.sources.overpass import OverpassAdapter, bbox_from_region, parse_overpass_element
 from app.sources.registry import ADAPTER_CLASSES
@@ -117,6 +124,96 @@ def test_parse_csv_missing_coords_rejected() -> None:
 def test_network_import_health_no_file() -> None:
     adapter = NetworkImportAdapter(path="нет-такого-файла.csv")
     assert adapter.health_check().health == "DEGRADED"
+
+
+def test_network_import_defaults_to_admin_upload(monkeypatch, tmp_path) -> None:
+    """Без явного пути источник читает загрузку админского импорта из каталога загрузки."""
+    monkeypatch.delenv("NETWORK_IMPORT_PATH", raising=False)
+    monkeypatch.setenv("FUELRADAR_CSV_UPLOAD_DIR", str(tmp_path))
+    adapter = NetworkImportAdapter()
+
+    assert adapter.resolve_path() == tmp_path / CSV_IMPORT_FILENAME
+    assert adapter.health_check().health == "DEGRADED"  # загрузки ещё нет — ждём данных
+    with pytest.raises(FileNotFoundError):
+        adapter.discover_stations(REGION)  # пустоту не выдаём за данные
+
+    (tmp_path / CSV_IMPORT_FILENAME).write_text(
+        "name,brand,lat,lon\nАЗС 1,Тест,45.1,38.9\n", encoding="utf-8"
+    )
+    assert adapter.health_check().health == "ONLINE"
+    assert [r.external_id for r in adapter.discover_stations(REGION)] == ["Тест-1"]
+
+
+def test_network_import_file_state_reports_path_and_mtime(monkeypatch, tmp_path) -> None:
+    """R58: админка показывает, какой именно файл читает источник и когда он правился."""
+    monkeypatch.delenv("NETWORK_IMPORT_PATH", raising=False)
+    monkeypatch.setenv("FUELRADAR_CSV_UPLOAD_DIR", str(tmp_path))
+
+    empty = NetworkImportAdapter().file_state()
+    assert empty["path"] == str(tmp_path / CSV_IMPORT_FILENAME)
+    assert empty["exists"] is False and empty["modified_at"] is None and empty["size_bytes"] is None
+    assert empty["explicit"] is False  # читается загрузка админки, а не путь из окружения
+    assert empty["upload_dir"] == str(tmp_path)
+
+    payload = "name,brand,lat,lon\nАЗС 1,Тест,45.1,38.9\n"
+    (tmp_path / CSV_IMPORT_FILENAME).write_text(payload, encoding="utf-8")
+
+    state = NetworkImportAdapter().file_state()
+    assert state["exists"] is True
+    # размер — с диска: write_text переводит \n в \r\n на Windows, и подгонять
+    # ожидание под длину строки значило бы проверять ОС, а не то, что видит оператор
+    assert state["size_bytes"] == (tmp_path / CSV_IMPORT_FILENAME).stat().st_size > 0
+    # naive-UTC ISO без смещения — как остальные даты в API (фронтенд дочитывает «Z»)
+    modified = datetime.fromisoformat(state["modified_at"])
+    assert modified.tzinfo is None
+    assert abs((datetime.now(UTC).replace(tzinfo=None) - modified).total_seconds()) < 300
+
+    # явный путь виден отдельно: импорт из админки его не перепишет
+    monkeypatch.setenv("NETWORK_IMPORT_PATH", str(tmp_path / "outside.csv"))
+    explicit = NetworkImportAdapter().file_state()
+    assert explicit["explicit"] is True and explicit["path"].endswith("outside.csv")
+    assert explicit["exists"] is False  # файла вне каталога нет — источник ждёт данных
+    assert NetworkImportAdapter(path="cli.csv").file_state()["explicit"] is True
+
+
+def test_source_file_state_hook_is_optional() -> None:
+    """Новый (сетевой) источник не обязан уметь рассказывать о файле — это None, не ошибка."""
+    from app.sources.registry import source_file_state
+
+    assert OverpassAdapter().file_state() is None
+    assert NetworkListsAdapter(urls=[]).file_state() is None
+    assert source_file_state("osm_overpass") is None
+    assert source_file_state("нет-такого-источника") is None
+
+
+def test_network_import_env_paths_precedence(monkeypatch, tmp_path) -> None:
+    """Явный путь побеждает каталог загрузки, пустое значение — нет."""
+    monkeypatch.setenv("FUELRADAR_CSV_UPLOAD_DIR", str(tmp_path / "upload"))
+    monkeypatch.setenv("NETWORK_IMPORT_PATH", str(tmp_path / "custom.csv"))
+    assert import_file_path() == tmp_path / "custom.csv"
+    assert NetworkImportAdapter().resolve_path() == tmp_path / "custom.csv"
+
+    monkeypatch.setenv("NETWORK_IMPORT_PATH", "")  # пусто = «не задан»
+    assert import_file_path() == tmp_path / "upload" / CSV_IMPORT_FILENAME
+
+    # аргумент конструктора (CLI --file) важнее окружения
+    explicit = NetworkImportAdapter(path="свой.csv")
+    assert explicit.resolve_path() == Path("свой.csv")
+
+
+def test_upload_dir_reads_prefixed_env_and_env_file(monkeypatch, tmp_path) -> None:
+    """Каталог загрузки берётся из FUELRADAR_CSV_UPLOAD_DIR (в т.ч. заданной в .env)."""
+    from app.core.config import Settings
+    from app.sources import network_import
+
+    # имя переменной не совпадает с именем поля: его читает алиас
+    monkeypatch.setenv("FUELRADAR_CSV_UPLOAD_DIR", "/data/import")
+    assert Settings().csv_upload_dir == "/data/import"
+
+    # без переменной в окружении каталог берётся из .env через settings
+    monkeypatch.delenv("FUELRADAR_CSV_UPLOAD_DIR", raising=False)
+    monkeypatch.setattr(network_import.settings, "csv_upload_dir", str(tmp_path / "from-env-file"))
+    assert import_file_path() == tmp_path / "from-env-file" / CSV_IMPORT_FILENAME
 
 
 # ---------- сетевые списки АЗС по HTTP (network_lists) ----------

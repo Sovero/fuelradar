@@ -24,9 +24,9 @@ services:
       PUBLIC_APP_URL: https://${APP_DOMAIN:?set your HTTPS domain in .env}
       DATABASE_URL: postgresql+psycopg://fuelradar:${POSTGRES_PASSWORD}@db:5432/fuelradar
       REDIS_URL: redis://redis:6379/0
-      # Конфигурация файловых источников (FUELRADAR_CSV_UPLOAD_DIR / NETWORK_IMPORT_PATH
-      # / NETWORK_LISTS_URLS) — в базовом docker-compose.yml: каталог лежит на общем
-      # томе fuelradar-data, который наследуется этим профилем.
+      # Конфигурация файловых источников (FUELRADAR_CSV_UPLOAD_DIR / NETWORK_LISTS_URLS)
+      # — в базовом docker-compose.yml (x-import-files): каталог загрузок лежит на
+      # общем томе fuelradar-data, который наследуется этим профилем.
     depends_on:
       db:
         condition: service_healthy
@@ -37,7 +37,7 @@ services:
     environment:
       DATABASE_URL: postgresql+psycopg://fuelradar:${POSTGRES_PASSWORD}@db:5432/fuelradar
       REDIS_URL: redis://redis:6379/0
-      # Файловые источники (NETWORK_IMPORT_PATH / NETWORK_LISTS_URLS) приходят из
+      # Файловые источники (FUELRADAR_CSV_UPLOAD_DIR / NETWORK_LISTS_URLS) приходят из
       # базового docker-compose.yml вместе с общим томом fuelradar-data.
     depends_on:
       db:

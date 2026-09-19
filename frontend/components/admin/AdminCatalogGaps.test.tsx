@@ -43,10 +43,28 @@ const AUTH_USER = {
   reliability_score: 1,
 };
 
+/** Naive-UTC ISO, как в реальном ответе API (без смещения зоны). */
+function minutesAgoIso(minutes: number): string {
+  return new Date(Date.now() - minutes * 60_000).toISOString().slice(0, 19);
+}
+
+const IMPORT_FILE = {
+  path: "/data/import/catalog-enrichment.csv",
+  name: "catalog-enrichment.csv",
+  directory: "/data/import",
+  exists: true,
+  size_bytes: 2048,
+  modified_at: minutesAgoIso(30),
+  explicit: false,
+  upload_dir: "/data/import",
+  last_read_at: minutesAgoIso(120),
+};
+
 const GAPS = {
   total: 4,
   missing: { brand: 2, phone: 3, address: 1, any: 3 },
   sources: [{ code: "osm_overpass", name: "OSM/Overpass", stations: 1, fields: 2 }],
+  import_file: IMPORT_FILE,
   candidates: [
     {
       station_id: "fr_station_000001",
@@ -224,10 +242,70 @@ describe("AdminCatalogGaps (пост-M16)", () => {
     expect(screen.getByText("Адрес")).toBeInTheDocument();
   });
 
+  it("показывает, какой файл читает источник и когда он обновлялся", async () => {
+    renderGaps(vi.fn().mockResolvedValue(jsonResponse(200, GAPS)));
+
+    await waitFor(() => expect(screen.getByText("Файл источника")).toBeInTheDocument());
+    expect(screen.getByText("/data/import/catalog-enrichment.csv")).toBeInTheDocument();
+    expect(screen.getByText("Источник читает")).toBeInTheDocument();
+    // обе даты рядом: правка файла и последний успешный сбор
+    expect(screen.getByText("Последний успешный сбор")).toBeInTheDocument();
+    expect(screen.getByText(/^\d+ мин назад$/)).toBeInTheDocument(); // обновлён ~30 мин назад
+    expect(screen.getByText(/^\d+ ч назад$/)).toBeInTheDocument(); // последний сбор ~2 ч назад
+    // файл новее последнего сбора — честное предупреждение, а не «данные почему-то старые»
+    expect(screen.getByText(/данные на диске, но воркер их ещё не забрал/)).toBeInTheDocument();
+  });
+
+  it("честно пишет, когда файла нет и сбор ещё не проходил", async () => {
+    const empty = { ...GAPS, import_file: { ...IMPORT_FILE, exists: false, size_bytes: null, modified_at: null, last_read_at: null } };
+    renderGaps(vi.fn().mockResolvedValue(jsonResponse(200, empty)));
+
+    await waitFor(() => expect(screen.getByText("Файл источника")).toBeInTheDocument());
+    expect(screen.getByText("файла нет — источник ждёт данных")).toBeInTheDocument();
+    expect(screen.getByText("ещё не было")).toBeInTheDocument();
+    expect(screen.queryByText(/данные на диске, но воркер/)).toBeNull();
+  });
+
+  it("видно, когда источник читает файл по явному пути вне каталога загрузки", async () => {
+    const explicit = {
+      ...GAPS,
+      import_file: { ...IMPORT_FILE, path: "/srv/lists/krasnodar.csv", explicit: true, last_read_at: null },
+    };
+    renderGaps(vi.fn().mockResolvedValue(jsonResponse(200, explicit)));
+
+    await waitFor(() => expect(screen.getByText("/srv/lists/krasnodar.csv")).toBeInTheDocument());
+    expect(screen.getByText(/импорт из админки попадёт в \/data\/import/)).toBeInTheDocument();
+  });
+
+  it("после импорта показывает файл, который только что записан", async () => {
+    const user = userEvent.setup();
+    const beforeImport = { ...GAPS, import_file: { ...IMPORT_FILE, exists: false, size_bytes: null, modified_at: null } };
+    const fetchMock = vi.fn().mockImplementation((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("catalog-gaps/import-csv")) {
+        return Promise.resolve(jsonResponse(200, {
+          saved: "/data/import/catalog-enrichment.csv",
+          rows: 2,
+          job_id: 9,
+          provider: "network_import",
+          file: { ...IMPORT_FILE, size_bytes: 512, modified_at: minutesAgoIso(0) },
+        }));
+      }
+      return Promise.resolve(jsonResponse(200, beforeImport));
+    });
+    renderGaps(fetchMock as unknown as ReturnType<typeof vi.fn> & ((input: RequestInfo | URL, init?: RequestInit) => unknown));
+
+    await waitFor(() => expect(screen.getByText("файла нет — источник ждёт данных")).toBeInTheDocument());
+    await user.upload(document.querySelector('input[type="file"]') as HTMLInputElement, new File(["name,brand\n"], "filled.csv", { type: "text/csv" }));
+
+    await waitFor(() => expect(screen.queryByText("файла нет — источник ждёт данных")).toBeNull());
+    expect(screen.getByText("только что")).toBeInTheDocument();
+  });
+
   it("честно пишет, когда кандидатов нет", async () => {
     renderGaps(
       vi.fn().mockResolvedValue(
-        jsonResponse(200, { total: 3, missing: { brand: 0, phone: 0, address: 0, any: 0 }, sources: [], candidates: [] }),
+        jsonResponse(200, { total: 3, missing: { brand: 0, phone: 0, address: 0, any: 0 }, sources: [], candidates: [], import_file: null }),
       ),
     );
     await waitFor(() => expect(screen.getByText("Кандидатов нет — все поля, известные источникам, уже в каталоге.")).toBeInTheDocument());

@@ -7,6 +7,8 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 from sqlalchemy import select
 
 from .base import SourceAdapter
@@ -46,6 +48,20 @@ def build_adapter(code: str, **kwargs) -> SourceAdapter:
     if cls is None:
         raise KeyError(f"нет адаптера для источника: {code}")
     return cls(**kwargs)
+
+
+def source_file_state(code: str) -> dict[str, Any] | None:
+    """Состояние файла-входа источника (R58) или None, если источник файл не читает.
+
+    Адаптер строится тем же реестром, что и сбор, поэтому путь, который показывает
+    админка, — ровно тот, что читает воркер: второго источника правды нет.
+    Незнакомый код источника — тоже None (админка не падает из-за нового кода).
+    """
+    try:
+        adapter = build_adapter(code)
+    except KeyError:
+        return None
+    return adapter.file_state()
 
 
 def provider_by_code(session, code: str):

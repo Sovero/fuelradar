@@ -94,6 +94,16 @@ class SourceAdapter(ABC):
         """Очередь. Источники без данных об очереди возвращают None."""
         return None
 
+    def file_state(self) -> dict[str, Any] | None:
+        """R58: состояние файла-входа источника — путь, наличие, время последней правки.
+
+        None — источник не читает локальный файл (сетевые адаптеры). Файловые
+        адаптеры переопределяют: админка показывает оператору, какой именно файл
+        читает источник и когда он обновлялся, вместо того чтобы он выяснял это
+        из `.env`.
+        """
+        return None
+
     @abstractmethod
     def health_check(self) -> HealthResult:
         """R57: ONLINE | DEGRADED | OFFLINE | RATE_LIMITED | AUTH_ERROR."""

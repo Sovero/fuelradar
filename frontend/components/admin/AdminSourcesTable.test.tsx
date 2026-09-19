@@ -30,6 +30,27 @@ const SOURCES: AdminSourceOut[] = [
     min_interval_minutes: 60,
     health: { state: "UNKNOWN", last_check_at: null, last_success_at: null, consecutive_failures: 0, last_error: "" },
   },
+  {
+    id: 3,
+    code: "network_import",
+    name: "Импорт списков сетей (CSV/JSON)",
+    status: "ACTIVE",
+    trust: 0.8,
+    capabilities: [],
+    attribution: "",
+    min_interval_minutes: 5,
+    health: { state: "DEGRADED", last_check_at: null, last_success_at: null, consecutive_failures: 0, last_error: "" },
+    file: {
+      path: "/data/import/catalog-enrichment.csv",
+      name: "catalog-enrichment.csv",
+      directory: "/data/import",
+      exists: true,
+      size_bytes: 2048,
+      modified_at: new Date(Date.now() - 30 * 60_000).toISOString().slice(0, 19),
+      explicit: false,
+      upload_dir: "/data/import",
+    },
+  },
 ];
 
 const AUTH_USER = {
@@ -101,6 +122,29 @@ describe("AdminSourcesTable (R58)", () => {
     await waitFor(() => expect(screen.getByText("Яндекс.Карты")).toBeInTheDocument());
     const buttons = screen.getAllByText("Обновить сейчас");
     expect(buttons[1]).toBeDisabled();
+  });
+
+  it("показывает файл файлового источника и когда он обновлялся (R58)", async () => {
+    renderTable(vi.fn().mockResolvedValue(jsonResponse(200, SOURCES)));
+    await waitFor(() => expect(screen.getByText("Импорт списков сетей (CSV/JSON)")).toBeInTheDocument());
+
+    const line = screen.getByText(/Читает файл:/);
+    expect(line).toHaveTextContent("/data/import/catalog-enrichment.csv");
+    expect(line).toHaveTextContent(/обновлён \d+ мин назад/);
+    // только у файлового источника — у сетевых этой строки нет
+    expect(screen.getAllByText(/Читает файл:/)).toHaveLength(1);
+  });
+
+  it("честно пишет, что файла источника нет", async () => {
+    const withoutFile = SOURCES.map((s) =>
+      s.code === "network_import" && s.file
+        ? { ...s, file: { ...s.file, exists: false, size_bytes: null, modified_at: null } }
+        : s,
+    );
+    renderTable(vi.fn().mockResolvedValue(jsonResponse(200, withoutFile)));
+
+    await waitFor(() => expect(screen.getByText("Импорт списков сетей (CSV/JSON)")).toBeInTheDocument());
+    expect(screen.getByText(/Читает файл:/)).toHaveTextContent("файла нет — ждёт данных");
   });
 
   it("401 без cookie-сессии — понятная ошибка, не падение экрана", async () => {

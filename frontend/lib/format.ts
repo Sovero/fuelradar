@@ -38,6 +38,24 @@ export function formatAgeMinutes(minutes: number): string {
   return `${days} дн назад`;
 }
 
+/**
+ * Naive-UTC ISO от backend → Date.
+ *
+ * Без «Z» браузер прочитал бы такое время как локальное и показал сдвиг на часы,
+ * поэтому зона дочитывается явно; мусор/пусто → null (не выдумываем дату).
+ */
+export function parseUtcIso(isoDate: string | null | undefined): Date | null {
+  if (!isoDate) return null;
+  const withZone = /[Zz]|[+-]\d{2}:\d{2}$/.test(isoDate) ? isoDate : `${isoDate}Z`;
+  const at = new Date(withZone);
+  return Number.isNaN(at.getTime()) ? null : at;
+}
+
+/** Точная дата-время в зоне пользователя — для подсказок (title), где «3 мин назад» мало. */
+export function formatUtcDateTime(isoDate: string | null | undefined): string | null {
+  return parseUtcIso(isoDate)?.toLocaleString() ?? null;
+}
+
 /** Возраст наблюдения по ISO-времени обновления (updated_at из FuelStatusBrief). */
 export function formatUpdatedAt(isoDate: string | null | undefined, now: Date = new Date()): string {
   if (!isoDate) return "нет данных";

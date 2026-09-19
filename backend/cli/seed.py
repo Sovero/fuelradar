@@ -37,7 +37,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--lon", type=float, help="центр поиска: долгота")
     p.add_argument("--radius-km", type=float, help="радиус поиска, км (по умолчанию 10)")
     p.add_argument("--source", action="append", help="код источника (повторяемый); по умолчанию все ACTIVE")
-    p.add_argument("--file", help="файл CSV/JSON для network_import (по умолчанию settings.network_import_path)")
+    p.add_argument("--file", help="файл CSV/JSON для network_import (по умолчанию — загрузка из каталога импорта)")
     p.add_argument("--offline", action="store_true", help="без сети: OSM/импорт из фикстур (демо/тесты)")
     p.add_argument("--no-dedup", action="store_true", help="не запускать дедупликацию после сбора (T03)")
     return p

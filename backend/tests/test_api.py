@@ -467,10 +467,28 @@ def test_admin_catalog_csv_import_saves_and_enqueues(client, db_session, monkeyp
     assert r.status_code == 200, r.text
     body = r.json()
     assert body["rows"] == 1 and body["provider"] == "network_import"
+    # Ответ сразу сообщает, какой файл записан и когда он обновлён (R58)
+    assert body["file"]["path"] == body["saved"] and body["file"]["exists"] is True
+    assert body["file"]["size_bytes"] > 0 and body["file"]["modified_at"]
+    assert body["file"]["last_read_at"] is None or isinstance(body["file"]["last_read_at"], str)
     # Честное время запуска: потолок частоты источника (R54) соблюдается и после
     # ручного импорта, поэтому админка получает фактическое next_run_at
     assert body["next_run_at"]
     assert Path(body["saved"]).read_text(encoding="utf-8").startswith("name,brand")
+
+    # Контракт «админка пишет — источник читает»: файл лёг ровно туда, откуда его
+    # заберёт network_import, и второй переменной для этого не нужно
+    monkeypatch.delenv("NETWORK_IMPORT_PATH", raising=False)
+    from app.sources.network_import import (
+        CSV_IMPORT_FILENAME,
+        NetworkImportAdapter,
+        import_file_path,
+    )
+
+    assert Path(body["saved"]) == tmp_path / CSV_IMPORT_FILENAME
+    assert import_file_path() == Path(body["saved"])
+    assert NetworkImportAdapter().health_check().health == "ONLINE"
+
     db_session.refresh(health)
     assert health.consecutive_failures == 0  # backoff сброшен явным импортом
 
@@ -501,6 +519,60 @@ def test_admin_catalog_csv_import_saves_and_enqueues(client, db_session, monkeyp
         files={"file": ("empty.csv", b"name,brand,lat,lon\n", "text/csv")},
     )
     assert empty.status_code == 422
+
+
+def test_admin_shows_file_read_by_network_import(client, db_session, monkeypatch, tmp_path) -> None:
+    """R58: админка видит, какой файл читает network_import и когда он обновлялся.
+
+    Это ответ на «данные уже в каталоге?» без лазания в .env: путь тот же, что
+    разрешает сам источник, а время правки файла и время последнего успешного
+    сбора показывают, когда импорт ещё не забран воркером.
+    """
+    monkeypatch.delenv("NETWORK_IMPORT_PATH", raising=False)
+    monkeypatch.setenv("FUELRADAR_CSV_UPLOAD_DIR", str(tmp_path))
+    _login_admin(client)
+
+    from app.sources.network_import import CSV_IMPORT_FILENAME
+
+    target = tmp_path / CSV_IMPORT_FILENAME
+
+    # Список источников: у файлового источника есть file, у сетевого — нет
+    sources = {s["code"]: s for s in client.get("/api/v1/admin/sources").json()}
+    assert sources["network_import"]["file"]["path"] == str(target)
+    assert sources["network_import"]["file"]["exists"] is False
+    assert sources["osm_overpass"]["file"] is None  # сетевой источник файла не читает
+
+    before = client.get("/api/v1/admin/catalog-gaps").json()["import_file"]
+    assert before["name"] == CSV_IMPORT_FILENAME and before["path"] == str(target)
+    assert before["exists"] is False and before["modified_at"] is None
+    assert before["upload_dir"] == str(tmp_path) and before["explicit"] is False
+    assert "last_read_at" in before  # расхождение «файл новее последнего сбора» видно
+
+    good = (
+        "name,brand,lat,lon,address,ref,city\n"
+        "АЗС файловая,Лукойл,45.0355,38.9753,ул. Файловая 3,447783365,Краснодар\n"
+    )
+    imported = client.post(
+        "/api/v1/admin/catalog-gaps/import-csv",
+        files={"file": ("enrichment.csv", good.encode("utf-8"), "text/csv")},
+    )
+    assert imported.status_code == 200
+    body = imported.json()
+
+    after = client.get("/api/v1/admin/catalog-gaps").json()["import_file"]
+    assert after["exists"] is True
+    # размер — с диска (запись файла — забота API, а не теста)
+    assert after["size_bytes"] == Path(after["path"]).stat().st_size > 0
+    assert after["modified_at"] and after["modified_at"] != before["modified_at"]
+    assert datetime.fromisoformat(after["modified_at"]) >= _ago(1)
+
+    # Именно своё задание доводим до терминального статуса: БД общая на весь прогон,
+    # и PENDING-джоба по network_import ломает uq_collection_active у test_seed_cli.
+    job = db_session.get(CollectionJob, body["job_id"])
+    assert job is not None
+    if job.status in ("PENDING", "RUNNING"):
+        job.status = "DONE"
+        db_session.commit()
 
 
 def test_admin_updates_source_trust_status_interval(client, db_session) -> None:

@@ -3,7 +3,7 @@
 /**
  * Покрытие каталога (пост-M16, R58/R94i): сколько АЗС без бренда/телефона/
  * адреса и чем их можно дозаполнить. Только чтение: сам обогащение выполняет
- * штатный инжест (NETWORK_IMPORT_PATH / network_lists), слияние — очередь дедупа.
+ * штатный инжест (импорт CSV / network_lists), слияние — очередь дедупа.
  */
 
 import { useEffect, useRef, useState } from "react";
@@ -11,6 +11,7 @@ import { adminGet } from "@/lib/adminApi";
 import { useAdminAuth } from "@/lib/hooks/useAdminAuth";
 import { useI18n } from "@/lib/hooks/useI18n";
 import { ApiError } from "@/lib/api";
+import { formatUpdatedAt, formatUtcDateTime, parseUtcIso } from "@/lib/format";
 
 type CatalogGapsCandidate = {
   station_id: string;
@@ -35,7 +36,81 @@ type CatalogGapsOut = {
   missing: { brand: number; phone: number; address: number; any: number };
   sources: Array<{ code: string; name: string; stations: number; fields: number }>;
   candidates: CatalogGapsCandidate[];
+  /** Файл, который читает network_import (R58); null — источника нет в реестре. */
+  import_file: ImportFile | null;
 };
+
+type ImportFile = {
+  path: string;
+  name: string;
+  directory: string;
+  exists: boolean;
+  size_bytes: number | null;
+  modified_at: string | null;
+  explicit: boolean;
+  upload_dir?: string;
+  last_read_at?: string | null;
+};
+
+/**
+ * Файл источника импорта: что именно читает network_import и когда он менялся.
+ *
+ * Разделены две разные даты, которые нельзя путать:
+ * «обновлён» — время правки файла (его пишет администратор), «последний сбор» —
+ * когда источник последний раз успешно прочитал файл. Если первое позже второго,
+ * данные уже на диске, но в каталоге их ещё нет — это видно сразу, а не по «данные
+ * почему-то старые».
+ */
+function ImportFilePanel({ file }: { file: ImportFile }) {
+  const { t } = useI18n();
+  const modified = parseUtcIso(file.modified_at);
+  const read = parseUtcIso(file.last_read_at);
+  const pending = Boolean(file.exists && modified && (!read || modified.getTime() > read.getTime()));
+
+  return (
+    <section className="rounded-lg border border-gray-200 p-3 dark:border-gray-800">
+      <h3 className="text-xs uppercase text-gray-400">{t("admin.gaps.fileTitle")}</h3>
+      <dl className="mt-1 space-y-1 text-sm">
+        <div className="flex flex-wrap gap-x-2">
+          <dt className="text-gray-500 dark:text-gray-400">{t("admin.gaps.fileReads")}</dt>
+          <dd className="break-all font-mono text-gray-800 dark:text-gray-200" title={file.path}>
+            {file.path}
+          </dd>
+        </div>
+        <div className="flex flex-wrap gap-x-2">
+          <dt className="text-gray-500 dark:text-gray-400">{t("admin.gaps.fileUpdated")}</dt>
+          {file.exists ? (
+            <dd className="text-gray-700 dark:text-gray-300" title={formatUtcDateTime(file.modified_at) ?? undefined}>
+              {formatUpdatedAt(file.modified_at)}
+            </dd>
+          ) : (
+            <dd className="text-amber-700 dark:text-amber-300">{t("admin.gaps.fileMissing")}</dd>
+          )}
+        </div>
+        <div className="flex flex-wrap gap-x-2">
+          <dt className="text-gray-500 dark:text-gray-400">{t("admin.gaps.fileLastRead")}</dt>
+          {file.last_read_at ? (
+            <dd className="text-gray-700 dark:text-gray-300" title={formatUtcDateTime(file.last_read_at) ?? undefined}>
+              {formatUpdatedAt(file.last_read_at)}
+            </dd>
+          ) : (
+            <dd className="text-gray-500 dark:text-gray-400">{t("admin.gaps.fileNever")}</dd>
+          )}
+        </div>
+      </dl>
+      {pending && (
+        <p className="mt-2 rounded-md border border-amber-200 bg-amber-50 px-2 py-1 text-xs text-amber-800 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-200">
+          {t("admin.gaps.filePending")}
+        </p>
+      )}
+      {file.explicit && (
+        <p className="mt-2 text-xs text-amber-700 dark:text-amber-300">
+          {t("admin.gaps.fileExplicit").replace("{dir}", file.upload_dir ?? "")}
+        </p>
+      )}
+    </section>
+  );
+}
 
 /**
  * Время, когда воркер реально возьмёт задание импорта, если его придерживает
@@ -79,7 +154,13 @@ export function AdminCatalogGaps() {
   const [error, setError] = useState<string | null>(null);
   const [exporting, setExporting] = useState(false);
   const [importing, setImporting] = useState(false);
-  const [imported, setImported] = useState<{ rows: number; job_id: number; next_run_at?: string | null } | null>(null);
+  const [imported, setImported] = useState<{
+    rows: number;
+    job_id: number;
+    next_run_at?: string | null;
+    /** Состояние только что записанного файла — показываем без перезагрузки вкладки. */
+    file?: ImportFile | null;
+  } | null>(null);
   // Ошибки кнопок (экспорт/импорт) показываются инлайн, не вместо таблиц
   const [actionError, setActionError] = useState<string | null>(null);
   const fileInput = useRef<HTMLInputElement>(null);
@@ -123,8 +204,12 @@ export function AdminCatalogGaps() {
         else setActionError(message);
         return;
       }
-      setImported(await res.json());
-      // каталог меняется не мгновенно — сбор идёт воркером (R83); если потолок
+      const result = await res.json();
+      setImported(result);
+      // Файл уже на диске — сразу показываем его фактическое состояние
+      // (путь и время правки), а не оставшееся от прошлой загрузки.
+      if (result.file) setData((prev) => (prev ? { ...prev, import_file: result.file } : prev));
+      // Каталог меняется не мгновенно — сбор идёт воркером (R83); если потолок
       // частоты источника ещё не истёк, плашка честно скажет, что задание
       // подождёт, а не пообещает результат «сейчас». Кандидатов перечитаем
       // при следующем открытии вкладки.
@@ -217,6 +302,8 @@ export function AdminCatalogGaps() {
         )}
         <p className="mt-2 text-xs text-gray-400 dark:text-gray-500">{t("admin.gaps.howTo")}</p>
       </section>
+
+      {data.import_file && <ImportFilePanel file={data.import_file} />}
 
       <section>
         <div className="flex flex-wrap items-center justify-between gap-3">

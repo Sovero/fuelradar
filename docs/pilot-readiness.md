@@ -60,35 +60,36 @@
 ### 1.3. Файловые источники в контейнерах (исправлено в compose)
 
 `api` и `worker` — разные контейнеры с разными файловыми системами, поэтому
-админский импорт CSV работал бы только при общем каталоге. Теперь это настроено
-в базовом `docker-compose.yml` и наследуется прод-профилем:
+админский импорт CSV работает только при общем каталоге. В базовом
+`docker-compose.yml` настройка одна и наследуется прод-профилем:
 
 ```yaml
-# docker-compose.yml
+# docker-compose.yml (якорь x-import-files — общая переменная api и worker)
   api:
     environment:
       FUELRADAR_CSV_UPLOAD_DIR: ${FUELRADAR_CSV_UPLOAD_DIR:-/data/import}
   worker:
     environment:
-      NETWORK_IMPORT_PATH: ${NETWORK_IMPORT_PATH:-/data/import/catalog-enrichment.csv}
+      FUELRADAR_CSV_UPLOAD_DIR: ${FUELRADAR_CSV_UPLOAD_DIR:-/data/import}
       NETWORK_LISTS_URLS: ${NETWORK_LISTS_URLS:-}   # пусто → источник «не настроено»
   # оба сервиса монтируют fuelradar-data:/data
 ```
 
-Правила: админка (процесс `api`) пишет загрузку в `FUELRADAR_CSV_UPLOAD_DIR`,
-воркер читает тот же файл по `NETWORK_IMPORT_PATH`; менять эти две переменные
-нужно **парой** (имя файла `catalog-enrichment.csv` фиксировано эндпоинтом
-`/admin/catalog-gaps/import-csv`). Правок `.env` для этого не требуется.
-Защита от рассинхронизации: `backend/tests/test_compose_config.py` (инвариант
-путей и общего тома для обоих профилей).
+Правило: админка (процесс `api`) пишет загрузку в каталог
+`FUELRADAR_CSV_UPLOAD_DIR`, а источник `network_import` в процессе воркера
+читает оттуда `<каталог>/catalog-enrichment.csv` — **второй переменной пути к
+файлу нет**, имя фиксировано эндпоинтом `/admin/catalog-gaps/import-csv`. Правок
+`.env` для этого не требуется. Защита от рассинхронизации:
+`backend/tests/test_compose_config.py` (общая переменная обоих сервисов, общий том
+для обоих профилей, отсутствие второй настройки пути в compose).
 
 - [ ] Без docker сквозной прогон (два процесса, две ФС):
-      `cd backend && python scripts/e2e_csv_import_split.py` — фаза без
-      `NETWORK_IMPORT_PATH` обязана упасть `FileNotFoundError`, фаза с ним — дать
-      `DONE` и обогащённые станции;
+      `cd backend && python scripts/e2e_csv_import_split.py` — фаза, где воркер
+      смотрит в другой каталог, обязана упасть `FileNotFoundError`, фаза с общим
+      каталогом — дать `DONE` и обогащённые станции;
 - [ ] С docker (если он есть на хосте): `docker compose -f docker-compose.yml
-      -f docker-compose.prod.yml config` — у `api` есть `FUELRADAR_CSV_UPLOAD_DIR`,
-      у `worker` — `NETWORK_IMPORT_PATH` с тем же путём; затем живой цикл:
+      -f docker-compose.prod.yml config` — `FUELRADAR_CSV_UPLOAD_DIR` одинаковый
+      у `api` и `worker`; затем живой цикл:
       «Покрытие каталога» → «Импортировать CSV» → «Журнал загрузок» → «Слияния»;
 - [ ] Если планируются HTTP-списки сетей — задать `NETWORK_LISTS_URLS` в `.env`
       и активировать источник `network_lists` в админке;

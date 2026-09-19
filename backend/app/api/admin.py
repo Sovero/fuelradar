@@ -7,7 +7,6 @@
 
 from __future__ import annotations
 
-import os
 from datetime import date as date_type
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -171,9 +170,45 @@ def change_user_role(user_id: int, body: UserRoleBody, session: Session = Depend
     return {"id": user.id, "role": role, "changed": True, "previous_role": old_role}
 
 
+def _source_file_state(code: str) -> dict | None:
+    """Файл-вход источника (R58) — только у файловых адаптеров; у сетевых это None.
+
+    Путь разрешает сам адаптер, поэтому админка показывает ровно тот файл, который
+    заберёт воркер, а не отдельную копию настройки.
+    """
+    from ..sources.registry import source_file_state
+
+    return source_file_state(code)
+
+
+def _import_file_state(session: Session) -> dict | None:
+    """Файл, читаемый network_import (R58), и когда источник последний раз его прочитал.
+
+    `last_read_at` — время последнего успешного сбора источника (source_health):
+    разница между «файл обновлён» и «файл прочитан» и есть ответ на вопрос, попали
+    ли данные уже в каталог.
+    """
+    state = _source_file_state("network_import")
+    if state is None:  # источника нет в реестре — файл не выдумываем
+        return None
+    provider = session.scalar(select(SourceProvider).where(SourceProvider.code == "network_import"))
+    state["provider_id"] = provider.id if provider else None
+    health = (
+        session.scalar(select(SourceHealth).where(SourceHealth.source_provider_id == provider.id))
+        if provider is not None
+        else None
+    )
+    state["last_read_at"] = health.last_success_at if health else None
+    return state
+
+
 @router.get("/sources", dependencies=[Depends(require_operator)])
 def list_sources(session: Session = Depends(get_db)) -> list[dict]:
-    """Список источников: статус (ACTIVE/RESEARCH_REQUIRED), health, доверие (R57/R95i)."""
+    """Список источников: статус (ACTIVE/RESEARCH_REQUIRED), health, доверие (R57/R95i).
+
+    Для файловых источников отдаём ещё и `file` (R58): какой именно файл читает
+    источник и когда он правился — оператору иначе пришлось бы гадать по `.env`.
+    """
     health = {h.source_provider_id: h for h in session.scalars(select(SourceHealth))}
     return [
         {
@@ -185,6 +220,7 @@ def list_sources(session: Session = Depends(get_db)) -> list[dict]:
             "capabilities": p.capabilities,
             "attribution": p.attribution,
             "min_interval_minutes": p.min_interval_minutes,
+            "file": _source_file_state(p.code),
             "health": {
                 "state": health[p.id].health if p.id in health else "UNKNOWN",
                 "last_check_at": health[p.id].last_check_at if p.id in health else None,
@@ -471,7 +507,7 @@ def catalog_gaps(limit: int = 20, session: Session = Depends(get_db)) -> dict:
     Читающая сводка для оператора пилота (пост-M16, R58/R94i): сколько станций
     без бренда/телефона/адреса и по каким полям у каждой записи источника
     есть данные, которых в мастере нет. Никаких записей не меняет: обогащение
-    выполняется штатным инжестом (NETWORK_IMPORT_PATH / network_lists), а
+    выполняется штатным инжестом (импорт CSV / network_lists), а
     слияние — через очередь дедупа. Лимит списка кандидатов: 1–100.
     """
     limit = max(1, min(limit, 100))
@@ -483,6 +519,7 @@ def catalog_gaps(limit: int = 20, session: Session = Depends(get_db)) -> dict:
             "missing": {"brand": 0, "phone": 0, "address": 0, "any": 0},
             "sources": [],
             "candidates": [],
+            "import_file": _import_file_state(session),
         }
 
     def _blank(column) -> int:
@@ -537,6 +574,9 @@ def catalog_gaps(limit: int = 20, session: Session = Depends(get_db)) -> dict:
             {"code": code, **data} for code, data in sorted(by_source.items(), key=lambda kv: -kv[1]["fields"])
         ],
         "candidates": candidates,
+        # Кнопка импорта пишет в этот же файл — показываем его прямо на вкладке,
+        # иначе «файл обновлён в 14:20, а сбор был утром» выглядит как зависший сбор.
+        "import_file": _import_file_state(session),
     }
 
 
@@ -583,20 +623,17 @@ def catalog_gaps_export_csv(session: Session = Depends(get_db)) -> Response:
     return Response(content=buffer.getvalue(), media_type="text/csv; charset=utf-8", headers=headers)
 
 
-# Имя файла, куда admin-импорт сохраняет загруженный CSV. Единственный источник
-# правды: на него же указывает NETWORK_IMPORT_PATH в docker-compose.yml (воркер
-# читает загрузку по этому пути), инвариант сверяет tests/test_compose_config.py.
-CSV_IMPORT_FILENAME = "catalog-enrichment.csv"
-
-
 def _csv_upload_dir() -> Path:
-    """Каталог загруженных файлов импорта.
+    """Каталог загрузок импорта (создаётся при записи).
 
-    По умолчанию — backend/data/import (рядом с krasnodar-unnamed-template.csv);
-    FUELRADAR_CSV_UPLOAD_DIR переопределяет его (docker: общий volume api+worker,
-    например /data/import — воркер собирает в отдельном контейнере).
+    Каталог и имя файла — общий контракт с источником `network_import`: он читает
+    <каталог>/<CSV_IMPORT_FILENAME> оттуда же, поэтому api только пишет, а путь
+    разрешает сам источник (`app/sources/network_import.py::upload_dir`) — одна
+    переменная окружения FUELRADAR_CSV_UPLOAD_DIR на api и worker.
     """
-    d = Path(os.environ.get("FUELRADAR_CSV_UPLOAD_DIR") or (Path(__file__).resolve().parents[2] / "data" / "import"))
+    from ..sources.network_import import upload_dir
+
+    d = upload_dir()
     d.mkdir(parents=True, exist_ok=True)
     return d
 
@@ -605,12 +642,13 @@ def _csv_upload_dir() -> Path:
 async def import_catalog_csv(file: UploadFile, session: Session = Depends(get_db)) -> dict:
     """Загрузка заполненного CSV обогащения напрямую, без правки .env.
 
-    Файл сохраняется в каталог импорта, settings.network_import_path указывает
-    на него и наследуется процессом воркера (same-env) — сбор проходит штатным
-    инжестом через очередь (R83): создаётся задание P1/manual. Валидация — тем
-    же парсером network_import: битый файл отклоняется до записи (422).
+    Файл сохраняется под фиксированным именем в каталог импорта, откуда его сам
+    берёт источник `network_import` (отдельного пути к файлу не требуется) —
+    сбор проходит штатным инжестом через очередь (R83): создаётся задание
+    P1/manual. Валидация — тем же парсером network_import: битый файл
+    отклоняется до записи (422).
     """
-    from ..sources.network_import import parse_csv
+    from ..sources.network_import import CSV_IMPORT_FILENAME, parse_csv
     from ..worker import rate_limit_floor, schedule_priority_job
 
     raw = await file.read()
@@ -654,8 +692,11 @@ async def import_catalog_csv(file: UploadFile, session: Session = Depends(get_db
         "backoff_reset": backoff_reset, "next_run_at": next_run_at,
     })
     session.commit()
+    # Состояние файла отдаём сразу после записи: админка показывает фактическое
+    # время правки и путь, не дожидаясь перезагрузки вкладки (R58).
     return {"saved": str(path), "rows": len(records), "job_id": job.id,
-            "provider": provider.code, "next_run_at": next_run_at}
+            "provider": provider.code, "next_run_at": next_run_at,
+            "file": _import_file_state(session)}
 
 
 @router.get("/dedup-queue", dependencies=[Depends(require_operator)])

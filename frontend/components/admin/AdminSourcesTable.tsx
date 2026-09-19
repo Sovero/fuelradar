@@ -10,7 +10,7 @@ import { Fragment, useCallback, useEffect, useState } from "react";
 import { adminGet, adminPatch, adminPost } from "@/lib/adminApi";
 import { useAdminAuth } from "@/lib/hooks/useAdminAuth";
 import { useI18n } from "@/lib/hooks/useI18n";
-import { formatUpdatedAt } from "@/lib/format";
+import { formatUpdatedAt, formatUtcDateTime } from "@/lib/format";
 import { ApiError } from "@/lib/api";
 import type { AdminSourceOut } from "@/lib/types";
 
@@ -130,6 +130,23 @@ export function AdminSourcesTable() {
                 <td className="py-2 pr-3">
                   <p className="font-medium text-gray-800 dark:text-gray-200">{s.name}</p>
                   <p className="text-xs text-gray-400">{s.code} · {s.status}</p>
+                  {/* R58: у файловых источников видно, какой именно файл читается и
+                      когда он обновлялся — иначе это выясняют по «джоба упала». */}
+                  {s.file && (
+                    <p className="mt-1 text-xs text-gray-400 dark:text-gray-500">
+                      {t("admin.sources.file")}{" "}
+                      <span className="break-all font-mono" title={s.file.path}>{s.file.path}</span>
+                      {" · "}
+                      {s.file.exists ? (
+                        <span title={formatUtcDateTime(s.file.modified_at) ?? undefined}>
+                          {t("admin.sources.fileUpdated").replace("{time}", formatUpdatedAt(s.file.modified_at))}
+                        </span>
+                      ) : (
+                        <span>{t("admin.sources.fileMissing")}</span>
+                      )}
+                      {s.file.explicit && <> · {t("admin.sources.fileExplicit")}</>}
+                    </p>
+                  )}
                 </td>
                 <td className={`py-2 pr-3 font-medium ${HEALTH_COLOR[s.health.state] ?? "text-gray-500"}`}>{s.health.state}</td>
                 <td className="py-2 pr-3 text-gray-600 dark:text-gray-400">

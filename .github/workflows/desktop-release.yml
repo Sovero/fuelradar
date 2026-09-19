@@ -56,21 +56,19 @@ jobs:
         working-directory: desktop
         run: npm ci
 
-      - name: Configure private update feed token
-        shell: pwsh
+      - name: Check desktop token resolver
+        working-directory: desktop
+        run: npm test
+
+      # Секрет остаётся в окружении: сборка читает его тем же кодом, что и
+      # локальная машина (desktop/scripts/feed-token.cjs), поэтому файл с токеном
+      # в рабочей копии больше не создаётся. --require гарантирует, что сборка без
+      # секрета не уедет в релиз с молча отключённым автообновлением.
+      - name: Verify private update feed token is available
+        working-directory: desktop
         env:
           UPDATE_FEED_TOKEN: ${{ secrets.UPDATE_FEED_TOKEN }}
-        run: |
-          if ([string]::IsNullOrWhiteSpace($env:UPDATE_FEED_TOKEN)) {
-            throw "The UPDATE_FEED_TOKEN repository secret is required for private GitHub Releases auto-updates."
-          }
-
-          $utf8NoBom = [System.Text.UTF8Encoding]::new($false)
-          [System.IO.File]::WriteAllText(
-            "desktop/.update-feed-token",
-            $env:UPDATE_FEED_TOKEN.Trim() + [Environment]::NewLine,
-            $utf8NoBom
-          )
+        run: npm run feed:token:status -- --require
 
       - name: Configure Windows code signing
         shell: pwsh
@@ -98,6 +96,8 @@ jobs:
 
       - name: Build signed Windows installer and update metadata
         working-directory: desktop
+        env:
+          UPDATE_FEED_TOKEN: ${{ secrets.UPDATE_FEED_TOKEN }}
         run: npm run icon && npm run prepare:server && npx electron-builder --win nsis --publish never
 
       - name: Verify release artifacts and Authenticode signatures
@@ -147,11 +147,12 @@ jobs:
             gh release create $tag @assets --repo $repo --verify-tag --title "FuelRadar $tag" --generate-notes
           }
 
-      - name: Remove signing and update-feed secrets from runner
+      # Токен фида в рабочей копии не создавался (он шёл через env), поэтому
+      # чистить нужно только сертификат подписи.
+      - name: Remove signing secrets from runner
         if: always()
         shell: pwsh
         run: |
-          Remove-Item -Path "desktop/.update-feed-token" -Force -ErrorAction SilentlyContinue
           $certificatePath = Join-Path $env:RUNNER_TEMP "fuelradar-code-signing.pfx"
           Remove-Item -Path $certificatePath -Force -ErrorAction SilentlyContinue
           Remove-Item Env:WIN_CSC_LINK -ErrorAction SilentlyContinue

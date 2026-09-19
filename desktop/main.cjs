@@ -24,6 +24,7 @@
 
 const { app, BrowserWindow, Menu, Notification, shell, dialog, ipcMain, session } = require("electron");
 const { spawn } = require("node:child_process");
+const { parseFeedConfig, probeFeed } = require("./feed-status.cjs");
 const http = require("node:http");
 const net = require("node:net");
 const fs = require("node:fs");
@@ -294,14 +295,87 @@ function configurePermissionHandlers(localOrigin) {
 
 // ---------- автообновление (electron-updater, NSIS, приватный GitHub-фид) ----------
 
-/** Токен доступа к приватному фиду (resources/update-feed-token); нет файла — нет доступа. */
+/**
+ * Токен доступа к приватному фиду: `resources/update-feed-token` в собранном
+ * приложении (упаковывает сборщик — см. desktop/README.md). `UPDATE_FEED_TOKEN`
+ * читается только вне пакета: это отладочный путь, чтобы проверять фид без
+ * пересборки; в собранном приложении переменные окружения не смотрятся.
+ */
 function readFeedToken() {
+  if (!app.isPackaged) {
+    const fromEnv = String(process.env.UPDATE_FEED_TOKEN ?? "").trim();
+    if (fromEnv) return fromEnv;
+  }
   try {
     const token = fs.readFileSync(path.join(process.resourcesPath, "update-feed-token"), "utf8").trim();
     return token || null;
   } catch {
     return null;
   }
+}
+
+/**
+ * Где лежит app-update.yml. В собранном приложении — в resources пакета. В dev его
+ * нет, поэтому для самопроверки (FUELRADAR_FEED_STATUS=1) берём конфиг последней
+ * локальной сборки — иначе проверить фид до сборки было бы нечем.
+ */
+function feedConfigPaths() {
+  const packaged = path.join(process.resourcesPath, "app-update.yml");
+  if (app.isPackaged) return [packaged];
+  return [packaged, path.join(__dirname, "dist", "win-unpacked", "resources", "app-update.yml")];
+}
+
+/** Конфиг фида (app-update.yml) → {owner, repo} или null. */
+function readFeedConfig() {
+  for (const candidate of feedConfigPaths()) {
+    try {
+      const config = parseFeedConfig(fs.readFileSync(candidate, "utf8"));
+      if (config) return config;
+    } catch {
+      // нет файла/не читается — пробуем следующий
+    }
+  }
+  return null;
+}
+
+/**
+ * Честный статус фида (R97i) для лога и вкладки «Обновления».
+ *
+ * electron-updater сообщает одно и то же «обновлений нет» и когда токен не принят,
+ * и когда релизов ещё нет. Здесь причины разделены (см. feed-status.cjs) и результат
+ * кэшируется на 5 минут, чтобы открытие вкладки не било по API каждый раз.
+ */
+const FEED_STATUS_TTL_MS = 5 * 60 * 1000;
+let feedStatusCache = { result: null, checkedAt: 0 };
+
+async function refreshFeedStatus({ force = false, allowDev = false } = {}) {
+  const now = Date.now();
+  if (!force && feedStatusCache.result && now - feedStatusCache.checkedAt < FEED_STATUS_TTL_MS) {
+    return feedStatusCache.result;
+  }
+  if (!app.isPackaged && !allowDev) {
+    // В dev-запуске обновляться не с чего — и это не «фид недоступен» (R97i).
+    feedStatusCache = {
+      result: {
+        state: "dev-run",
+        message: "Dev-запуск оболочки: проверять фид нечего.",
+        release: null,
+        updateAvailable: false,
+        detail: null,
+        fingerprint: null,
+      },
+      checkedAt: now,
+    };
+    // Без строки в логе непонятно, почему состояния фида нет (R97i) — пишем и в dev.
+    console.log(`[updates] фид: ${feedStatusCache.result.state} — ${feedStatusCache.result.message}`);
+    return feedStatusCache.result;
+  }
+
+  const token = readFeedToken();
+  const result = await probeFeed({ token, config: readFeedConfig(), currentVersion: app.getVersion() });
+  feedStatusCache = { result, checkedAt: now };
+  console.log(`[updates] фид: ${result.state} — ${result.message}`);
+  return result;
 }
 
 /**
@@ -355,6 +429,9 @@ function getUpdater() {
 
 function initAutoUpdate() {
   if (!app.isPackaged || SMOKE) return; // в dev обновляться не с чего — честно не проверяем
+  // Статус фида проверяем до первого обращения апдейтера: он же отвечает на вопрос
+  // «токен приняли?», который по молчанию electron-updater не отличить от «релизов нет».
+  void refreshFeedStatus({ force: true });
   const updater = getUpdater();
   if (!updater) {
     console.warn("[updates] токен фида не упакован — автообновление отключено (R97i)");
@@ -396,6 +473,16 @@ function buildMenu() {
 
 ipcMain.on("fuelradar:version", (event) => {
   event.returnValue = app.getVersion();
+});
+
+ipcMain.handle("fuelradar:feed-status", async (_event, options) => {
+  const result = await refreshFeedStatus({ force: Boolean(options?.force) });
+  return {
+    ...result,
+    current: app.getVersion(),
+    checkedAt: new Date(feedStatusCache.checkedAt).toISOString(),
+    tokenPacked: Boolean(readFeedToken()),
+  };
 });
 
 ipcMain.handle("fuelradar:check-updates", async () => {
@@ -445,6 +532,17 @@ app.on("before-quit", () => {
 
 app.whenReady().then(async () => {
   try {
+    // Самопроверка фида без окна и сервера: удобно на машине пилота («к этой сборке
+    // привязан тот токен и он принят?»). Код выхода: 0 — фид доступен, 3 — нет.
+    if (process.env.FUELRADAR_FEED_STATUS === "1") {
+      // allowDev: самопроверка — явная просьба проверить фид, а не обычный старт,
+      // поэтому и в dev-запуске идём в сеть (взяв токен из UPDATE_FEED_TOKEN).
+      const result = await refreshFeedStatus({ force: true, allowDev: true });
+      console.log(`FUELRADAR_FEED_STATUS ${result.state} ${result.message}`);
+      if (result.fingerprint) console.log(`[updates] отпечаток токена: ${result.fingerprint}`);
+      app.exit(result.state === "ok" ? 0 : 3);
+      return;
+    }
     const { port: nextPort, base: nextBase } = await startEmbeddedServer();
     const { port: proxyPort, server: proxy } = await startProxyServer(nextPort);
     proxyServer = proxy;
@@ -454,6 +552,13 @@ app.whenReady().then(async () => {
     createMainWindow(base);
     buildMenu();
     initAutoUpdate();
+    // Лог при старте: видно в логе приложения и в вкладке «Обновления».
+    // В dev-запуске проверка не ходит в сеть (состояние dev-run), поэтому её можно
+    // печатать и в smoke; в собранном приложении smoke пропускает сетевую проверку,
+    // чтобы прогон оставался детерминированным.
+    if (!SMOKE || !app.isPackaged) {
+      void refreshFeedStatus().catch((error) => console.warn("[updates] фид: ошибка проверки", error?.message ?? error));
+    }
     if (SMOKE) {
       // Smoke-проверка CI/агента: окно поднялось, сервер и backend-прокси отвечают — выходим.
       const ui = await fetch(base, { signal: AbortSignal.timeout(5000) });

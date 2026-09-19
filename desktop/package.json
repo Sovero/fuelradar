@@ -9,6 +9,11 @@
   "scripts": {
     "prepare:server": "node scripts/prepare-server.mjs",
     "patch:feed": "node scripts/patch-feed-token.cjs",
+    "feed:token:status": "node scripts/feed-token-cli.cjs status",
+    "feed:token:store": "node scripts/feed-token-cli.cjs store",
+    "feed:token:forget": "node scripts/feed-token-cli.cjs forget",
+    "feed:token:selfcheck": "node scripts/feed-token-cli.cjs selfcheck",
+    "test": "node --test",
     "icon": "node scripts/make-icon.mjs",
     "start": "electron .",
     "smoke": "cross-env FUELRADAR_SMOKE=1 electron .",
@@ -36,6 +41,7 @@
     "files": [
       "main.cjs",
       "preload.cjs",
+      "feed-status.cjs",
       "package.json"
     ],
     "extraResources": [

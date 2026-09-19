@@ -40,11 +40,16 @@ FUEL_BRANDS: list[tuple[str, str]] = [
 
 # Источники: статусы — из research-sources.md (R12/R89). Активные MVP (R94i) —
 # osm_overpass, network_import, user_reports; остальные — RESEARCH_REQUIRED без сетевого кода.
+# min_interval_minutes — потолок частоты обращения к адаптеру (R54): у сетевых
+# источников суточный (щадящий режим внешних API), а у файлового network_import
+# низкий, как у user_reports: он читает локальный файл без сети, и суточный потолок
+# делал бы повторный ручной импорт невозможным до следующих суток. Плановый сбор
+# при этом не учащается — его такт задаёт collect_default_minutes (§12/R53).
 SOURCE_PROVIDERS: list[dict] = [
     {"code": "osm_overpass", "name": "OpenStreetMap (Overpass)", "capabilities": {"discovery": True, "availability": False, "queue": False},
      "status": "ACTIVE", "min_interval_minutes": 1440, "attribution": "© OpenStreetMap contributors", "trust": 0.6},
     {"code": "network_import", "name": "Импорт списков сетей (CSV/JSON)", "capabilities": {"discovery": True, "availability": False, "queue": False},
-     "status": "ACTIVE", "min_interval_minutes": 1440, "attribution": "", "trust": 0.7},
+     "status": "ACTIVE", "min_interval_minutes": 5, "attribution": "", "trust": 0.7},
     {"code": "user_reports", "name": "Пользовательские отчёты", "capabilities": {"discovery": False, "availability": True, "queue": True},
      "status": "ACTIVE", "min_interval_minutes": 5, "attribution": "", "trust": 0.4},
     {"code": "network_lists", "name": "Сетевые списки АЗС (HTTP)", "capabilities": {"discovery": True, "availability": False, "queue": False},

@@ -74,6 +74,32 @@ def schedule_priority_job(
     return job
 
 
+def rate_limit_floor(db: Session, provider: SourceProvider, *,
+                     apply_backoff: bool = True) -> datetime | None:
+    """Момент, раньше которого воркер не возьмёт следующее задание источника.
+
+    Здесь две разные причины отсрочки, и их нельзя смешивать:
+    - `min_interval_minutes` — потолок частоты обращения к адаптеру (R54). Он
+      действует при любом триггере, включая ручной: «Обновить сейчас» и импорт
+      CSV не имеют права опрашивать источник чаще его rate limit.
+    - backoff после сбоев — расписание автоматических повторных попыток (R56),
+      а не свойство источника. Явный запрос оператора (R53.1) не должен молча
+      ждать, пока источник «отдохнёт», поэтому для ручных заданий backoff не
+      применяется (`apply_backoff=False`) — потолок частоты остаётся.
+    """
+    last = db.scalar(select(func.max(CollectionJob.started_at)).where(
+        CollectionJob.source_provider_id == provider.id))
+    if last is None:
+        return None
+    delay = max(0, provider.min_interval_minutes)
+    if apply_backoff:
+        health = db.scalar(select(SourceHealth).where(SourceHealth.source_provider_id == provider.id))
+        if health and health.consecutive_failures:
+            delay = max(delay, min(settings.worker_backoff_max_minutes,
+                                   settings.collect_default_minutes * 2 ** min(health.consecutive_failures - 1, 12)))
+    return last + timedelta(minutes=delay)
+
+
 def in_zone(station: Station, zone: MonitoringZone) -> bool:
     """Evaluate stored city, circle or GeoJSON-style polygon monitoring zones."""
     params = zone.params
@@ -206,15 +232,10 @@ class Worker:
                 provider = db.get(SourceProvider, job.source_provider_id)
                 if provider is None or provider.status != "ACTIVE":
                     continue
-                last = db.scalar(select(func.max(CollectionJob.started_at)).where(
-                    CollectionJob.source_provider_id == provider.id))
-                health = db.scalar(select(SourceHealth).where(SourceHealth.source_provider_id == provider.id))
-                delay = max(0, provider.min_interval_minutes)
-                if health and health.consecutive_failures:
-                    delay = max(delay, min(settings.worker_backoff_max_minutes,
-                                settings.collect_default_minutes * 2 ** min(health.consecutive_failures - 1, 12)))
-                if last and last + timedelta(minutes=delay) > at:
-                    job.next_run_at = last + timedelta(minutes=delay)
+                # Ручной триггер не ждёт backoff расписания (см. rate_limit_floor)
+                floor = rate_limit_floor(db, provider, apply_backoff=job.trigger != "manual")
+                if floor is not None and floor > at:
+                    job.next_run_at = floor
                     db.commit()
                     continue
                 self._execute(db, job, provider, at)

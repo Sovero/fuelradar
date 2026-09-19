@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { AdminCatalogGaps } from "@/components/admin/AdminCatalogGaps";
+import { AdminCatalogGaps, deferredRunLabel } from "@/components/admin/AdminCatalogGaps";
 import { AdminAuthProvider } from "@/lib/hooks/useAdminAuth";
 import { AuthProvider } from "@/lib/hooks/useAuth";
 import { I18nProvider } from "@/lib/hooks/useI18n";
@@ -118,6 +118,33 @@ describe("AdminCatalogGaps (пост-M16)", () => {
     expect(init.body).toBeInstanceOf(FormData);
   });
 
+  it("импорт сообщает, что воркер возьмёт задание не раньше потолка частоты источника", async () => {
+    const user = userEvent.setup();
+    // backend отдаёт naive-UTC ISO без смещения — как в реальном ответе
+    const naiveUtc = new Date(Date.now() + 2 * 3600 * 1000).toISOString().slice(0, 19);
+    const fetchMock = vi.fn().mockImplementation((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("catalog-gaps/import-csv")) {
+        return Promise.resolve(jsonResponse(200, {
+          saved: "/data/import/catalog-enrichment.csv",
+          rows: 1,
+          job_id: 7,
+          provider: "network_import",
+          next_run_at: naiveUtc,
+        }));
+      }
+      return Promise.resolve(jsonResponse(200, GAPS));
+    });
+    renderGaps(fetchMock as unknown as ReturnType<typeof vi.fn> & ((input: RequestInfo | URL, init?: RequestInit) => unknown));
+
+    await waitFor(() => expect(screen.getByRole("button", { name: "Импортировать CSV" })).toBeInTheDocument());
+    await user.upload(document.querySelector('input[type="file"]') as HTMLInputElement, new File(["name,brand\n"], "filled.csv", { type: "text/csv" }));
+
+    // плашка не обещает мгновенный результат: интервал источника ещё не истёк
+    await waitFor(() => expect(screen.getByText(/не раньше/)).toBeInTheDocument());
+    expect(screen.getByText(/задание сбора №7/)).toBeInTheDocument();
+  });
+
   it("ошибка импорта (битый файл) показывается честно", async () => {
     const user = userEvent.setup();
     const fetchMock = vi.fn().mockImplementation((input: RequestInfo | URL) => {
@@ -210,5 +237,23 @@ describe("AdminCatalogGaps (пост-M16)", () => {
   it("401/403 превращаются в ошибку авторизации", async () => {
     renderGaps(vi.fn().mockResolvedValue(jsonResponse(401, { detail: "Требуется вход" })));
     await waitFor(() => expect(screen.getByText(/Требуется вход/i)).toBeInTheDocument());
+  });
+});
+
+describe("deferredRunLabel (время запуска импорта)", () => {
+  it("naive-UTC без смещения читается как UTC, а не как локальное время", () => {
+    const naiveUtc = new Date(Date.now() + 3 * 3600 * 1000).toISOString().slice(0, 19);
+    const label = deferredRunLabel(naiveUtc);
+    expect(label).not.toBeNull();
+    // без перевода в UTC браузер сдвинул бы время на смещение зоны
+    const expected = new Date(`${naiveUtc}Z`).toLocaleString();
+    expect(label).toBe(expected);
+  });
+
+  it("молчит, когда задание идёт на ближайшем тике", () => {
+    expect(deferredRunLabel(null)).toBeNull();
+    expect(deferredRunLabel(undefined)).toBeNull();
+    expect(deferredRunLabel(new Date(Date.now() - 60_000).toISOString())).toBeNull();
+    expect(deferredRunLabel("не-дата")).toBeNull();
   });
 });

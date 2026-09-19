@@ -37,6 +37,21 @@ type CatalogGapsOut = {
   candidates: CatalogGapsCandidate[];
 };
 
+/**
+ * Время, когда воркер реально возьмёт задание импорта, если его придерживает
+ * потолок частоты источника (R54): null — задание уйдёт на ближайшем тике.
+ *
+ * Backend отдаёт naive-UTC ISO без смещения; без «Z» браузер прочитал бы его
+ * как локальное время и показал сдвиг на часы.
+ */
+export function deferredRunLabel(nextRunAt: string | null | undefined): string | null {
+  if (!nextRunAt) return null;
+  const iso = /[Zz]|[+-]\d{2}:\d{2}$/.test(nextRunAt) ? nextRunAt : `${nextRunAt}Z`;
+  const at = new Date(iso);
+  if (Number.isNaN(at.getTime()) || at.getTime() <= Date.now()) return null;
+  return at.toLocaleString();
+}
+
 function GapCard({ label, value, total }: { label: string; value: number; total: number }) {
   const pct = total > 0 ? Math.round((value / total) * 100) : 0;
   return (
@@ -64,7 +79,7 @@ export function AdminCatalogGaps() {
   const [error, setError] = useState<string | null>(null);
   const [exporting, setExporting] = useState(false);
   const [importing, setImporting] = useState(false);
-  const [imported, setImported] = useState<{ rows: number; job_id: number } | null>(null);
+  const [imported, setImported] = useState<{ rows: number; job_id: number; next_run_at?: string | null } | null>(null);
   // Ошибки кнопок (экспорт/импорт) показываются инлайн, не вместо таблиц
   const [actionError, setActionError] = useState<string | null>(null);
   const fileInput = useRef<HTMLInputElement>(null);
@@ -109,8 +124,10 @@ export function AdminCatalogGaps() {
         return;
       }
       setImported(await res.json());
-      // каталог меняется не мгновенно — сбор идёт воркером; кандидатов
-      // перечитаем при следующем открытии вкладки
+      // каталог меняется не мгновенно — сбор идёт воркером (R83); если потолок
+      // частоты источника ещё не истёк, плашка честно скажет, что задание
+      // подождёт, а не пообещает результат «сейчас». Кандидатов перечитаем
+      // при следующем открытии вкладки.
     } catch {
       setActionError(t("admin.loadError"));
     } finally {
@@ -148,6 +165,8 @@ export function AdminCatalogGaps() {
       setExporting(false);
     }
   };
+
+  const deferredAt = deferredRunLabel(imported?.next_run_at);
 
   if (loading) return <p className="p-4 text-sm text-gray-400">{t("loading")}</p>;
   if (error) return <p className="p-4 text-sm text-red-600 dark:text-red-400">{error}</p>;
@@ -239,9 +258,14 @@ export function AdminCatalogGaps() {
           </p>
         )}
         {imported && (
-          <p className="mb-3 rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-800 dark:border-emerald-900 dark:bg-emerald-950 dark:text-emerald-200">
-            {t("admin.gaps.importedOk").replace("{rows}", String(imported.rows)).replace("{jobId}", String(imported.job_id))}
-          </p>
+          <div className="mb-3 rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-800 dark:border-emerald-900 dark:bg-emerald-950 dark:text-emerald-200">
+            <p>{t("admin.gaps.importedOk").replace("{rows}", String(imported.rows)).replace("{jobId}", String(imported.job_id))}</p>
+            {deferredAt && (
+              <p className="mt-1 text-xs">
+                {t("admin.gaps.importDeferred").replace("{time}", deferredAt)}
+              </p>
+            )}
+          </div>
         )}
         {data.candidates.length === 0 ? (
           <p className="text-sm text-gray-500 dark:text-gray-400">{t("admin.gaps.noCandidates")}</p>

@@ -115,6 +115,40 @@ def test_manual_refresh_respects_hard_source_limit(worker_db):
     assert adapter.calls == 2
 
 
+def test_manual_trigger_skips_backoff_but_keeps_source_ceiling(worker_db):
+    """Ручной запуск (R53.1) не ждёт backoff сбоя, но потолок частоты (R54) держит.
+
+    Проверены оба слагаемых отсрочки: backoff — расписание автоматических
+    повторных попыток после сбоя, оно не задерживает явный запрос оператора
+    (кнопка «Обновить» / импорт CSV); min_interval_minutes — свойство источника,
+    оно продолжает действовать при любом триггере.
+    """
+    at = datetime.now(UTC).replace(tzinfo=None)
+    adapter = Adapter(error=RateLimitedError("boom"))
+    with worker_db() as db:
+        p = provider(db, interval=60)
+        pid = p.id
+    worker = Worker(worker_db, {}, {"fake": adapter})
+    assert len(worker.run_once(at)) == 1
+    assert len(worker.run_once(at + timedelta(minutes=60))) == 1
+    assert adapter.calls == 2  # два сбоя → backoff 120 мин при потолке источника 60
+    with worker_db() as db:
+        schedule_priority_job(db, pid, trigger="manual", priority="P1", now=at + timedelta(minutes=61))
+        db.commit()
+    # Плановое задание сейчас ждало бы до at+180 (backoff), ручное — только
+    # потолок источника (at+120): оператор не откладывается расписанием ретраев.
+    assert len(worker.run_once(at + timedelta(minutes=150))) == 1
+    assert adapter.calls == 3
+    # Потолок источника никуда не делся: сразу после сбора ручное задание ждёт
+    with worker_db() as db:
+        schedule_priority_job(db, pid, trigger="manual", priority="P1", now=at + timedelta(minutes=151))
+        db.commit()
+    assert worker.run_once(at + timedelta(minutes=179)) == []
+    assert adapter.calls == 3
+    assert len(worker.run_once(at + timedelta(minutes=210))) == 1
+    assert adapter.calls == 4
+
+
 def test_failure_backoff_isolation_and_preserved_data(worker_db):
     at = datetime.now(UTC).replace(tzinfo=None)
     bad = Adapter(error=RateLimitedError("secret must not leak"))

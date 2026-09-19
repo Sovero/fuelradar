@@ -605,7 +605,7 @@ async def import_catalog_csv(file: UploadFile, session: Session = Depends(get_db
     же парсером network_import: битый файл отклоняется до записи (422).
     """
     from ..sources.network_import import parse_csv
-    from ..worker import schedule_priority_job
+    from ..worker import rate_limit_floor, schedule_priority_job
 
     raw = await file.read()
     if len(raw) > _CSV_MAX_BYTES:
@@ -627,9 +627,29 @@ async def import_catalog_csv(file: UploadFile, session: Session = Depends(get_db
     if provider is None:
         raise HTTPException(status_code=409, detail="Источник network_import не заведён")
     job = schedule_priority_job(session, provider.id, priority="P1", trigger="manual")
-    _journal(session, "csv_import", path.name, {"rows": len(records), "job_id": job.id, "path": str(path)})
+
+    # Сбрасываем backoff источника: оператор принёс свежий файл, и автоматическое
+    # расписание повторных попыток (R56) к этой задаче больше не относится.
+    # Сам факт сброса остаётся в аудите (backoff_reset), поэтому сведения о сбоях
+    # не теряются молча. Потолок частоты (R54) не трогаем — воркер не станет
+    # опрашивать источник раньше его rate limit, а если интервал ещё не истёк,
+    # задание честно подождёт: фактическое время запуска уходит в next_run_at,
+    # чтобы админка не обещала мгновенный результат.
+    health = session.scalar(select(SourceHealth).where(SourceHealth.source_provider_id == provider.id))
+    backoff_reset = int(health.consecutive_failures or 0) if health else 0
+    if health is not None and backoff_reset:
+        health.consecutive_failures = 0
+    floor = rate_limit_floor(session, provider, apply_backoff=False)
+    if floor is not None and floor > (job.next_run_at or floor):
+        job.next_run_at = floor
+    next_run_at = job.next_run_at.isoformat() if job.next_run_at else None
+    _journal(session, "csv_import", path.name, {
+        "rows": len(records), "job_id": job.id, "path": str(path),
+        "backoff_reset": backoff_reset, "next_run_at": next_run_at,
+    })
     session.commit()
-    return {"saved": str(path), "rows": len(records), "job_id": job.id, "provider": provider.code}
+    return {"saved": str(path), "rows": len(records), "job_id": job.id,
+            "provider": provider.code, "next_run_at": next_run_at}
 
 
 @router.get("/dedup-queue", dependencies=[Depends(require_operator)])

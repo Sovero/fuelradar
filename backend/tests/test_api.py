@@ -14,6 +14,7 @@ from app.db.models import (
     AdminActionLog,
     CollectionJob,
     CollectionLog,
+    SourceHealth,
     SourceProvider,
     SourceStationRecord,
     Station,
@@ -446,6 +447,15 @@ def test_admin_catalog_csv_import_saves_and_enqueues(client, db_session, monkeyp
     client.post("/api/v1/auth/logout")
     _login_admin(client)
 
+    # Источник «сбоил»: импорт сбрасывает backoff, а факт сброса остаётся в аудите
+    provider_row = db_session.scalar(select(SourceProvider).where(SourceProvider.code == "network_import"))
+    health = db_session.scalar(select(SourceHealth).where(SourceHealth.source_provider_id == provider_row.id))
+    if health is None:
+        health = SourceHealth(source_provider_id=provider_row.id, consecutive_failures=0)
+        db_session.add(health)
+    health.consecutive_failures = 3
+    db_session.commit()
+
     good = (
         "name,brand,lat,lon,address,phone,ref,city,region\n"
         "АЗС без бренда,Лукойл,45.055500,38.995300,ул. Импортная 1,,447783364,Краснодар,\n"
@@ -457,7 +467,12 @@ def test_admin_catalog_csv_import_saves_and_enqueues(client, db_session, monkeyp
     assert r.status_code == 200, r.text
     body = r.json()
     assert body["rows"] == 1 and body["provider"] == "network_import"
+    # Честное время запуска: потолок частоты источника (R54) соблюдается и после
+    # ручного импорта, поэтому админка получает фактическое next_run_at
+    assert body["next_run_at"]
     assert Path(body["saved"]).read_text(encoding="utf-8").startswith("name,brand")
+    db_session.refresh(health)
+    assert health.consecutive_failures == 0  # backoff сброшен явным импортом
 
     # задание воркеру создано и завершено (не висит в uq_collection_active)
     job = db_session.get(CollectionJob, body["job_id"])
@@ -468,6 +483,7 @@ def test_admin_catalog_csv_import_saves_and_enqueues(client, db_session, monkeyp
 
     log = db_session.scalar(select(AdminActionLog).order_by(AdminActionLog.id.desc()))
     assert log.action == "csv_import" and log.payload["rows"] == 1
+    assert log.payload["backoff_reset"] == 3  # сведения о сбоях не теряются молча
 
     # битые файлы отклоняются до записи: не-csv, кривая строка, пустой файл
     bad = client.post(

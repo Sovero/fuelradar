@@ -185,6 +185,8 @@ export function ReportForm({
               {distanceM !== null && (
                 <p className="mb-2 text-xs text-emerald-700 dark:text-emerald-400">
                   {distanceM < 300 ? t("report.gps.near") : t("report.gps.far")} · {Math.round(distanceM)} {t("report.gps.meters")}
+                  {/* IP-точка не подтверждает «вы рядом» (R40): точность городская, честно помечаем. */}
+                  {geo.source === "ip" ? ` · ${t("report.gps.ipAccuracy")}` : ""}
                 </p>
               )}
               {!privacy.gpsEnabled && !privacy.manualPoint && (

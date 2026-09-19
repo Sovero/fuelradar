@@ -89,6 +89,9 @@ export function TopControls() {
         {geo.status === "loading" ? t("findNearby.loading") : t("findNearby.idle")}
       </button>
       {geo.error && <p className="text-sm text-red-600 dark:text-red-400">{geo.error}</p>}
+      {geo.status === "ready" && geo.source === "ip" && (
+        <p className="text-xs text-gray-500 dark:text-gray-400">{t("findNearby.ipSource")}</p>
+      )}
       {privacyNotice && <p className="text-sm text-amber-700 dark:text-amber-400">{t("privacy.gps.blockedNotice")}</p>}
     </div>
   );

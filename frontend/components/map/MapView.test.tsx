@@ -84,3 +84,45 @@ describe("MapView heatmap contract (R50)", () => {
     expect(received.at(-1)?.heatCircles).toBeUndefined();
   });
 });
+
+describe("MapView route label and corridor highlight", () => {
+  it("подпись и подсветка коридора доходят до провайдера как есть", () => {
+    const routePolyline = [
+      { lat: 45.0, lon: 38.94 },
+      { lat: 45.0, lon: 39.0 },
+    ];
+    const routeLabel = { text: "5,2 км · ~10 мин", lat: 45.0, lon: 38.97 };
+    const highlightedStationIds = ["fr_a", "fr_b"];
+
+    render(
+      <MapView
+        stations={[]}
+        selectedFuelCodes={[]}
+        selectedStationId={null}
+        onSelectStation={vi.fn()}
+        focus={null}
+        routePolyline={routePolyline}
+        routeLabel={routeLabel}
+        highlightedStationIds={highlightedStationIds}
+      />,
+    );
+
+    expect(received.at(-1)?.routeLabel).toEqual(routeLabel);
+    expect(received.at(-1)?.highlightedStationIds).toEqual(highlightedStationIds);
+  });
+
+  it("без маршрута подпись и подсветка не передаются", () => {
+    render(
+      <MapView
+        stations={[]}
+        selectedFuelCodes={[]}
+        selectedStationId={null}
+        onSelectStation={vi.fn()}
+        focus={null}
+      />,
+    );
+
+    expect(received.at(-1)?.routeLabel).toBeUndefined();
+    expect(received.at(-1)?.highlightedStationIds).toBeUndefined();
+  });
+});

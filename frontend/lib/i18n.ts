@@ -140,6 +140,12 @@ const dict = {
     "header.settings": "Настройки",
     "header.admin": "Админка",
 
+    "window.controls": "Управление окном",
+    "window.minimize": "Свернуть",
+    "window.maximize": "Развернуть",
+    "window.restore": "Восстановить",
+    "window.close": "Закрыть",
+
     "login.tab.dev": "Dev",
     "login.tab.magic": "Email",
     "login.tab.telegram": "Telegram",
@@ -623,6 +629,12 @@ const dict = {
 
     "header.settings": "Settings",
     "header.admin": "Admin",
+
+    "window.controls": "Window controls",
+    "window.minimize": "Minimize",
+    "window.maximize": "Maximize",
+    "window.restore": "Restore",
+    "window.close": "Close",
 
     "login.tab.dev": "Dev",
     "login.tab.magic": "Email",

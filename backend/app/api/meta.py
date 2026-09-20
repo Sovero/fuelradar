@@ -100,10 +100,20 @@ def meta(session: Session = Depends(get_db)) -> dict:
         "queue_levels": [
             {"code": code, "name_ru": QUEUE_LEVEL_RU[code], "name_en": QUEUE_LEVEL_EN[code]} for code in QUEUE_LEVELS
         ],
+        # ETA на линии маршрута (R92): та же средняя скорость, что и в Score —
+        # единственный источник значения — конфиг, фронт не дублирует константу.
+        "avg_speed_kmh": settings.avg_speed_kmh,
         # T14 (R64/R97i): публичный VAPID-ключ — это не секрет (идентифицирует
         # сервер для push-сервиса); приватный ключ остаётся только в .env (R68).
         "push": {
             "enabled": web_push_configured(),
             "vapid_public_key": settings.vapid_public_key if web_push_configured() else None,
+        },
+        # Вход через Telegram (R97i): имя бота — не секрет, но отдаём его только
+        # при настроенном токене: иначе фронт показал бы виджет, а backend
+        # отклонил бы вход. Один источник правды для видимости канала.
+        "telegram_login": {
+            "enabled": bool(settings.telegram_bot_token and settings.telegram_bot_username),
+            "bot_username": settings.telegram_bot_username if settings.telegram_bot_token else None,
         },
     }

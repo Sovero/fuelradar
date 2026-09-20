@@ -104,6 +104,9 @@ class Settings(BaseSettings):
 
     # --- секреты (R68): только имена в .env.example, значения никогда в код ---
     telegram_bot_token: str = ""
+    # Публичное имя бота (без @) для виджета входа; не секрет — но отдаётся /meta
+    # только вместе с настроенным токеном, чтобы виджет не появлялся зря (R97i).
+    telegram_bot_username: str = ""
     vapid_public_key: str = ""
     vapid_private_key: str = ""
     smtp_url: str = ""

@@ -18,6 +18,7 @@ import "maplibre-gl/dist/maplibre-gl.css";
 
 import { buildOsmStyle } from "@/lib/map/osmStyle";
 import { drawMarkerIcon, markerIconKey, shortFuelLabel } from "@/lib/map/markerIcon";
+import { applyWhenSourceReady } from "@/lib/map/sourceData";
 import type { MapProviderProps, StationMarker } from "@/lib/map/types";
 
 const SOURCE_ID = "fr-stations";
@@ -63,6 +64,8 @@ export function MapLibreProvider({
   onViewportChange,
   userLocation,
   routePolyline = [],
+  routeLabel = null,
+  highlightedStationIds = [],
   onMapClick,
   heatCircles = [],
   className,
@@ -70,6 +73,7 @@ export function MapLibreProvider({
   const containerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<maplibregl.Map | null>(null);
   const userMarkerRef = useRef<maplibregl.Marker | null>(null);
+  const routeLabelMarkerRef = useRef<maplibregl.Marker | null>(null);
   const iconKeysRef = useRef<Set<string>>(new Set());
   const onMarkerClickRef = useRef(onMarkerClick);
   const onViewportChangeRef = useRef(onViewportChange);
@@ -96,6 +100,18 @@ export function MapLibreProvider({
       map.addSource(ROUTE_SOURCE_ID, {
         type: "geojson",
         data: { type: "FeatureCollection", features: [] },
+      });
+      // Ореол коридора — шире и полупрозрачнее, рисуется под основной линией.
+      map.addLayer({
+        id: "route-line-halo",
+        type: "line",
+        source: ROUTE_SOURCE_ID,
+        paint: {
+          "line-color": "#2563eb",
+          "line-width": 14,
+          "line-opacity": 0.16,
+          "line-blur": 3,
+        },
       });
       map.addLayer({
         id: "route-line",
@@ -169,6 +185,21 @@ export function MapLibreProvider({
           "circle-opacity": 0.25,
           "circle-stroke-width": 2,
           "circle-stroke-color": "#2563eb",
+        },
+      });
+
+      // Станции коридора маршрута — янтарный ореол под иконками (ниже unclustered-point).
+      map.addLayer({
+        id: "corridor-halo",
+        type: "circle",
+        source: SOURCE_ID,
+        filter: ["==", ["get", "id"], "__none__"],
+        paint: {
+          "circle-radius": 26,
+          "circle-color": "#f59e0b",
+          "circle-opacity": 0.2,
+          "circle-stroke-width": 2,
+          "circle-stroke-color": "#f59e0b",
         },
       });
 
@@ -266,11 +297,7 @@ export function MapLibreProvider({
       const source = map.getSource(SOURCE_ID) as GeoJSONSource | undefined;
       source?.setData(toFeatureCollection(markers));
     };
-    if (map.isStyleLoaded() && map.getSource(SOURCE_ID)) {
-      apply();
-    } else {
-      map.once("load", apply);
-    }
+    applyWhenSourceReady(map, SOURCE_ID, apply);
   }, [markers]);
 
   useEffect(() => {
@@ -291,9 +318,16 @@ export function MapLibreProvider({
           : { type: "FeatureCollection", features: [] },
       );
     };
-    if (map.isStyleLoaded() && map.getSource(ROUTE_SOURCE_ID)) apply();
-    else map.once("load", apply);
+    applyWhenSourceReady(map, ROUTE_SOURCE_ID, apply);
   }, [routePolyline]);
+
+  // Фильтр ореола станций коридора (маршрут из карточки станции).
+  const highlightKey = highlightedStationIds.join(",");
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !map.getLayer("corridor-halo")) return;
+    map.setFilter("corridor-halo", ["in", ["get", "id"], ["literal", highlightKey ? highlightKey.split(",") : []]]);
+  }, [highlightKey]);
 
   // Обновление кругов heatmap (R50) — слой под маркерами, обновляется по фильтрам.
   useEffect(() => {
@@ -310,8 +344,7 @@ export function MapLibreProvider({
         })),
       });
     };
-    if (map.isStyleLoaded() && map.getSource(HEAT_SOURCE_ID)) apply();
-    else map.once("load", apply);
+    applyWhenSourceReady(map, HEAT_SOURCE_ID, apply);
   }, [heatCircles]);
 
   // Программный перелёт (например, геолокация «Найти рядом»), НЕ на каждое обновление маркеров.
@@ -349,6 +382,35 @@ export function MapLibreProvider({
     }
     userMarkerRef.current.setLngLat([userLocation.lon, userLocation.lat]).addTo(map);
   }, [userLocation]);
+
+  // Подпись расстояния/ETA на середине линии маршрута — DOM-маркер (не мешает кликам).
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+    if (!routeLabel) {
+      routeLabelMarkerRef.current?.remove();
+      routeLabelMarkerRef.current = null;
+      return;
+    }
+    if (!routeLabelMarkerRef.current) {
+      const el = document.createElement("div");
+      el.setAttribute("data-testid", "route-label");
+      el.style.cssText = [
+        "pointer-events:none",
+        "white-space:nowrap",
+        "font:600 12px/1.2 system-ui,sans-serif",
+        "color:#1e3a8a",
+        "background:#ffffff",
+        "border:1px solid #2563eb",
+        "border-radius:9999px",
+        "padding:3px 10px",
+        "box-shadow:0 1px 4px rgba(0,0,0,0.35)",
+      ].join(";");
+      routeLabelMarkerRef.current = new maplibregl.Marker({ element: el });
+    }
+    routeLabelMarkerRef.current.getElement().textContent = routeLabel.text;
+    routeLabelMarkerRef.current.setLngLat([routeLabel.lon, routeLabel.lat]).addTo(map);
+  }, [routeLabel]);
 
   return <div ref={containerRef} className={className ?? "h-full w-full"} data-testid="maplibre-container" />;
 }

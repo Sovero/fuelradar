@@ -8,6 +8,7 @@ import { ThemeToggle } from "@/components/layout/ThemeToggle";
 import { LocaleToggle } from "@/components/layout/LocaleToggle";
 import { TourRestartButton } from "@/components/layout/TourRestartButton";
 import { MapProviderToggle } from "@/components/layout/MapProviderToggle";
+import { WindowControls } from "@/components/layout/WindowControls";
 import { useAuth } from "@/lib/hooks/useAuth";
 import { useI18n } from "@/lib/hooks/useI18n";
 
@@ -18,44 +19,49 @@ export function Header() {
   const [loginOpen, setLoginOpen] = useState(false);
 
   return (
-    <header className="flex items-center justify-between border-b border-gray-200 bg-white px-4 py-3 dark:border-gray-800 dark:bg-gray-900">
+    // app-drag: в desktop-оболочке безрамочного окна вся шапка — область
+    // перетаскивания окна; интерактив внутри — в app-no-drag зонах.
+    <header className="app-drag flex items-center justify-between border-b border-gray-200 bg-white px-4 py-3 dark:border-gray-800 dark:bg-gray-900">
       <div className="flex items-center gap-2">
         <span className="text-xl">⛽</span>
         <span className="text-lg font-bold text-gray-900 dark:text-gray-100">{t("app.title")}</span>
       </div>
-      <div className="flex items-center gap-1">
-        <MapProviderToggle />
-        <LocaleToggle />
-        <ThemeToggle />
-        <TourRestartButton />
-        <NotificationBell />
-        {user && (
+      <div className="flex items-center gap-2">
+        <div className="app-no-drag flex items-center gap-1">
+          <MapProviderToggle />
+          <LocaleToggle />
+          <ThemeToggle />
+          <TourRestartButton />
+          <NotificationBell />
+          {user && (
+            <Link
+              href="/settings"
+              className="rounded-full p-2 text-xl hover:bg-black/5 dark:hover:bg-white/10"
+              aria-label={t("header.settings")}
+              title={t("header.settings")}
+            >
+              ⚙️
+            </Link>
+          )}
           <Link
-            href="/settings"
+            href="/admin"
             className="rounded-full p-2 text-xl hover:bg-black/5 dark:hover:bg-white/10"
-            aria-label={t("header.settings")}
-            title={t("header.settings")}
+            aria-label={t("header.admin")}
+            title={t("header.admin")}
           >
-            ⚙️
+            🛠️
           </Link>
-        )}
-        <Link
-          href="/admin"
-          className="rounded-full p-2 text-xl hover:bg-black/5 dark:hover:bg-white/10"
-          aria-label={t("header.admin")}
-          title={t("header.admin")}
-        >
-          🛠️
-        </Link>
-        <button
-          type="button"
-          onClick={() => setLoginOpen(true)}
-          className="rounded-full p-2 text-xl hover:bg-black/5 dark:hover:bg-white/10"
-          aria-label={user ? t("header.profile") : t("header.login")}
-          title={user ? user.email ?? user.telegram_id ?? t("header.profile") : t("header.login")}
-        >
-          {user ? "👤" : "🔑"}
-        </button>
+          <button
+            type="button"
+            onClick={() => setLoginOpen(true)}
+            className="rounded-full p-2 text-xl hover:bg-black/5 dark:hover:bg-white/10"
+            aria-label={user ? t("header.profile") : t("header.login")}
+            title={user ? user.email ?? user.telegram_id ?? t("header.profile") : t("header.login")}
+          >
+            {user ? "👤" : "🔑"}
+          </button>
+        </div>
+        <WindowControls />
       </div>
       {loginOpen && <LoginPanel onClose={() => setLoginOpen(false)} />}
     </header>

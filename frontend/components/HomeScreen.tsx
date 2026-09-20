@@ -13,6 +13,8 @@ import { useFavorites } from "@/lib/hooks/useFavorites";
 import { useObservationMode } from "@/lib/hooks/useObservationMode";
 import { useNetworkPreferences } from "@/lib/hooks/useNetworkPreferences";
 import { countConfirmed } from "@/lib/availability";
+import { midpointAlong, polylineLengthKm } from "@/lib/geo";
+import { formatDistance, formatEtaMinutes } from "@/lib/format";
 import { applyObservationMode, applyPreferredBrandsOrder } from "@/lib/personalization";
 import { apiPost, ApiError } from "@/lib/api";
 import { Header } from "@/components/layout/Header";
@@ -29,7 +31,7 @@ import { EmptyState } from "@/components/ui/EmptyState";
 import { OnboardingTour } from "@/components/onboarding/OnboardingTour";
 import { RouteModePanel } from "@/components/route/RouteModePanel";
 import { HEAT_COLORS, heatLevelFor } from "@/lib/heatmap";
-import type { MapHeatCircle, MapPoint } from "@/lib/map/types";
+import type { MapHeatCircle, MapPoint, RouteLineLabel } from "@/lib/map/types";
 import type { StationListQuery } from "@/lib/types";
 
 export function HomeScreen() {
@@ -97,6 +99,17 @@ function HomeScreenBody() {
   // последнем успешном ответе (и офлайн-кэше), EventSource переподключится сам.
   const realtimeState = useRealtime({ onRevision: () => refetch() });
   const routeReady = routeActive && routePoints.length >= 2;
+  // Кнопка «Маршрут» в карточке станции: маршрут на ВНУТРЕННЕЙ карте — режим
+  // коридора включается, станция становится точкой назначения, старт — позиция
+  // пользователя (если определена: GPS/IP/ручная точка из «Найти рядом»), иначе
+  // старт добавляется кликом по карте. Автомобильная навигация не строится
+  // (routing-провайдера нет — честная оговорка панели коридора).
+  const handleBuildRoute = (stationLat: number, stationLon: number) => {
+    const start = filters.lat !== null && filters.lon !== null ? [{ lat: filters.lat, lon: filters.lon }] : [];
+    setRoutePoints([...start, { lat: stationLat, lon: stationLon }]);
+    setRouteActive(true);
+    setFilters({ tab: "map", station: null });
+  };
   const routeQuery = useMemo(
     () => ({
       polyline: routePoints,
@@ -115,6 +128,25 @@ function HomeScreenBody() {
   );
   const { stations: routeStations, loading: routeLoading, error: routeError } = useRouteStations(routeReady, routeQuery);
   const visibleStations = routeReady ? routeStations : stations;
+
+  // Подпись на линии маршрута: расстояние по прямой + ETA по средней скорости
+  // из /meta (тот же источник, что у Score; маршрута по дорогам нет — честно).
+  const routeLabel: RouteLineLabel | null = useMemo(() => {
+    if (!routeReady) return null;
+    const km = polylineLengthKm(routePoints);
+    if (!(km > 0)) return null;
+    const speed = meta?.avg_speed_kmh;
+    const minutes = speed && speed > 0 ? (km / speed) * 60 : null;
+    const point = midpointAlong(routePoints);
+    if (!point) return null;
+    return { text: formatDistance(km) + (minutes !== null ? ` · ~${formatEtaMinutes(minutes)}` : ""), lat: point.lat, lon: point.lon };
+  }, [routeReady, routePoints, meta]);
+
+  // Станции коридора подсвечиваются на карте (маршрут из карточки или ручной).
+  const highlightedStationIds = useMemo(
+    () => (routeReady ? routeStations.map((s) => s.id) : []),
+    [routeReady, routeStations],
+  );
   const visibleLoading = routeReady ? routeLoading : loading;
   const visibleError = routeReady ? routeError : error;
   const { favorites } = useFavorites();
@@ -229,6 +261,8 @@ function HomeScreenBody() {
                   onSelectStation={(id) => setFilters({ station: id })}
                   focus={focus}
                   routePolyline={routeActive ? routePoints : undefined}
+                  routeLabel={routeLabel}
+                  highlightedStationIds={highlightedStationIds.length ? highlightedStationIds : undefined}
                   onMapClick={routeActive ? (point) => setRoutePoints((current) => [...current, point].slice(0, 100)) : undefined}
                   heatCircles={heatCircles.length ? heatCircles : undefined}
                 />
@@ -277,7 +311,13 @@ function HomeScreenBody() {
         )}
 
         {filters.station && (
-          <StationCard stationId={filters.station} lat={filters.lat} lon={filters.lon} onClose={() => setFilters({ station: null })} />
+          <StationCard
+            stationId={filters.station}
+            lat={filters.lat}
+            lon={filters.lon}
+            onClose={() => setFilters({ station: null })}
+            onBuildRoute={handleBuildRoute}
+          />
         )}
       </main>
 

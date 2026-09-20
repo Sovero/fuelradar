@@ -9,7 +9,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useMapProviderPreference } from "@/lib/hooks/useMapProviderPreference";
-import type { MapHeatCircle, MapPoint, MapViewport } from "@/lib/map/types";
+import type { MapHeatCircle, MapPoint, MapViewport, RouteLineLabel } from "@/lib/map/types";
 import { buildStationMarkers } from "@/lib/map/markerData";
 import { DEFAULT_MAP_CENTER, DEFAULT_MAP_ZOOM, NEARBY_ZOOM } from "@/lib/map/config";
 import { Legend } from "@/components/map/Legend";
@@ -22,6 +22,8 @@ export function MapView({
   onSelectStation,
   focus,
   routePolyline,
+  routeLabel,
+  highlightedStationIds,
   onMapClick,
   heatCircles,
 }: {
@@ -32,6 +34,10 @@ export function MapView({
   /** Точка, к которой нужно перелететь (геолокация/центр по умолчанию) — меняется редко. */
   focus: { lat: number; lon: number } | null;
   routePolyline?: MapPoint[];
+  /** Подпись расстояния/ETA на середине линии маршрута. */
+  routeLabel?: RouteLineLabel | null;
+  /** Идентификаторы станций коридора для подсветки на карте. */
+  highlightedStationIds?: ReadonlyArray<string>;
   onMapClick?: (point: MapPoint) => void;
   /** R50: круги heatmap — включаются отдельно, обновляются по фильтрам. */
   heatCircles?: MapHeatCircle[];
@@ -64,6 +70,8 @@ export function MapView({
         onMarkerClick={onSelectStation}
         userLocation={focus}
         routePolyline={routePolyline}
+        routeLabel={routeLabel}
+        highlightedStationIds={highlightedStationIds}
         onMapClick={onMapClick}
         heatCircles={heatCircles}
       />

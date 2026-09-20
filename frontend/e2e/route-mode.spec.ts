@@ -44,5 +44,12 @@ test("коридор маршрута: две точки → станции ко
     .poll(() => corridorRequested, { message: "POST|GET /route/stations не вызван после двух точек" })
     .toBe(true);
 
+  // Подпись расстояния/ETA — на середине линии (расстояние по прямой, ETA по
+  // средней скорости из /meta; маршрута по дорогам нет — честно).
+  const routeLabel = page.getByTestId("route-label");
+  await expect(routeLabel).toBeVisible();
+  await expect(routeLabel).toContainText("км");
+  await expect(routeLabel).toContainText("мин");
+
   assertNoConsoleErrors(errors);
 });

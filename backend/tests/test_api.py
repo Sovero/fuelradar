@@ -247,6 +247,11 @@ def test_meta(client) -> None:
     lukoil = next(b for b in body["station_brands"] if b["name"] == "Лукойл")
     assert isinstance(lukoil["id"], int)  # R77: id нужен фронту для preferred_brands
     assert any(s["code"] == "osm_overpass" and "OpenStreetMap" in s["attribution"] for s in body["sources"])
+    # Вход через Telegram (R97i): без токена канал выключен, имя бота не выдаётся.
+    assert body["telegram_login"]["enabled"] is False
+    assert body["telegram_login"]["bot_username"] is None
+    # ETA на линии маршрута: средняя скорость отдаётся из конфига (не дублируется во фронте).
+    assert body["avg_speed_kmh"] == settings.avg_speed_kmh
 
 
 def _add_test_provider(session, code: str) -> SourceProvider:
@@ -939,6 +944,12 @@ def test_telegram_signature(client, monkeypatch):
     import hmac
     import time
     monkeypatch.setattr(settings, 'telegram_bot_token', 'test-token')
+    # /meta при настроенном токене отдаёт имя бота (R97i): фронт показывает виджет
+    # только когда вход реально будет принят.
+    monkeypatch.setattr(settings, 'telegram_bot_username', 'fuelradar_bot')
+    meta = client.get('/api/v1/meta').json()
+    assert meta['telegram_login']['enabled'] is True
+    assert meta['telegram_login']['bot_username'] == 'fuelradar_bot'
     payload = {'id': 591003, 'auth_date': int(time.time()), 'first_name': 'Test'}
     check = '\n'.join(f'{key}={value}' for key, value in sorted(payload.items()))
     payload['hash'] = hmac.new(hashlib.sha256(b'test-token').digest(), check.encode(), hashlib.sha256).hexdigest()

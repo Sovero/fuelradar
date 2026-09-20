@@ -53,6 +53,13 @@ export interface DesktopFeedStatus {
   tokenPacked?: boolean;
 }
 
+/** Состояние главного окна (IPC fuelradar:window-state). */
+export interface DesktopWindowState {
+  /** Окно живо; в сборках оболочки без моста будет false. */
+  exists: boolean;
+  isMaximized: boolean;
+}
+
 declare global {
   interface Window {
     fuelradarDesktop?: {
@@ -61,6 +68,17 @@ declare global {
       checkForUpdates: () => Promise<DesktopUpdateResult>;
       /** Появилось вместе с самопроверкой фида; в более старых сборках оболочки отсутствует. */
       feedStatus?: (options?: { force?: boolean }) => Promise<DesktopFeedStatus>;
+      /**
+       * Управление безрамочным окном (frame:false): системной рамки нет, свернуть/
+       * развернуть/закрыть делают кнопки шапки интерфейса. Появилось вместе с
+       * безрамочным режимом; в более старых сборках оболочки отсутствует.
+       */
+      windowControls?: {
+        minimize: () => boolean;
+        toggleMaximize: () => boolean;
+        close: () => boolean;
+        state: () => Promise<DesktopWindowState>;
+      };
     };
   }
 }
@@ -72,6 +90,18 @@ export function isDesktopShell(): boolean {
 /** Версия desktop-оболочки; в браузере — null (строку версии показывает только оболочка). */
 export function desktopVersion(): string | null {
   return isDesktopShell() ? (window.fuelradarDesktop?.version ?? null) : null;
+}
+
+/**
+ * Мост управления окном. null — браузер или сборка оболочки старше безрамочного
+ * режима (системная рамка там на месте, кнопки окна не нужны).
+ */
+export function desktopWindowControls():
+  | NonNullable<NonNullable<Window["fuelradarDesktop"]>["windowControls"]>
+  | null {
+  if (!isDesktopShell()) return null;
+  const controls = window.fuelradarDesktop?.windowControls;
+  return controls ?? null;
 }
 
 /**

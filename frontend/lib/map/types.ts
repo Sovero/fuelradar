@@ -37,6 +37,13 @@ export interface MapHeatCircle {
   stationId: string;
 }
 
+/** Подпись на середине линии маршрута: расстояние + (опционально) ETA. */
+export interface RouteLineLabel {
+  text: string;
+  lat: number;
+  lon: number;
+}
+
 export interface MapProviderProps {
   markers: StationMarker[];
   initialViewport: MapViewport;
@@ -48,6 +55,10 @@ export interface MapProviderProps {
   userLocation?: { lat: number; lon: number } | null;
   /** Линия Route Mode, построенная строго по выбранным пользователем точкам. */
   routePolyline?: MapPoint[];
+  /** Подпись расстояния/ETA на середине линии маршрута (позицию считает вызывающий код). */
+  routeLabel?: RouteLineLabel | null;
+  /** Идентификаторы станций коридора для визуальной подсветки поверх обычных маркеров. */
+  highlightedStationIds?: ReadonlyArray<string>;
   /** Клик по фону карты; Route Mode использует его для добавления точки. */
   onMapClick?: (point: MapPoint) => void;
   /** R50: круги heatmap. Включаются отдельно от маркеров (isHeatmapOn). */

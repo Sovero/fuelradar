@@ -19,3 +19,27 @@ body {
   background: var(--fr-bg);
   color: var(--fr-fg);
 }
+
+/* Безрамочное окно desktop-оболочки: системной рамки нет, таскание окна
+   обеспечивает шапка (app-drag), а её кнопки и интерактив поверх — app-no-drag,
+   чтобы клики не двигали окно. В браузере эти свойства ничего не делают. */
+.app-drag {
+  -webkit-app-region: drag;
+}
+
+.app-no-drag {
+  -webkit-app-region: no-drag;
+}
+
+/* Ленты вкладок: контент скроллится колёсиком/свайпом, но нативный скроллбар
+   (на Windows — с кнопками-стрелками) скрыт. Без этого вертикальный скроллбар
+   всплывает из-за -mb-px активной вкладки: overflow-x:auto неявно включает
+   и overflow-y:auto, и 1px наложения превращается в лишний элемент UI. */
+.no-scrollbar {
+  scrollbar-width: none; /* Firefox */
+  -ms-overflow-style: none; /* старый Edge/IE */
+}
+
+.no-scrollbar::-webkit-scrollbar {
+  display: none; /* Chromium/WebKit (включая Electron) */
+}

@@ -4,7 +4,9 @@ import { useEffect, useRef } from "react";
 import { ApiError } from "@/lib/api";
 import { useAuth } from "@/lib/hooks/useAuth";
 import { useI18n } from "@/lib/hooks/useI18n";
+import { useMeta } from "@/lib/hooks/useMeta";
 import { hasTelegramLoginWidget, telegramBotUsername } from "@/lib/telegram";
+import type { TelegramLoginMeta } from "@/lib/telegram";
 
 declare global {
   interface Window {
@@ -16,19 +18,23 @@ declare global {
 export function TelegramLoginButton({ onError, onSuccess }: { onError: (message: string) => void; onSuccess: () => void }) {
   const { telegramLogin } = useAuth();
   const { t } = useI18n();
+  const { meta } = useMeta();
   const containerRef = useRef<HTMLDivElement>(null);
+  const telegramMeta: TelegramLoginMeta | null = meta?.telegram_login ?? null;
 
   useEffect(() => {
-    if (!hasTelegramLoginWidget() || !containerRef.current) return;
+    if (!hasTelegramLoginWidget(telegramMeta) || !containerRef.current) return;
     window.onTelegramAuth = (user) => {
       telegramLogin(user)
         .then(onSuccess)
         .catch((err) => onError(err instanceof ApiError ? err.message : t("login.telegram.error")));
     };
+    const botUsername = telegramBotUsername(telegramMeta);
+    if (!botUsername) return;
     const script = document.createElement("script");
     script.src = "https://telegram.org/js/telegram-widget.js?22";
     script.async = true;
-    script.setAttribute("data-telegram-login", telegramBotUsername());
+    script.setAttribute("data-telegram-login", botUsername);
     script.setAttribute("data-size", "large");
     script.setAttribute("data-onauth", "onTelegramAuth(user)");
     script.setAttribute("data-request-access", "write");
@@ -38,9 +44,9 @@ export function TelegramLoginButton({ onError, onSuccess }: { onError: (message:
       node.replaceChildren();
       delete window.onTelegramAuth;
     };
-  }, [telegramLogin, onError, onSuccess, t]);
+  }, [telegramLogin, onError, onSuccess, t, telegramMeta]);
 
-  if (!hasTelegramLoginWidget()) {
+  if (!hasTelegramLoginWidget(telegramMeta)) {
     return <p className="text-xs text-gray-400">{t("login.telegram.notConfigured")}</p>;
   }
 

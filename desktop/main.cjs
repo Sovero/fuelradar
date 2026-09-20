@@ -197,11 +197,17 @@ function isTelegramOrigin(url) {
 }
 
 function createMainWindow(base) {
+  // Безрамочное окно: системную рамку заменяет шапка интерфейса (Header и
+  // аналогичные топбары несут drag-регион и кнопки окна через мост
+  // fuelradarDesktop.windowControls). Уведомления и попапы Telegram остаются
+  // обычными окнами — им drag не нужен.
   mainWindow = new BrowserWindow({
     width: 1280,
     height: 860,
     minWidth: 960,
     minHeight: 640,
+    frame: false,
+    titleBarStyle: "hidden",
     title: "FuelRadar",
     backgroundColor: "#0f172a",
     show: false,
@@ -475,6 +481,39 @@ ipcMain.on("fuelradar:version", (event) => {
   event.returnValue = app.getVersion();
 });
 
+// ---------- IPC управления окном (безрамочный режим) ----------
+
+/** Главное окно или null (попапы Telegram и самопроверки управлению не подлежат). */
+function controllableWindow() {
+  return mainWindow && !mainWindow.isDestroyed() ? mainWindow : null;
+}
+
+ipcMain.on("fuelradar:window-minimize", (event) => {
+  controllableWindow()?.minimize();
+  event.returnValue = true;
+});
+
+ipcMain.on("fuelradar:window-toggle-maximize", (event) => {
+  const win = controllableWindow();
+  if (!win) {
+    event.returnValue = false;
+    return;
+  }
+  if (win.isMaximized()) win.unmaximize();
+  else win.maximize();
+  event.returnValue = win.isMaximized();
+});
+
+ipcMain.on("fuelradar:window-close", (event) => {
+  controllableWindow()?.close();
+  event.returnValue = true;
+});
+
+ipcMain.handle("fuelradar:window-state", () => {
+  const win = controllableWindow();
+  return { exists: Boolean(win), isMaximized: Boolean(win?.isMaximized()) };
+});
+
 ipcMain.handle("fuelradar:feed-status", async (_event, options) => {
   const result = await refreshFeedStatus({ force: Boolean(options?.force) });
   return {
@@ -565,6 +604,27 @@ app.whenReady().then(async () => {
       if (!ui.ok) throw new Error(`ui → ${ui.status}`);
       const meta = await fetch(`${base}/api/v1/meta`, { signal: AbortSignal.timeout(5000) });
       if (!meta.ok) throw new Error(`proxy /api/v1/meta → ${meta.status}`);
+      // Безрамочный режим: окно реально создано без рамки (границы окна = границам
+      // содержимого — у окна с рамкой и заголовком они различаются), а мост управления
+      // окном доступен из рендерера (тем же IPC, которым пользуются кнопки шапки).
+      if (!mainWindow || mainWindow.isDestroyed()) throw new Error("main window missing");
+      const bounds = mainWindow.getBounds();
+      const content = mainWindow.getContentBounds();
+      if (bounds.width !== content.width || bounds.height !== content.height) {
+        throw new Error(`window has a frame: bounds ${bounds.width}x${bounds.height} != content ${content.width}x${content.height}`);
+      }
+      let winState = null;
+      for (let attempt = 0; attempt < 25 && !winState; attempt += 1) {
+        // Рендерер мог ещё грузиться — ждём мост с ретраями (максимум ~5 с).
+        winState = await mainWindow.webContents.executeJavaScript(
+          "window.fuelradarDesktop?.windowControls ? window.fuelradarDesktop.windowControls.state() : null",
+          true,
+        ).catch(() => null);
+        if (!winState) await new Promise((resolve) => setTimeout(resolve, 200));
+      }
+      if (!winState?.exists || typeof winState.isMaximized !== "boolean") {
+        throw new Error("windowControls bridge unreachable in renderer");
+      }
       console.log("FUELRADAR_SMOKE_OK", base);
       setTimeout(() => app.exit(0), 1500);
     }

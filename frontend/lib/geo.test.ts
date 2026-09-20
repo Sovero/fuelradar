@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { haversineKm, haversineMeters, isValidLat, isValidLon, shouldRebuildFollowMeZone } from "@/lib/geo";
+import { haversineKm, haversineMeters, isValidLat, isValidLon, midpointAlong, polylineLengthKm, shouldRebuildFollowMeZone } from "@/lib/geo";
 
 describe("haversineKm/haversineMeters", () => {
   it("нулевое расстояние в одной и той же точке", () => {
@@ -48,5 +48,56 @@ describe("shouldRebuildFollowMeZone (R23.1)", () => {
   it("порог настраиваемый", () => {
     expect(shouldRebuildFollowMeZone(45.0, 38.0, 45.02, 38.0, 1)).toBe(true);
     expect(shouldRebuildFollowMeZone(45.0, 38.0, 45.02, 38.0, 10)).toBe(false);
+  });
+});
+
+describe("polylineLengthKm", () => {
+  it("две точки — длина отрезка, как haversine", () => {
+    const points = [
+      { lat: 45.0, lon: 38.94 },
+      { lat: 45.0, lon: 38.99 },
+    ];
+    expect(polylineLengthKm(points)).toBeCloseTo(haversineKm(45.0, 38.94, 45.0, 38.99), 9);
+  });
+
+  it("сумма по трём точкам", () => {
+    const points = [
+      { lat: 45.0, lon: 38.94 },
+      { lat: 45.0, lon: 38.99 },
+      { lat: 45.01, lon: 38.99 },
+    ];
+    const expected = haversineKm(45.0, 38.94, 45.0, 38.99) + haversineKm(45.0, 38.99, 45.01, 38.99);
+    expect(polylineLengthKm(points)).toBeCloseTo(expected, 9);
+  });
+
+  it("мало точек / нулевая линия — ноль", () => {
+    expect(polylineLengthKm([])).toBe(0);
+    expect(polylineLengthKm([{ lat: 45, lon: 38 }])).toBe(0);
+    expect(polylineLengthKm([{ lat: 45, lon: 38 }, { lat: 45, lon: 38 }])).toBe(0);
+  });
+});
+
+describe("midpointAlong", () => {
+  it("для двух точек — середина отрезка", () => {
+    const mid = midpointAlong([
+      { lat: 45.0, lon: 38.94 },
+      { lat: 45.0, lon: 39.0 },
+    ]);
+    expect(mid).not.toBeNull();
+    expect(mid!.lat).toBeCloseTo(45.0, 9);
+    expect(mid!.lon).toBeCloseTo(38.97, 9);
+  });
+
+  it("мало точек — null", () => {
+    expect(midpointAlong([])).toBeNull();
+    expect(midpointAlong([{ lat: 45, lon: 38 }])).toBeNull();
+  });
+
+  it("совпадающие точки — первая точка, без деления на ноль", () => {
+    const mid = midpointAlong([
+      { lat: 45.0, lon: 38.94 },
+      { lat: 45.0, lon: 38.94 },
+    ]);
+    expect(mid).toEqual({ lat: 45.0, lon: 38.94 });
   });
 });

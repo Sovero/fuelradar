@@ -48,6 +48,8 @@ export function YandexMapProvider({
   onViewportChange,
   userLocation,
   routePolyline = [],
+  routeLabel = null,
+  highlightedStationIds = [],
   onMapClick,
   heatCircles = [],
   className,
@@ -58,6 +60,9 @@ export function YandexMapProvider({
   const clustererRef = useRef<InstanceType<YMapsNamespace["Clusterer"]> | null>(null);
   const userPlacemarkRef = useRef<InstanceType<YMapsNamespace["Placemark"]> | null>(null);
   const routePolylineRef = useRef<InstanceType<YMapsNamespace["Polyline"]> | null>(null);
+  const routeHaloRef = useRef<InstanceType<YMapsNamespace["Polyline"]> | null>(null);
+  const routeLabelPlacemarkRef = useRef<InstanceType<YMapsNamespace["Placemark"]> | null>(null);
+  const corridorCollectionRef = useRef<InstanceType<YMapsNamespace["GeoObjectCollection"]> | null>(null);
   const heatCollectionRef = useRef<InstanceType<YMapsNamespace["GeoObjectCollection"]> | null>(null);
   const ymapsRef = useRef<YMapsNamespace | null>(null);
   const onMarkerClickRef = useRef(onMarkerClick);
@@ -205,7 +210,19 @@ export function YandexMapProvider({
       map.geoObjects.remove(routePolylineRef.current);
       routePolylineRef.current = null;
     }
+    if (routeHaloRef.current) {
+      map.geoObjects.remove(routeHaloRef.current);
+      routeHaloRef.current = null;
+    }
     if (routePolyline.length < 2) return;
+    // Ореол коридора под основной линией — как route-line-halo у MapLibre-провайдера.
+    const halo = new ymaps.Polyline(
+      routePolyline.map((point) => [point.lat, point.lon]),
+      {},
+      { strokeColor: "#2563eb", strokeWidth: 14, strokeOpacity: 0.15 },
+    );
+    map.geoObjects.add(halo);
+    routeHaloRef.current = halo;
     const polyline = new ymaps.Polyline(
       routePolyline.map((point) => [point.lat, point.lon]),
       {},
@@ -214,6 +231,49 @@ export function YandexMapProvider({
     map.geoObjects.add(polyline);
     routePolylineRef.current = polyline;
   }, [routePolyline, state]);
+
+  // Станции коридора маршрута — янтарные круги (аналог corridor-halo у MapLibre).
+  useEffect(() => {
+    const ymaps = ymapsRef.current;
+    const map = mapRef.current;
+    if (!ymaps || !map) return;
+    if (corridorCollectionRef.current) {
+      map.geoObjects.remove(corridorCollectionRef.current);
+      corridorCollectionRef.current = null;
+    }
+    if (!highlightedStationIds.length) return;
+    const collection = new ymaps.GeoObjectCollection();
+    for (const id of highlightedStationIds) {
+      const marker = markers.find((mk) => mk.id === id);
+      if (!marker) continue;
+      collection.add(new ymaps.Circle(
+        [[marker.lat, marker.lon], 150],
+        {},
+        { fillColor: "#f59e0b", fillOpacity: 0.22, strokeColor: "#f59e0b", strokeOpacity: 0.8, strokeWidth: 2 },
+      ));
+    }
+    map.geoObjects.add(collection);
+    corridorCollectionRef.current = collection;
+  }, [highlightedStationIds, markers, state]);
+
+  // Подпись расстояния/ETA на середине линии маршрута — stretchy-плейсмарк.
+  useEffect(() => {
+    const ymaps = ymapsRef.current;
+    const map = mapRef.current;
+    if (!ymaps || !map) return;
+    if (routeLabelPlacemarkRef.current) {
+      map.geoObjects.remove(routeLabelPlacemarkRef.current);
+      routeLabelPlacemarkRef.current = null;
+    }
+    if (!routeLabel) return;
+    const placemark = new ymaps.Placemark(
+      [routeLabel.lat, routeLabel.lon],
+      { iconContent: routeLabel.text },
+      { preset: "islands#blueStretchyIcon", zIndex: 1200 },
+    );
+    map.geoObjects.add(placemark);
+    routeLabelPlacemarkRef.current = placemark;
+  }, [routeLabel, state]);
 
   // Программный перелёт — только по явному действию (геолокация, выбор станции из списка).
   useEffect(() => {

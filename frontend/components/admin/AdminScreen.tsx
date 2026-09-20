@@ -4,6 +4,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
+import { WindowControls } from "@/components/layout/WindowControls";
 import { AdminAuthProvider } from "@/lib/hooks/useAdminAuth";
 import { AdminTokenGate } from "@/components/admin/AdminTokenGate";
 import { AdminSourcesTable } from "@/components/admin/AdminSourcesTable";
@@ -25,7 +26,7 @@ function AdminTabs() {
 
   return (
     <div className="flex flex-1 flex-col overflow-hidden">
-      <nav className="flex shrink-0 gap-1 overflow-x-auto border-b border-gray-200 bg-white px-2 py-2 dark:border-gray-800 dark:bg-gray-900">
+      <nav className="no-scrollbar flex shrink-0 gap-1 overflow-x-auto border-b border-gray-200 bg-white px-2 py-2 dark:border-gray-800 dark:bg-gray-900">
         {TABS.map((key) => (
           <button
             key={key}
@@ -60,11 +61,17 @@ export function AdminScreen() {
   return (
     <AdminAuthProvider>
       <div className="flex h-dvh flex-col bg-gray-50 text-gray-900 dark:bg-gray-950 dark:text-gray-100">
-        <header className="flex items-center gap-3 border-b border-gray-200 bg-white px-4 py-3 dark:border-gray-800 dark:bg-gray-900">
-          <Link href="/" className="text-sm text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200">
+        <header className="app-drag flex items-center gap-3 border-b border-gray-200 bg-white px-4 py-3 dark:border-gray-800 dark:bg-gray-900">
+          <Link
+            href="/"
+            className="app-no-drag text-sm text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
+          >
             ← {t("settings.backHome")}
           </Link>
           <h1 className="text-lg font-bold">{t("admin.title")}</h1>
+          <div className="ml-auto">
+            <WindowControls />
+          </div>
         </header>
         <AdminTokenGate>
           <AdminTabs />

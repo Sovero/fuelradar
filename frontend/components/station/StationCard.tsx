@@ -25,11 +25,14 @@ export function StationCard({
   lat,
   lon,
   onClose,
+  onBuildRoute,
 }: {
   stationId: string;
   lat: number | null;
   lon: number | null;
   onClose: () => void;
+  /** Маршрут на внутренней карте (HomeScreen); без него кнопка — fallback на внешний навигатор. */
+  onBuildRoute?: (lat: number, lon: number) => void;
 }) {
   const { station, loading, error } = useStationDetail(stationId, lat, lon);
   const { fuelLabel, queueLabel } = useMeta();
@@ -128,7 +131,7 @@ export function StationCard({
           </div>
 
           <div className="flex gap-2 pt-2">
-            <RouteButton lat={station.latitude} lon={station.longitude} />
+            <RouteButton lat={station.latitude} lon={station.longitude} onBuildRoute={onBuildRoute} />
             <FavoriteButton stationId={station.id} onRequireLogin={() => setLoginOpen(true)} />
             <ReportButton
               stationId={station.id}

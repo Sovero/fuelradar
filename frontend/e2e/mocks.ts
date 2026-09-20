@@ -84,6 +84,8 @@ export const META: Meta = {
     { code: "VERY_HIGH", name_ru: "Огромная" },
   ],
   push: { enabled: false, vapid_public_key: null },
+  // ETA на линии маршрута — как в backend-конфиге (AVG_SPEED_KMH).
+  avg_speed_kmh: 30,
 };
 
 export function notificationsPage(items: NotificationItem[] = []) {

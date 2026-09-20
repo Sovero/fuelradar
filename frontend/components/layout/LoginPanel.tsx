@@ -10,6 +10,8 @@ import { useState } from "react";
 import { ApiError } from "@/lib/api";
 import { useAuth } from "@/lib/hooks/useAuth";
 import { useI18n } from "@/lib/hooks/useI18n";
+import { useMeta } from "@/lib/hooks/useMeta";
+import { hasTelegramLoginWidget } from "@/lib/telegram";
 import { TelegramLoginButton } from "@/components/layout/TelegramLoginButton";
 
 type LoginTab = "password" | "dev" | "magic" | "telegram";
@@ -17,6 +19,8 @@ type LoginTab = "password" | "dev" | "magic" | "telegram";
 export function LoginPanel({ onClose }: { onClose: () => void }) {
   const { user, passwordLogin, devLogin, requestMagicLink, logout } = useAuth();
   const { t } = useI18n();
+  const { meta } = useMeta();
+  const telegramReady = hasTelegramLoginWidget(meta?.telegram_login ?? null);
   const [tab, setTab] = useState<LoginTab>("password");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -64,7 +68,9 @@ export function LoginPanel({ onClose }: { onClose: () => void }) {
     }
   }
 
-  const tabs: LoginTab[] = ["password", "dev", "magic", "telegram"];
+  // Telegram-вкладка видна только когда канал реально настроен (R97i):
+  // имя бота приходит из /meta вместе с фактом настроенного токена.
+  const tabs: LoginTab[] = ["password", "dev", "magic", ...(telegramReady ? (["telegram"] as const) : [])];
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={onClose}>
@@ -92,7 +98,7 @@ export function LoginPanel({ onClose }: { onClose: () => void }) {
           </div>
         ) : (
           <div className="flex flex-col gap-3">
-            <div className="flex gap-1 overflow-x-auto border-b border-gray-200 text-sm dark:border-gray-800">
+            <div className="no-scrollbar flex gap-1 overflow-x-auto border-b border-gray-200 text-sm dark:border-gray-800">
               {tabs.map((key) => (
                 <button
                   key={key}

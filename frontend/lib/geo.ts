@@ -29,6 +29,38 @@ export function isValidLon(v: number): boolean {
   return Number.isFinite(v) && v >= -180 && v <= 180;
 }
 
+/** Длина полилинии по прямой (сумма haversine-сегментов) — для подписи маршрута. */
+export function polylineLengthKm(points: ReadonlyArray<{ lat: number; lon: number }>): number {
+  let total = 0;
+  for (let i = 1; i < points.length; i++) {
+    total += haversineKm(points[i - 1].lat, points[i - 1].lon, points[i].lat, points[i].lon);
+  }
+  return total;
+}
+
+/**
+ * Точка на половине длины полилинии (по кумулятивному haversine) — место подписи
+ * расстояния/ETA на линии маршрута. Для двух точек это середина отрезка.
+ */
+export function midpointAlong(points: ReadonlyArray<{ lat: number; lon: number }>): { lat: number; lon: number } | null {
+  if (points.length < 2) return null;
+  const segments = points.slice(1).map((point, index) => haversineKm(points[index].lat, points[index].lon, point.lat, point.lon));
+  const total = segments.reduce((sum, length) => sum + length, 0);
+  if (total === 0) return { lat: points[0].lat, lon: points[0].lon };
+  let passed = 0;
+  for (let i = 0; i < segments.length; i++) {
+    if (passed + segments[i] >= total / 2) {
+      const ratio = (total / 2 - passed) / segments[i];
+      return {
+        lat: points[i].lat + (points[i + 1].lat - points[i].lat) * ratio,
+        lon: points[i].lon + (points[i + 1].lon - points[i].lon) * ratio,
+      };
+    }
+    passed += segments[i];
+  }
+  return { lat: points[points.length - 1].lat, lon: points[points.length - 1].lon };
+}
+
 /** R23.1: «переезд» — новая позиция ушла за порог от прежнего центра зоны. */
 export const FOLLOW_ME_REBUILD_THRESHOLD_KM = 2;
 

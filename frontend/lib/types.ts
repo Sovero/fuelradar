@@ -139,6 +139,14 @@ export interface Meta {
   queue_levels: MetaStatus[];
   /** T14 (R64): Web Push — публичный VAPID-ключ (не секрет); без ключей на сервере — enabled: false. */
   push?: { enabled: boolean; vapid_public_key: string | null };
+  /**
+   * Вход через Telegram (R97i): backend отдаёт имя бота только при настроенном
+   * токене; поле отсутствует в старых сборках backend — тогда фронт откатывается
+   * на build-time NEXT_PUBLIC_TELEGRAM_BOT_USERNAME.
+   */
+  telegram_login?: { enabled: boolean; bot_username: string | null };
+  /** Средняя городская скорость (км/ч) для ETA на линии маршрута — из конфига backend; в старых сборках поле отсутствует. */
+  avg_speed_kmh?: number;
 }
 
 export interface AuthUser {

@@ -8,6 +8,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
+import { WindowControls } from "@/components/layout/WindowControls";
 import { useAuth } from "@/lib/hooks/useAuth";
 import { useI18n } from "@/lib/hooks/useI18n";
 import { isDesktopShell } from "@/lib/desktop";
@@ -37,13 +38,17 @@ export function SettingsScreen() {
 
   return (
     <div className="flex h-dvh flex-col bg-gray-50 text-gray-900 dark:bg-gray-950 dark:text-gray-100">
-      <header className="flex items-center justify-between border-b border-gray-200 bg-white px-4 py-3 dark:border-gray-800 dark:bg-gray-900">
+      <header className="app-drag flex items-center justify-between border-b border-gray-200 bg-white px-4 py-3 dark:border-gray-800 dark:bg-gray-900">
         <div className="flex items-center gap-2">
-          <Link href="/" className="text-sm text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200">
+          <Link
+            href="/"
+            className="app-no-drag text-sm text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
+          >
             ← {t("settings.backHome")}
           </Link>
           <h1 className="text-lg font-bold">{t("settings.title")}</h1>
         </div>
+        <WindowControls />
       </header>
 
       {loading && <p className="p-4 text-sm text-gray-400">{t("loading")}</p>}
@@ -64,7 +69,7 @@ export function SettingsScreen() {
 
       {!loading && user && (
         <div className="flex flex-1 flex-col overflow-hidden sm:flex-row">
-          <nav className="flex shrink-0 gap-1 overflow-x-auto border-b border-gray-200 bg-white px-2 py-2 dark:border-gray-800 dark:bg-gray-900 sm:w-48 sm:flex-col sm:overflow-visible sm:border-b-0 sm:border-r">
+          <nav className="no-scrollbar flex shrink-0 gap-1 overflow-x-auto border-b border-gray-200 bg-white px-2 py-2 dark:border-gray-800 dark:bg-gray-900 sm:w-48 sm:flex-col sm:overflow-visible sm:border-b-0 sm:border-r">
             {TABS.map((key) =>
               key === "updates" && !isDesktop ? null : (
                 <button

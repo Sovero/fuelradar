@@ -37,7 +37,6 @@ from ..db.models import (
     MonitoringZone,
     Station,
     StationCurrentStatus,
-    User,
 )
 from ..dedup.compare import distance_km
 from . import channels
@@ -108,14 +107,11 @@ def _evaluate_rules(session: Session, station_id: str, fuel_type_id: int) -> lis
     created: list[AlertEvent] = []
     for rule in session.scalars(select(AlertRule).where(AlertRule.is_active.is_(True))):
         try:
-            user = session.get(User, rule.user_id)
-            if user is None:
-                continue  # правило без живого пользователя — не наш случай в проде, защита от мусора в тестах
             if not _rule_matches(session, rule, station, new_state, fuel_type_id):
                 continue
             dedup_key = f"{rule.id}:{station_id}:{scope_key}:{event_type}:{bucket}"
             event = AlertEvent(
-                rule_id=rule.id, user_id=rule.user_id, station_id=station_id, event_type=event_type,
+                rule_id=rule.id, station_id=station_id, event_type=event_type,
                 dedup_key=dedup_key, delivered=False,
                 payload={
                     "fuel_type_id": fuel_type_id,
@@ -133,7 +129,7 @@ def _evaluate_rules(session: Session, station_id: str, fuel_type_id: int) -> lis
                 continue  # R38 — то же событие для этого правила уже отправлено в окне
             rule.trigger_count = (rule.trigger_count or 0) + 1
             rule.last_event_at = now
-            _deliver(user, event, station)
+            _deliver(event, station)
             created.append(event)
         except Exception as exc:  # noqa: BLE001 — одно кривое правило не должно рушить оценку остальных
             logger.exception("evaluate_rules: rule %s failed: %s", rule.id, type(exc).__name__)
@@ -162,12 +158,12 @@ def _scope_matches(session: Session, rule: AlertRule, station: Station) -> bool:
     kind = scope.get("type", "")
     if kind == "favorites" or scope.get("favorites"):
         return session.scalar(
-            select(Favorite.id).where(Favorite.user_id == rule.user_id, Favorite.station_id == station.id)
+            select(Favorite.id).where(Favorite.station_id == station.id)
         ) is not None
     zone_id = scope.get("zone_id")
     if zone_id is not None:
         zone = session.get(MonitoringZone, zone_id)
-        return zone is not None and zone.user_id == rule.user_id and _in_zone(station, zone)
+        return zone is not None and _in_zone(station, zone)
     brand_id = scope.get("brand_id", scope.get("network_id"))
     if brand_id is not None:
         return station.brand_id == brand_id
@@ -216,16 +212,16 @@ def _in_zone(station: Station, zone: MonitoringZone) -> bool:
     return inside
 
 
-def _deliver(user: User, event: AlertEvent, station: Station) -> None:
-    """In-app — сам факт строки AlertEvent (R36/A03); push/TG — best-effort."""
+def _deliver(event: AlertEvent, station: Station) -> None:
+    """In-app — сам факт строки AlertEvent (R36/A03); Web Push — best-effort.
+
+    Telegram в приложении — это подписка по расписанию (дайджест, см. `app.digest`),
+    а не мгновенная рассылка каждого события: правила шлют in-app и push.
+    """
     try:
-        channels.send_web_push(user, event, station)
+        channels.send_web_push(event, station)
     except Exception as exc:  # noqa: BLE001 — доставка не должна ронять оценку правил
         logger.exception("web push delivery failed rule=%s event=%s: %s", event.rule_id, event.id, type(exc).__name__)
-    try:
-        channels.send_telegram(user, event, station)
-    except Exception as exc:  # noqa: BLE001 — доставка не должна ронять оценку правил
-        logger.exception("telegram delivery failed rule=%s event=%s: %s", event.rule_id, event.id, type(exc).__name__)
 
 
 __all__ = ["evaluate_rules"]

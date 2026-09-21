@@ -1,221 +1,138 @@
-"""Security hardening for the admin API: RBAC, throttling, and failed-auth auditing."""
+"""Защита открытого приложения: per-IP лимиты, проверка Origin и журнал действий.
+
+RBAC и входа в приложении больше нет (пользователей нет) — приложение показывает
+всё тому, кто его запустил. Оставшаяся защита: лимиты (общий и строгий для
+admin-API), origin-проверка на изменяющие запросы (анти-CSRF для браузера) и
+журнал действий, где каждая правка видна с актором и полезной нагрузкой.
+"""
 
 from __future__ import annotations
 
-import logging
-
 import pytest
-from sqlalchemy import create_engine, select
-from sqlalchemy.orm import Session
+from sqlalchemy import select
 
-from app.auth import (
-    BootstrapUnavailable,
-    bootstrap_available,
-    create_bootstrap_admin,
-    verify_password,
-)
 from app.core.config import settings
-from app.db.base import Base
-from app.db.models import AdminActionLog
-
-ADMIN_EMAIL = "test-admin@example.com"
-ADMIN_PASSWORD = "test-admin-password-123"
+from app.db.models import AdminActionLog, SourceProvider
 
 
-def _audit_rows(db_session, after_id: int) -> list[AdminActionLog]:
+def _audit_rows(db_session, after_id: int, action: str | None = None) -> list[AdminActionLog]:
     db_session.expire_all()
-    return list(
-        db_session.scalars(
-            select(AdminActionLog)
-            .where(AdminActionLog.id > after_id, AdminActionLog.action == "admin_auth_failed")
-            .order_by(AdminActionLog.id)
-        )
-    )
+    query = select(AdminActionLog).where(AdminActionLog.id > after_id)
+    if action is not None:
+        query = query.where(AdminActionLog.action == action)
+    return list(db_session.scalars(query.order_by(AdminActionLog.id)))
 
 
-def test_failed_admin_auth_is_audited_without_recording_token(client, db_session, caplog):
-    """Missing and legacy credentials leave safe audit events, not secrets."""
-    from app.api import deps
+def _last_audit_id(db_session) -> int:
+    return db_session.scalar(select(AdminActionLog.id).order_by(AdminActionLog.id.desc())) or 0
 
-    caplog.set_level(logging.WARNING, logger="fuelradar.security")
 
-    original_limit = settings.admin_rate_limit_per_minute
+def test_admin_api_is_open_for_the_local_operator(client):
+    """Входа нет: админские чтения доступны сразу, без токенов и cookie."""
+    response = client.get("/api/v1/admin/sources")
+    assert response.status_code == 200
+
+
+def test_legacy_admin_token_header_is_ignored(client, db_session):
+    """Статический X-Admin-Token больше не существует — он не даёт никаких прав."""
+    before = _last_audit_id(db_session)
+    with_header = client.get("/api/v1/admin/sources", headers={"X-Admin-Token": "definitely-not-the-token"})
+    without_header = client.get("/api/v1/admin/sources")
+    assert with_header.status_code == without_header.status_code == 200
+    assert with_header.json() == without_header.json()
+    assert _audit_rows(db_session, before) == [], "лишнего аудита на успешные чтения нет"
+
+
+def test_admin_mutation_is_audited_with_actor_and_payload(client, db_session):
+    """R67: правка источника журналируется — кто (локальный оператор), что и когда."""
+    provider = SourceProvider(code="t_security_src", name="Security", status="ACTIVE", trust=0.5)
+    db_session.add(provider)
+    db_session.commit()
+    before = _last_audit_id(db_session)
     try:
-        deps.reset_rate_limit()
-        settings.admin_rate_limit_per_minute = 100
-        client.post("/api/v1/auth/logout")
-        before = db_session.scalar(select(AdminActionLog.id).order_by(AdminActionLog.id.desc())) or 0
+        updated = client.patch(f"/api/v1/admin/sources/{provider.id}", json={"trust": 0.9})
+        assert updated.status_code == 200
 
-        missing = client.get("/api/v1/admin/sources")
-        legacy = client.get("/api/v1/admin/sources", headers={"X-Admin-Token": "definitely-not-the-token"})
-
-        assert missing.status_code == 401
-        assert legacy.status_code == 401
         rows = _audit_rows(db_session, before)
-        assert [row.payload["reason"] for row in rows] == ["missing_session", "legacy_header_ignored"]
-        assert all(row.payload["path"] == "/api/v1/admin/sources" for row in rows)
-        assert all("definitely-not-the-token" not in repr(row.payload) for row in rows)
-        assert "Failed admin authentication" in caplog.text
-        assert "definitely-not-the-token" not in caplog.text
+        assert rows and rows[-1].action == "source_update"
+        assert rows[-1].actor == "local"
+        assert rows[-1].target_id == "t_security_src"
+        assert rows[-1].payload["trust"] == {"from": 0.5, "to": 0.9}
     finally:
-        settings.admin_rate_limit_per_minute = original_limit
-        deps.reset_rate_limit()
-
-
-def test_password_login_and_bootstrap_status(client):
-    client.post("/api/v1/auth/logout")
-    assert client.get("/api/v1/auth/bootstrap").json() == {"required": False}
-
-    wrong = client.post(
-        "/api/v1/auth/login",
-        json={"email": ADMIN_EMAIL, "password": "wrong-password"},
-    )
-    assert wrong.status_code == 401
-    assert client.post(
-        "/api/v1/auth/login",
-        json={"email": ADMIN_EMAIL, "password": ADMIN_PASSWORD},
-    ).status_code == 200
-    assert client.get("/api/v1/auth/me").json()["user"]["role"] == "ADMIN"
-    client.post("/api/v1/auth/logout")
-
-
-def test_bootstrap_service_is_one_time_and_password_is_hashed(tmp_path):
-    engine = create_engine(f"sqlite:///{tmp_path / 'bootstrap.db'}")
-    Base.metadata.create_all(engine)
-    with Session(engine) as session:
-        assert bootstrap_available(session)
-        user = create_bootstrap_admin(
-            session,
-            display_name="First Admin",
-            email="first-admin@example.com",
-            password="first-admin-password-123",
-        )
-        assert user.role == "ADMIN"
-        assert user.password_hash is not None
-        assert user.password_hash != "first-admin-password-123"
-        assert verify_password("first-admin-password-123", user.password_hash)
-        assert not verify_password("wrong-password", user.password_hash)
-        assert not bootstrap_available(session)
-
-        with pytest.raises(BootstrapUnavailable):
-            create_bootstrap_admin(
-                session,
-                display_name="Second Admin",
-                email="second-admin@example.com",
-                password="second-admin-password-123",
-            )
-    engine.dispose()
-
-
-def test_bootstrap_http_endpoint_sets_admin_cookie_and_closes(tmp_path):
-    """The public bootstrap contract creates one admin and cannot be replayed."""
-    from fastapi import Depends, FastAPI
-    from fastapi.testclient import TestClient
-
-    from app.api.deps import rate_limit
-    from app.api.login import router as login_router
-    from app.db.session import get_db
-
-    engine = create_engine(f"sqlite:///{tmp_path / 'bootstrap-http.db'}")
-    Base.metadata.create_all(engine)
-    test_app = FastAPI()
-    test_app.include_router(login_router, prefix="/api/v1", dependencies=[Depends(rate_limit)])
-
-    def override_db():
-        with Session(engine) as session:
-            yield session
-
-    test_app.dependency_overrides[get_db] = override_db
-    password = "first-admin-password-123"
-    with TestClient(test_app) as local_client:
-        assert local_client.get("/api/v1/auth/bootstrap").json() == {"required": True}
-        created = local_client.post(
-            "/api/v1/auth/bootstrap",
-            json={
-                "display_name": "First Admin",
-                "email": "first-admin@example.com",
-                "password": password,
-                "password_confirm": password,
-            },
-        )
-        assert created.status_code == 201
-        assert created.json()["user"]["role"] == "ADMIN"
-        assert "fr_session" in local_client.cookies
-        assert local_client.get("/api/v1/auth/bootstrap").json() == {"required": False}
-
-        replay = local_client.post(
-            "/api/v1/auth/bootstrap",
-            json={
-                "display_name": "Second Admin",
-                "email": "second-admin@example.com",
-                "password": "second-admin-password-123",
-                "password_confirm": "second-admin-password-123",
-            },
-        )
-        assert replay.status_code == 409
-
-        local_client.post("/api/v1/auth/logout")
-        login = local_client.post(
-            "/api/v1/auth/login",
-            json={"email": "first-admin@example.com", "password": password},
-        )
-        assert login.status_code == 200
-        assert local_client.get("/api/v1/auth/me").json()["user"]["role"] == "ADMIN"
-
-    with Session(engine) as session:
-        audit = session.scalar(select(AdminActionLog).where(AdminActionLog.action == "bootstrap_admin_created"))
-        assert audit is not None
-        assert password not in repr(audit.payload)
-    engine.dispose()
-
-
-def test_dev_login_cannot_impersonate_privileged_account(client):
-    client.post("/api/v1/auth/logout")
-    response = client.post("/api/v1/auth/dev-login", json={"email": ADMIN_EMAIL})
-    assert response.status_code == 403
-    assert client.get("/api/v1/auth/me").json()["user"] is None
-
-
-def test_operator_can_read_admin_views_but_cannot_mutate(client, db_session):
-    from app.auth import hash_password
-    from app.db.models import User
-
-    operator = db_session.scalar(select(User).where(User.email == "operator-security@example.com"))
-    if operator is None:
-        operator = User(
-            email="operator-security@example.com",
-            role="OPERATOR",
-            password_hash=hash_password("operator-password-123"),
-        )
-        db_session.add(operator)
+        db_session.query(AdminActionLog).filter(AdminActionLog.id > before).delete()
+        db_session.delete(provider)
         db_session.commit()
 
-    client.post("/api/v1/auth/logout")
-    assert client.post(
-        "/api/v1/auth/login",
-        json={"email": operator.email, "password": "operator-password-123"},
-    ).status_code == 200
-    assert client.get("/api/v1/admin/sources").status_code == 200
-    assert client.post(f"/api/v1/admin/users/{operator.id}/block").status_code == 403
-    client.post("/api/v1/auth/logout")
+
+def test_cross_origin_mutation_is_rejected(client):
+    """Анти-CSRF: браузер с чужого origin не может менять данные приложения."""
+    response = client.post("/api/v1/reports", json={}, headers={"Origin": "https://evil.example"})
+    assert response.status_code == 403
+    assert response.json()["detail"] == "Недопустимый источник запроса"
 
 
-def test_admin_rate_limit_covers_get_and_failed_attempts(client):
-    """The strict admin bucket applies to GETs and returns Retry-After."""
+def test_general_rate_limit_returns_429(client):
     from app.api import deps
 
-    original_limit = settings.admin_rate_limit_per_minute
+    original = settings.rate_limit_per_minute
     try:
         deps.reset_rate_limit()
-        settings.admin_rate_limit_per_minute = 2
-        client.post("/api/v1/auth/logout")
-        assert client.get("/api/v1/admin/sources").status_code == 401
-        assert client.get("/api/v1/admin/sources", headers={"X-Admin-Token": "wrong"}).status_code == 401
-
-        limited = client.get("/api/v1/admin/sources")
-        assert limited.status_code == 429
-        assert limited.headers["Retry-After"].isdigit()
-        assert "админ-API" in limited.json()["detail"]
+        settings.rate_limit_per_minute = 3
+        codes = [client.get("/api/v1/meta").status_code for _ in range(5)]
+        assert codes[:3] == [200, 200, 200]
+        assert 429 in codes[3:]
     finally:
-        settings.admin_rate_limit_per_minute = original_limit
+        settings.rate_limit_per_minute = original
         deps.reset_rate_limit()
+
+
+def test_admin_rate_limit_covers_get_and_mutation(client):
+    """Админ-API лимитируется строже общего — и на чтения тоже (операции тяжёлые)."""
+    from app.api import deps
+
+    original_admin = settings.admin_rate_limit_per_minute
+    original_general = settings.rate_limit_per_minute
+    try:
+        deps.reset_rate_limit()
+        settings.rate_limit_per_minute = 10_000
+        settings.admin_rate_limit_per_minute = 3
+        codes = [client.get("/api/v1/admin/sources").status_code for _ in range(5)]
+        assert codes[:3] == [200, 200, 200]
+        assert 429 in codes[3:]
+        assert client.patch("/api/v1/admin/sources/1", json={"trust": 0.5}).status_code == 429
+    finally:
+        settings.admin_rate_limit_per_minute = original_admin
+        settings.rate_limit_per_minute = original_general
+        deps.reset_rate_limit()
+
+
+def test_admin_rate_limit_can_be_disabled(client):
+    from app.api import deps
+
+    original = settings.admin_rate_limit_per_minute
+    try:
+        deps.reset_rate_limit()
+        settings.admin_rate_limit_per_minute = 0
+        assert [client.get("/api/v1/admin/sources").status_code for _ in range(5)] == [200] * 5
+    finally:
+        settings.admin_rate_limit_per_minute = original
+        deps.reset_rate_limit()
+
+
+def test_admin_action_log_endpoint_exposes_filters(client, db_session):
+    """Журнал читается через API и фильтруется по действию/дате (интерфейс админки)."""
+    page = client.get("/api/v1/admin/action-log", params={"limit": 5})
+    assert page.status_code == 200
+    body = page.json()
+    assert "items" in body and "total" in body
+    assert client.get("/api/v1/admin/action-log", params={"date_from": "not-a-date"}).status_code == 422
+
+
+@pytest.mark.parametrize("path", ["/api/v1/admin/sources", "/api/v1/admin/action-log", "/api/v1/admin/dedup-queue"])
+def test_admin_read_endpoints_do_not_leak_secrets(client, path, monkeypatch):
+    """R68: секреты из конфигурации не попадают в ответы админ-API."""
+    monkeypatch.setattr(settings, "telegram_bot_token", "123456:secret-token-value")
+    monkeypatch.setattr(settings, "vapid_private_key", "secret-vapid-private")
+    text = client.get(path).text
+    assert "secret-token-value" not in text
+    assert "secret-vapid-private" not in text

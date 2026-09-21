@@ -1,6 +1,7 @@
-"""Персонализация (T05, §15, R21/R23/R26): избранное, зоны, правила — только с профилем.
+"""Общие данные приложения: избранное, зоны мониторинга, правила, push (R21/R23/R26).
 
-Оценка правил и события — таск 07; здесь CRUD с валидацией и лимитом правил.
+Пользователей нет — всё, что раньше было персональным, стало одним общим набором:
+кто запустил приложение, тот и видит/меняет его. Оценка правил и события — T07.
 """
 
 from __future__ import annotations
@@ -18,15 +19,15 @@ from ..db.models import (
     PushSubscription,
     SourceProvider,
     Station,
-    User,
 )
 from ..db.session import get_db
-from .deps import require_user
 from .schemas import (
     AlertRuleBody,
     AlertRuleOut,
+    FuelStatusBrief,
     PushSubscriptionBody,
     PushSubscriptionOut,
+    QueueBrief,
     ZoneBody,
     ZoneOut,
 )
@@ -46,9 +47,9 @@ def _station_or_404(session: Session, station_id: str) -> Station:
 
 
 @router.get("/favorites")
-def list_favorites(session: Session = Depends(get_db), user: User = Depends(require_user)) -> list:
+def list_favorites(session: Session = Depends(get_db)) -> list:
     rows = session.execute(
-        select(Station).join(Favorite, Favorite.station_id == Station.id).where(Favorite.user_id == user.id)
+        select(Station).join(Favorite, Favorite.station_id == Station.id)
     ).scalars().all()
     if not rows:
         return []
@@ -58,8 +59,6 @@ def list_favorites(session: Session = Depends(get_db), user: User = Depends(requ
     for station in rows:
         brand = brands.get(station.brand_id) if station.brand_id else None
         rows_s = statuses.get(station.id, [])
-        from .schemas import FuelStatusBrief, QueueBrief
-
         briefs = [
             FuelStatusBrief(
                 fuel_code=code,
@@ -85,19 +84,19 @@ def list_favorites(session: Session = Depends(get_db), user: User = Depends(requ
 
 
 @router.post("/favorites/{station_id}", status_code=201)
-def add_favorite(station_id: str, session: Session = Depends(get_db), user: User = Depends(require_user)) -> dict:
+def add_favorite(station_id: str, session: Session = Depends(get_db)) -> dict:
     _station_or_404(session, station_id)
-    existing = session.scalar(select(Favorite).where(Favorite.user_id == user.id, Favorite.station_id == station_id))
+    existing = session.scalar(select(Favorite).where(Favorite.station_id == station_id))
     if existing is None:
-        session.add(Favorite(user_id=user.id, station_id=station_id))
+        session.add(Favorite(station_id=station_id))
         session.commit()
         return {"station_id": station_id, "added": True}
     return {"station_id": station_id, "added": False}
 
 
 @router.delete("/favorites/{station_id}", status_code=204)
-def remove_favorite(station_id: str, session: Session = Depends(get_db), user: User = Depends(require_user)) -> Response:
-    row = session.scalar(select(Favorite).where(Favorite.user_id == user.id, Favorite.station_id == station_id))
+def remove_favorite(station_id: str, session: Session = Depends(get_db)) -> Response:
+    row = session.scalar(select(Favorite).where(Favorite.station_id == station_id))
     if row is None:
         raise HTTPException(status_code=404, detail="Станции нет в избранном")
     session.delete(row)
@@ -109,23 +108,23 @@ def remove_favorite(station_id: str, session: Session = Depends(get_db), user: U
 
 
 @router.get("/monitoring-zones")
-def list_zones(session: Session = Depends(get_db), user: User = Depends(require_user)) -> list[ZoneOut]:
+def list_zones(session: Session = Depends(get_db)) -> list[ZoneOut]:
     return [ZoneOut(id=z.id, name=z.name, zone_type=z.zone_type, params=z.params)
-            for z in session.scalars(select(MonitoringZone).where(MonitoringZone.user_id == user.id))]
+            for z in session.scalars(select(MonitoringZone))]
 
 
 @router.post("/monitoring-zones", status_code=201)
-def create_zone(body: ZoneBody, session: Session = Depends(get_db), user: User = Depends(require_user)) -> ZoneOut:
-    zone = MonitoringZone(user_id=user.id, name=body.name, zone_type=body.zone_type, params=body.params)
+def create_zone(body: ZoneBody, session: Session = Depends(get_db)) -> ZoneOut:
+    zone = MonitoringZone(name=body.name, zone_type=body.zone_type, params=body.params)
     session.add(zone)
     session.commit()
     return ZoneOut(id=zone.id, name=zone.name, zone_type=zone.zone_type, params=zone.params)
 
 
 @router.put("/monitoring-zones/{zone_id}")
-def update_zone(zone_id: int, body: ZoneBody, session: Session = Depends(get_db), user: User = Depends(require_user)) -> ZoneOut:
+def update_zone(zone_id: int, body: ZoneBody, session: Session = Depends(get_db)) -> ZoneOut:
     zone = session.get(MonitoringZone, zone_id)
-    if zone is None or zone.user_id != user.id:
+    if zone is None:
         raise HTTPException(status_code=404, detail="Зона не найдена")
     zone.name, zone.zone_type, zone.params = body.name, body.zone_type, body.params
     session.commit()
@@ -133,9 +132,9 @@ def update_zone(zone_id: int, body: ZoneBody, session: Session = Depends(get_db)
 
 
 @router.delete("/monitoring-zones/{zone_id}", status_code=204)
-def delete_zone(zone_id: int, session: Session = Depends(get_db), user: User = Depends(require_user)) -> Response:
+def delete_zone(zone_id: int, session: Session = Depends(get_db)) -> Response:
     zone = session.get(MonitoringZone, zone_id)
-    if zone is None or zone.user_id != user.id:
+    if zone is None:
         raise HTTPException(status_code=404, detail="Зона не найдена")
     session.delete(zone)
     session.commit()
@@ -145,65 +144,73 @@ def delete_zone(zone_id: int, session: Session = Depends(get_db), user: User = D
 # ---------- правила уведомлений (R26; оценка — T07) ----------
 
 
+def _rule_out(session: Session, rule: AlertRule, fuel_code: str | None = None) -> AlertRuleOut:
+    code = fuel_code
+    if code is None and rule.fuel_type_id:
+        fuel = session.get(FuelType, rule.fuel_type_id)
+        code = fuel.code if fuel else None
+    return AlertRuleOut(
+        id=rule.id,
+        name=rule.name,
+        fuel_code=code,
+        distance_km=rule.distance_km,
+        status_filter=rule.status_filter,
+        confidence_min=rule.confidence_min,
+        queue_max=rule.queue_max,
+        scope=rule.scope,
+        is_active=rule.is_active,
+        trigger_count=rule.trigger_count,
+        last_event_at=rule.last_event_at,
+    )
+
+
+def _resolve_fuel(session: Session, fuel_code: str | None) -> int | None:
+    if not fuel_code:
+        return None
+    fuel = session.scalar(select(FuelType).where(FuelType.code == fuel_code))
+    if fuel is None:
+        raise HTTPException(status_code=422, detail=f"Неизвестный вид топлива: {fuel_code}")
+    return fuel.id
+
+
 @router.get("/alerts")
-def list_alerts(session: Session = Depends(get_db), user: User = Depends(require_user)) -> list[AlertRuleOut]:
-    return [AlertRuleOut(id=r.id, name=r.name, fuel_code=session.get(FuelType, r.fuel_type_id).code if r.fuel_type_id else None, distance_km=r.distance_km,
-                         status_filter=r.status_filter, confidence_min=r.confidence_min,
-                         queue_max=r.queue_max, scope=r.scope, is_active=r.is_active,
-                         trigger_count=r.trigger_count, last_event_at=r.last_event_at)
-            for r in session.scalars(select(AlertRule).where(AlertRule.user_id == user.id))]
+def list_alerts(session: Session = Depends(get_db)) -> list[AlertRuleOut]:
+    return [_rule_out(session, rule) for rule in session.scalars(select(AlertRule))]
 
 
 @router.post("/alerts", status_code=201)
-def create_alert(body: AlertRuleBody, session: Session = Depends(get_db), user: User = Depends(require_user)) -> AlertRuleOut:
-    count = session.scalar(select(func.count()).select_from(AlertRule).where(AlertRule.user_id == user.id))
-    if (count or 0) >= settings.max_rules_per_user:
-        raise HTTPException(status_code=400, detail=f"Достигнут лимит правил ({settings.max_rules_per_user})")
+def create_alert(body: AlertRuleBody, session: Session = Depends(get_db)) -> AlertRuleOut:
+    count = session.scalar(select(func.count()).select_from(AlertRule))
+    if (count or 0) >= settings.max_alert_rules:
+        raise HTTPException(status_code=400, detail=f"Достигнут лимит правил ({settings.max_alert_rules})")
     rule = AlertRule(
-        user_id=user.id, name=body.name, distance_km=body.distance_km,
+        name=body.name, distance_km=body.distance_km,
         status_filter=body.status_filter, confidence_min=body.confidence_min,
         queue_max=body.queue_max, scope=body.scope, is_active=body.is_active,
     )
-    if body.fuel_code:
-        from ..db.models import FuelType
-
-        fuel = session.scalar(select(FuelType).where(FuelType.code == body.fuel_code))
-        if fuel is None:
-            raise HTTPException(status_code=422, detail=f"Неизвестный вид топлива: {body.fuel_code}")
-        rule.fuel_type_id = fuel.id
+    rule.fuel_type_id = _resolve_fuel(session, body.fuel_code)
     session.add(rule)
     session.commit()
-    return AlertRuleOut(id=rule.id, name=rule.name, fuel_code=body.fuel_code, distance_km=rule.distance_km,
-                        status_filter=rule.status_filter, confidence_min=rule.confidence_min,
-                        queue_max=rule.queue_max, scope=rule.scope, is_active=rule.is_active)
+    return _rule_out(session, rule, body.fuel_code)
 
 
 @router.put("/alerts/{rule_id}")
-def update_alert(rule_id: int, body: AlertRuleBody, session: Session = Depends(get_db), user: User = Depends(require_user)) -> AlertRuleOut:
+def update_alert(rule_id: int, body: AlertRuleBody, session: Session = Depends(get_db)) -> AlertRuleOut:
     rule = session.get(AlertRule, rule_id)
-    if rule is None or rule.user_id != user.id:
+    if rule is None:
         raise HTTPException(status_code=404, detail="Правило не найдено")
     rule.name, rule.distance_km = body.name, body.distance_km
     rule.status_filter, rule.confidence_min = body.status_filter, body.confidence_min
     rule.queue_max, rule.scope, rule.is_active = body.queue_max, body.scope, body.is_active
-    rule.fuel_type_id = None
-    if body.fuel_code:
-        from ..db.models import FuelType
-
-        fuel = session.scalar(select(FuelType).where(FuelType.code == body.fuel_code))
-        if fuel is None:
-            raise HTTPException(status_code=422, detail=f"Неизвестный вид топлива: {body.fuel_code}")
-        rule.fuel_type_id = fuel.id
+    rule.fuel_type_id = _resolve_fuel(session, body.fuel_code)
     session.commit()
-    return AlertRuleOut(id=rule.id, name=rule.name, fuel_code=body.fuel_code, distance_km=rule.distance_km,
-                        status_filter=rule.status_filter, confidence_min=rule.confidence_min,
-                        queue_max=rule.queue_max, scope=rule.scope, is_active=rule.is_active)
+    return _rule_out(session, rule, body.fuel_code)
 
 
 @router.delete("/alerts/{rule_id}", status_code=204)
-def delete_alert(rule_id: int, session: Session = Depends(get_db), user: User = Depends(require_user)) -> Response:
+def delete_alert(rule_id: int, session: Session = Depends(get_db)) -> Response:
     rule = session.get(AlertRule, rule_id)
-    if rule is None or rule.user_id != user.id:
+    if rule is None:
         raise HTTPException(status_code=404, detail="Правило не найдено")
     session.delete(rule)
     session.commit()
@@ -213,7 +220,7 @@ def delete_alert(rule_id: int, session: Session = Depends(get_db), user: User = 
 # ---------- push-подписки браузера (T14, R64/R97i) ----------
 
 
-MAX_PUSH_SUBSCRIPTIONS_PER_USER = 10  # браузеры/устройства одного профиля
+MAX_PUSH_SUBSCRIPTIONS = 20  # устройства/браузеры, которые получают push приложения
 
 
 def _push_out(row: PushSubscription) -> PushSubscriptionOut:
@@ -231,12 +238,10 @@ def _push_out(row: PushSubscription) -> PushSubscriptionOut:
 
 
 @router.get("/push/subscriptions")
-def list_push_subscriptions(session: Session = Depends(get_db), user: User = Depends(require_user)) -> list[PushSubscriptionOut]:
+def list_push_subscriptions(session: Session = Depends(get_db)) -> list[PushSubscriptionOut]:
     return [
         _push_out(row)
-        for row in session.scalars(
-            select(PushSubscription).where(PushSubscription.user_id == user.id).order_by(PushSubscription.id)
-        )
+        for row in session.scalars(select(PushSubscription).order_by(PushSubscription.id))
     ]
 
 
@@ -245,25 +250,17 @@ def create_push_subscription(
     body: PushSubscriptionBody,
     request: Request,
     session: Session = Depends(get_db),
-    user: User = Depends(require_user),
 ) -> PushSubscriptionOut:
-    if user.is_blocked:
-        raise HTTPException(status_code=403, detail="Профиль заблокирован")
-
     # Идемпотентность: тот же endpoint → обновляем ключи (браузер их ротирует), не плодим строки.
-    # Лимит считаем только для НОВЫХ endpoint — иначе профиль на 10/10 не сможет
-    # переподписать уже существующий браузер (ротация ключей = тот же endpoint).
+    # Лимит считаем только для НОВЫХ endpoint — иначе на пределе нельзя переподписать
+    # уже существующий браузер (ротация ключей = тот же endpoint).
     row = session.scalar(select(PushSubscription).where(PushSubscription.endpoint == body.endpoint))
     if row is None:
-        count = session.scalar(select(func.count()).select_from(PushSubscription).where(PushSubscription.user_id == user.id))
-        if (count or 0) >= MAX_PUSH_SUBSCRIPTIONS_PER_USER:
-            raise HTTPException(status_code=400, detail=f"Достигнут лимит push-подписок ({MAX_PUSH_SUBSCRIPTIONS_PER_USER})")
+        count = session.scalar(select(func.count()).select_from(PushSubscription))
+        if (count or 0) >= MAX_PUSH_SUBSCRIPTIONS:
+            raise HTTPException(status_code=400, detail=f"Достигнут лимит push-подписок ({MAX_PUSH_SUBSCRIPTIONS})")
         row = PushSubscription(endpoint=body.endpoint)
         session.add(row)
-    if row.user_id != user.id:
-        # endpoint уже занят другим профилем: переподписка того же браузера под другим
-        # аккаунтом — легитимный сценарий, забираем подписку себе (старая перестаёт действовать).
-        row.user_id = user.id
     row.p256dh = body.keys["p256dh"]
     row.auth = body.keys["auth"]
     row.user_agent = (request.headers.get("user-agent") or "")[:256]
@@ -277,10 +274,9 @@ def create_push_subscription(
 def delete_push_subscription(
     subscription_id: int,
     session: Session = Depends(get_db),
-    user: User = Depends(require_user),
 ) -> Response:
     row = session.get(PushSubscription, subscription_id)
-    if row is None or row.user_id != user.id:
+    if row is None:
         raise HTTPException(status_code=404, detail="Подписка не найдена")
     session.delete(row)
     session.commit()

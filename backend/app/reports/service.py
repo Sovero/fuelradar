@@ -30,7 +30,7 @@ class ReportError(ValueError):
     """Ошибка отчёта, отображаемая в HTTP-код на уровне роутера."""
 
 
-def submit_report(session: Session, user_id: int, body: ReportBody) -> tuple[UserReport, bool]:
+def submit_report(session: Session, body: ReportBody) -> tuple[UserReport, bool]:
     """Возвращает (report, created). created=False — идемпотентный повтор (R39.1)."""
     existing = session.scalar(select(UserReport).where(UserReport.idempotency_key == body.idempotency_key))
     if existing is not None:
@@ -50,7 +50,6 @@ def submit_report(session: Session, user_id: int, body: ReportBody) -> tuple[Use
         gps_confirmed = distance_m < settings.gps_proximity_m  # R40: строго < 300 м
 
     report = UserReport(
-        user_id=user_id,
         station_id=body.station_id,
         latitude=body.lat,
         longitude=body.lon,
@@ -63,7 +62,10 @@ def submit_report(session: Session, user_id: int, body: ReportBody) -> tuple[Use
 
     provider_id = _user_reports_provider_id(session)
     statuses = StatusService(session)
-    user_reliability = statuses.reliability_score(user_id)
+    # Отчёты анонимны: отправитель один — тот, кто запустил приложение. Доверие к
+    # отчёту даёт не история конкретного человека, а подтверждение GPS (R40:
+    # GPS_BOOST/GPS_PENALTY в aggregate), поэтому берём базовый счёт из конфига.
+    user_reliability = settings.reliability_base
     observed_at = _now()
 
     for fuel_code, status in body.fuel.items():

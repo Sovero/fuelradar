@@ -7,8 +7,8 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from ..core.config import settings
 from .base import Base
-from .migrations import upgrade_auth, upgrade_prices, upgrade_spatial_index, upgrade_worker_jobs
-from .models import BootstrapState, FuelBrand, FuelType, SourceProvider, User
+from .migrations import upgrade_no_users, upgrade_prices, upgrade_spatial_index, upgrade_worker_jobs
+from .models import FuelBrand, FuelType, SourceProvider
 
 _engine = create_engine(
     settings.database_url,
@@ -84,7 +84,7 @@ def init_db() -> None:
     from .models import PushSubscription  # noqa: F401
 
     Base.metadata.create_all(_engine)
-    upgrade_auth(_engine)
+    upgrade_no_users(_engine)
     upgrade_worker_jobs(_engine)
     upgrade_spatial_index(_engine)
     upgrade_prices(_engine)
@@ -105,14 +105,6 @@ def init_db() -> None:
         for spec in SOURCE_PROVIDERS:
             if session.scalar(select(SourceProvider).where(SourceProvider.code == spec["code"])) is None:
                 session.add(SourceProvider(**spec))
-        # The singleton is initialized from the current database state so an
-        # upgraded deployment with an existing administrator cannot reopen the
-        # one-time bootstrap window.
-        bootstrap = session.get(BootstrapState, 1)
-        if bootstrap is None:
-            has_admin = session.scalar(select(User.id).where(User.role == "ADMIN").limit(1)) is not None
-            session.add(BootstrapState(id=1, completed=has_admin))
-
         session.commit()
 
 

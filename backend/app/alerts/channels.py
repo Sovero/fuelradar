@@ -1,4 +1,8 @@
-"""Каналы доставки (R36/R97i): in-app — всегда; Web Push/Telegram — по ключам .env.
+"""Каналы доставки (R36/R97i): in-app — всегда; Web Push — по ключам .env.
+
+Telegram здесь не доставляется: с уходом пользователей это канал-подписка
+одного чата по расписанию (см. app/digest/service.py), а не адресная доставка
+события конкретному профилю.
 
 Секреты никогда не логируются и не возвращаются (R68) — только имена переменных
 в сообщениях об ошибках/статусе. Сбой канала не должен ронять пересчёт
@@ -19,14 +23,10 @@ from __future__ import annotations
 import json
 import logging
 
-import httpx
-
 from ..core.config import settings
-from ..db.models import AlertEvent, Station, User
+from ..db.models import AlertEvent, Station
 
 logger = logging.getLogger("fuelradar.alerts.channels")
-
-TELEGRAM_API_URL = "https://api.telegram.org/bot{token}/sendMessage"
 
 # pywebpush — заявленная зависимость (requirements.txt); на случай окружения без
 # неё канал честно вернёт "error", а не уронит импорт всего alerts.
@@ -52,21 +52,17 @@ def web_push_configured() -> bool:
     return bool(settings.vapid_public_key and settings.vapid_private_key)
 
 
-def telegram_configured() -> bool:
-    return bool(settings.telegram_bot_token)
-
-
 def _event_text(event: AlertEvent, station: Station) -> str:
     title = _EVENT_TITLES_RU.get(event.event_type, event.event_type)
     name = station.canonical_name or station.id
     return f"FuelRadar: {title} — {name}"
 
 
-def send_web_push(user: User, event: AlertEvent, station: Station) -> str:
+def send_web_push(event: AlertEvent, station: Station) -> str:
     """R97i: без VAPID_PUBLIC_KEY/VAPID_PRIVATE_KEY — «не настроено»."""
     if not web_push_configured():
         return "not_configured"
-    return _send_web_push(user, event, station)
+    return _send_web_push(event, station)
 
 
 def _push_payload(event: AlertEvent, station: Station) -> dict:
@@ -79,8 +75,8 @@ def _push_payload(event: AlertEvent, station: Station) -> dict:
     }
 
 
-def _send_web_push(user: User, event: AlertEvent, station: Station) -> str:
-    """Отправка всем активным подпискам профиля (T14).
+def _send_web_push(event: AlertEvent, station: Station) -> str:
+    """Отправка всем активным подпискам приложения (T14).
 
     Возвращает агрегированный статус: not_configured | sent | partial | error.
     Ошибка одной подписки не отменяет остальные (R84-подобная изоляция).
@@ -94,9 +90,7 @@ def _send_web_push(user: User, event: AlertEvent, station: Station) -> str:
 
     with SessionLocal() as session:
         subscriptions = session.scalars(
-            select(PushSubscription).where(
-                PushSubscription.user_id == user.id, PushSubscription.is_active.is_(True)
-            )
+            select(PushSubscription).where(PushSubscription.is_active.is_(True))
         ).all()
         if not subscriptions:
             return "no_subscriptions"
@@ -156,23 +150,4 @@ def _send_one_web_push(session, row, payload: str) -> str:
     return "sent"
 
 
-def send_telegram(user: User, event: AlertEvent, station: Station) -> str:
-    """R97i: без TELEGRAM_BOT_TOKEN — «не настроено»; без telegram_id пользователя — некуда слать."""
-    if not telegram_configured():
-        return "not_configured"
-    if not user.telegram_id:
-        return "no_recipient"
-    return _send_telegram(user, event, station)
 
-
-def _send_telegram(user: User, event: AlertEvent, station: Station) -> str:
-    url = TELEGRAM_API_URL.format(token=settings.telegram_bot_token)
-    try:
-        response = httpx.post(
-            url, json={"chat_id": user.telegram_id, "text": _event_text(event, station)}, timeout=10.0,
-        )
-        response.raise_for_status()
-        return "sent"
-    except Exception as exc:  # noqa: BLE001 — сбой канала не должен ронять пересчёт (R84-подобная изоляция)
-        logger.exception("telegram sendMessage failed (user_id=%s): %s", user.id, type(exc).__name__)
-        return "error"

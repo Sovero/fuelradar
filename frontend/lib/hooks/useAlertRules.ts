@@ -10,26 +10,20 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { apiDelete, apiGet, apiPost, apiPut, ApiError } from "@/lib/api";
-import { useAuth } from "@/lib/hooks/useAuth";
 import type { AlertRuleBody, AlertRuleOut } from "@/lib/types";
 
 export function useAlertRules() {
-  const { user } = useAuth();
   const [rules, setRules] = useState<AlertRuleOut[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const load = useCallback(() => {
-    if (!user) {
-      setRules([]);
-      return;
-    }
     setLoading(true);
     apiGet<AlertRuleOut[]>("/alerts")
       .then(setRules)
       .catch((err: unknown) => setError(err instanceof ApiError ? err.message : "Не удалось загрузить правила"))
       .finally(() => setLoading(false));
-  }, [user]);
+  }, []);
 
   useEffect(() => {
     load();

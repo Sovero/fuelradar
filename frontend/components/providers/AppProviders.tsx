@@ -1,7 +1,6 @@
 "use client";
 
 import { MetaProvider } from "@/lib/hooks/useMeta";
-import { AuthProvider } from "@/lib/hooks/useAuth";
 import { ThemeProvider } from "@/lib/hooks/useTheme";
 import { I18nProvider } from "@/lib/hooks/useI18n";
 import { OnboardingProvider } from "@/lib/hooks/useOnboarding";
@@ -9,12 +8,12 @@ import { MapProviderPreferenceProvider } from "@/lib/hooks/useMapProviderPrefere
 import { PrivacyProvider } from "@/lib/hooks/usePrivacy";
 import { ObservationModeProvider } from "@/lib/hooks/useObservationMode";
 import { NetworkPreferencesProvider } from "@/lib/hooks/useNetworkPreferences";
-import { BootstrapGate } from "@/components/auth/BootstrapGate";
 
 /**
  * Общие провайдеры приложения — тема (R99), язык (R100), тур (R101), карта
- * OSM/Яндекс (R102.1), справочники (/meta), профиль (/auth/me), приватность
- * геолокации (R24), режим наблюдения (R25) и предпочтения сетей (R77).
+ * OSM/Яндекс (R102.1), справочники (/meta), приватность геолокации (R24),
+ * режим наблюдения (R25) и предпочтения сетей (R77). Профиля в приложении
+ * нет — AuthProvider/BootstrapGate удалены вместе с пользователями.
  */
 export function AppProviders({ children }: { children: React.ReactNode }) {
   return (
@@ -23,15 +22,11 @@ export function AppProviders({ children }: { children: React.ReactNode }) {
         <MapProviderPreferenceProvider>
           <OnboardingProvider>
             <MetaProvider>
-              <AuthProvider>
-                <BootstrapGate>
-                  <PrivacyProvider>
-                    <ObservationModeProvider>
-                      <NetworkPreferencesProvider>{children}</NetworkPreferencesProvider>
-                    </ObservationModeProvider>
-                  </PrivacyProvider>
-                </BootstrapGate>
-              </AuthProvider>
+              <PrivacyProvider>
+                <ObservationModeProvider>
+                  <NetworkPreferencesProvider>{children}</NetworkPreferencesProvider>
+                </ObservationModeProvider>
+              </PrivacyProvider>
             </MetaProvider>
           </OnboardingProvider>
         </MapProviderPreferenceProvider>

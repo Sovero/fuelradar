@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import logging
 import math
 import time
 from datetime import UTC, datetime, timedelta
@@ -36,6 +37,8 @@ from ..sources import SourceAdapter, build_adapter
 from ..sources.base import AuthError, RateLimitedError
 from ..stations.ingest import CatalogIngest
 from .locking import worker_lock
+
+logger = logging.getLogger("fuelradar.worker")
 
 
 def utcnow() -> datetime:
@@ -149,13 +152,13 @@ class Worker:
             kind = scope.get("type", "")
             if scope.get("station_id") == station.id:
                 return "P1"
-            if (kind == "favorites" or scope.get("favorites")) and any(
-                f.user_id == rule.user_id for f in favorites
-            ):
+            # Пользователей нет: «избранное» и зоны — один общий набор, поэтому
+            # правило по ним относится к любой станции из набора (сужает сам scope).
+            if (kind == "favorites" or scope.get("favorites")) and favorites:
                 return "P1"
             zone_id = scope.get("zone_id")
             zone = zones.get(zone_id)
-            if zone and zone.user_id == rule.user_id and in_zone(station, zone):
+            if zone and in_zone(station, zone):
                 return "P1"
             brand_id = scope.get("brand_id", scope.get("network_id"))
             if brand_id is not None and station.brand_id == brand_id:
@@ -250,6 +253,15 @@ class Worker:
                 refresh_analytics(db, now=at)
                 db.commit()
                 self._analytics_at = at
+            # Telegram-дайджест (R64): ту же защиту от дублей, что и сбор, —
+            # сводку берёт процесс, владеющий локом. Сбой канала не роняет сбор.
+            try:
+                from ..digest.service import maybe_send_digest
+                digest_status = maybe_send_digest(db, now=at)
+                if digest_status not in {"not_configured", "disabled", "not_due"}:
+                    logger.info("telegram digest: %s", digest_status)
+            except Exception as exc:  # noqa: BLE001 — канал не часть сбора (T07-правило изоляции)
+                logger.warning("telegram digest failed: %s", type(exc).__name__)
             return completed
 
     def _execute(self, db: Session, job: CollectionJob, provider: SourceProvider, at: datetime) -> None:

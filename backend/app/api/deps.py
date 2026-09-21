@@ -1,27 +1,29 @@
-"""Общие зависимости API (T05/M16): rate limiting, пользователь и RBAC."""
+"""Общие зависимости API: rate limiting.
+
+Пользователей в приложении нет: всё, что умеет система, доступно тому, кто её
+запустил. Поэтому здесь не осталось ни cookie-сессий, ни RBAC — только защита от
+случайного заливания API (общий лимит и отдельный, более строгий, для админ-API).
+"""
 
 from __future__ import annotations
 
-import logging
 import math
 import time
 from collections import defaultdict, deque
 from threading import Lock
 
-from fastapi import Depends, HTTPException, Request
-from sqlalchemy.orm import Session
+from fastapi import HTTPException, Request
 
-from ..auth.service import COOKIE_NAME, decode_access_token
 from ..core.config import settings
-from ..db.models import AdminActionLog, User
-from ..db.session import get_db
+
+# Кто «совершил» действие для журнала: единый локальный оператор (без входа).
+LOCAL_ACTOR = "local"
 
 _buckets: dict[str, deque[float]] = defaultdict(deque)
 _admin_buckets: dict[str, deque[float]] = defaultdict(deque)
 _admin_bucket_lock = Lock()
 _WINDOW_SECONDS = 60.0
 _ADMIN_WINDOW_SECONDS = 60.0
-logger = logging.getLogger("fuelradar.security")
 
 
 def reset_admin_rate_limit() -> None:
@@ -42,10 +44,11 @@ def _client_ip(request: Request) -> str:
 
 
 def admin_rate_limit(request: Request) -> None:
-    """Строгий per-IP лимит всех запросов к защищённым admin-API.
+    """Строгий per-IP лимит запросов к admin-API (управление источниками и каталогом).
 
-    В отличие от общего лимита API, этот бакет вызывается внутри RBAC-зависимостей
-    и поэтому защищает также GET и неуспешные проверки сессии. 0 — выключен.
+    Это не авторизация: приложение открыто целиком. Лимит нужен, чтобы случайный
+    или зацикленный клиент не положил админские операции (импорт, слияния).
+    0 — выключен.
     """
     limit = settings.admin_rate_limit_per_minute
     if limit <= 0:
@@ -84,117 +87,3 @@ def rate_limit(request: Request) -> None:
     if len(bucket) >= limit:
         raise HTTPException(status_code=429, detail="Слишком много запросов — попробуйте позже")
     bucket.append(now)
-
-
-def _audit_admin_auth_failure(session: Session, request: Request, reason: str) -> None:
-    """Записать безопасное предупреждение об отказе без сохранения токена.
-
-    Аудит не должен превращать поломку БД в 500 на auth endpoint: при ошибке
-    записи оставляем warning в системном логе и сохраняем исходную 401/403/503.
-    """
-    ip = _client_ip(request)
-    path = request.url.path.replace("\r", "").replace("\n", "")[:512]
-    payload = {"reason": reason, "method": request.method, "path": path, "ip": ip}
-    try:
-        session.add(
-            AdminActionLog(
-                actor="anonymous",
-                action="admin_auth_failed",
-                target_type="admin_auth",
-                target_id=ip[:64],
-                payload=payload,
-            )
-        )
-        session.commit()
-    except Exception:  # noqa: BLE001 — аудит не должен скрывать исходную auth-ошибку
-        try:
-            session.rollback()
-        except Exception:  # noqa: BLE001 — сессия может быть уже недоступна
-            pass
-        logger.exception("Could not persist failed admin-auth audit event")
-    logger.warning("Failed admin authentication: reason=%s method=%s path=%s ip=%s", reason, request.method, path, ip)
-
-
-def _user_from_cookie(request: Request, session: Session) -> User | None:
-    """Пользователь по cookie или None (карта анонимна, R65)."""
-    token = request.cookies.get(COOKIE_NAME)
-    if not token:
-        return None
-    user_id = decode_access_token(token)
-    if user_id is None:
-        return None
-    user = session.get(User, user_id)
-    if user is None or user.is_blocked:  # R41.1: блок админом закрывает доступ сразу
-        return None
-    return user
-
-
-def optional_user(request: Request, session: Session = Depends(get_db)) -> User | None:
-    """Пользователь по cookie или None (карта анонимна, R65)."""
-    return _user_from_cookie(request, session)
-
-
-def require_user(user: User | None = Depends(optional_user)) -> User:
-    """Персонализация — только с профилем (R65)."""
-    if user is None:
-        raise HTTPException(status_code=401, detail="Требуется вход: раздел доступен только с профилем")
-    return user
-
-
-def require_admin(
-    request: Request,
-    session: Session = Depends(get_db),
-    user: User | None = Depends(optional_user),
-) -> User:
-    """Require an authenticated ADMIN role for administrative mutations.
-
-    Authorization is tied to the database user and is reloaded on every request,
-    so role changes and blocks take effect immediately. Legacy ``X-Admin-Token``
-    headers are deliberately ignored and never grant access.
-    """
-    admin_rate_limit(request)
-    if user is None:
-        if request.headers.get("X-Admin-Token"):
-            reason = "legacy_header_ignored"
-        elif request.cookies.get(COOKIE_NAME):
-            reason = "invalid_session"
-        else:
-            reason = "missing_session"
-        _audit_admin_auth_failure(session, request, reason)
-        raise HTTPException(status_code=401, detail="Требуется вход администратора")
-    if user.role != "ADMIN":
-        _audit_admin_auth_failure(session, request, "forbidden_role")
-        raise HTTPException(status_code=403, detail="Недостаточно прав: требуется роль ADMIN")
-    return user
-
-
-def require_operator(
-    request: Request,
-    session: Session = Depends(get_db),
-    user: User | None = Depends(optional_user),
-) -> User:
-    """Require an authenticated OPERATOR or ADMIN for read-only operations."""
-    admin_rate_limit(request)
-    if user is None:
-        if request.headers.get("X-Admin-Token"):
-            reason = "legacy_header_ignored"
-        else:
-            reason = "missing_session"
-        _audit_admin_auth_failure(session, request, reason)
-        raise HTTPException(status_code=401, detail="Требуется вход оператора")
-    if user.role not in {"OPERATOR", "ADMIN"}:
-        _audit_admin_auth_failure(session, request, "forbidden_role")
-        raise HTTPException(status_code=403, detail="Недостаточно прав: требуется роль OPERATOR или ADMIN")
-    return user
-
-
-def set_auth_cookie(response_cookie_setter, token: str) -> None:
-    response_cookie_setter(
-        COOKIE_NAME,
-        token,
-        httponly=True,
-        samesite="lax",
-        secure=settings.cookie_secure,
-        max_age=7 * 24 * 3600,
-        path="/",
-    )

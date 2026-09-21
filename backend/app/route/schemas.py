@@ -1,4 +1,4 @@
-"""Request and response contracts for Route Mode (R22)."""
+"""Request and response contracts for Route Mode (R22) and road routing (R22.1)."""
 
 from __future__ import annotations
 
@@ -14,21 +14,10 @@ class RoutePoint(BaseModel):
     lon: float = Field(ge=-180, le=180)
 
 
-class RouteStationsRequest(BaseModel):
-    """Polyline corridor and the standard station fuel filters."""
+class PolylineRequest(BaseModel):
+    """Точки в порядке движения; компактный формат ``[[lat, lon], ...]`` тоже принимается."""
 
     polyline: list[RoutePoint] = Field(min_length=2, max_length=100)
-    corridor_km: float = Field(default=5, ge=0.5, le=50)
-    city: str | None = None
-    brand: str | None = None
-    fuel: str | None = None
-    status: str | None = None
-    confidence_min: int | None = None
-    queue_max: str | None = None
-    price_max: float | None = Field(default=None, gt=0)  # R78.1 — «дешевле X» вдоль коридора
-    preferred_brands: str | None = None
-    limit: int = Field(default=100, ge=1, le=100)
-    offset: int = Field(default=0, ge=0)
 
     @field_validator("polyline", mode="before")
     @classmethod
@@ -43,6 +32,55 @@ class RouteStationsRequest(BaseModel):
             else:
                 converted.append(point)
         return converted
+
+
+class RoutePlanRequest(PolylineRequest):
+    """Точки в том же порядке, что и у коридора: начало → промежуточные → конец.
+
+    Профиль движения клиентом не выбирается — он берётся из конфигурации (R22.1).
+    """
+
+
+class RoutePlanStep(BaseModel):
+    """Шаг маршрута: машиночитаемый тип + улица + длина/время (перевод — на фронте)."""
+
+    type: str
+    modifier: str | None = None
+    street: str | None = None
+    distance_m: float
+    duration_s: float
+
+
+class RoutePlanResponse(BaseModel):
+    """Дорожный маршрут либо честный отказ с причиной (R97i).
+
+    При ``is_road_route = False`` фронтенд рисует прямую линию и объясняет, почему
+    дорожный маршрут не построен: ``reason`` — машинный код, а не готовый текст.
+    """
+
+    is_road_route: bool
+    provider: str | None = None
+    distance_km: float | None = None
+    duration_min: float | None = None
+    geometry: list[RoutePoint] | None = None
+    steps: list[RoutePlanStep] = Field(default_factory=list)
+    reason: str | None = None
+
+
+class RouteStationsRequest(PolylineRequest):
+    """Polyline corridor and the standard station fuel filters."""
+
+    corridor_km: float = Field(default=5, ge=0.5, le=50)
+    city: str | None = None
+    brand: str | None = None
+    fuel: str | None = None
+    status: str | None = None
+    confidence_min: int | None = None
+    queue_max: str | None = None
+    price_max: float | None = Field(default=None, gt=0)  # R78.1 — «дешевле X» вдоль коридора
+    preferred_brands: str | None = None
+    limit: int = Field(default=100, ge=1, le=100)
+    offset: int = Field(default=0, ge=0)
 
 
 class RouteStation(StationBrief):

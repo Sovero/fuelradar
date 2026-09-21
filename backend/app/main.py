@@ -5,6 +5,8 @@ CORS — белый список из .env (R66); сбор источников 
 
 from __future__ import annotations
 
+import asyncio
+import contextlib
 import logging
 import time
 from contextlib import asynccontextmanager
@@ -33,11 +35,44 @@ logger = logging.getLogger("fuelradar")
 _STARTED_AT = time.time()
 
 
+def _digest_tick() -> str:
+    """Одна попытка отправки сводки (блокирующая — вызывается в отдельном потоке)."""
+    from .digest.service import maybe_send_digest
+    from .worker.locking import worker_lock
+
+    with SessionLocal() as session, worker_lock(session.get_bind()) as acquired:
+        if not acquired:
+            return "busy"  # сводку отправит владелец лока (воркер/другой процесс)
+        return maybe_send_digest(session)
+
+
+async def _digest_ticker() -> None:
+    """Telegram-дайджест без воркера (десктоп-оболочка, простой запуск API).
+
+    Пользователей нет — расписание живёт в самом приложении. Если рядом работает
+    воркер, лок не достанется и дубля не будет (см. worker.locking).
+    """
+    while True:
+        await asyncio.sleep(60)
+        try:
+            status = await asyncio.to_thread(_digest_tick)
+            if status not in {"not_configured", "disabled", "not_due", "busy"}:
+                logger.info("telegram digest: %s", status)
+        except Exception as exc:  # noqa: BLE001 — фоновый канал не роняет API
+            logger.warning("telegram digest tick failed: %s", type(exc).__name__)
+
+
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     init_db()
     logger.info("DB initialized")
-    yield
+    digest_task = asyncio.create_task(_digest_ticker())
+    try:
+        yield
+    finally:
+        digest_task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await digest_task
 
 
 app = FastAPI(title=settings.app_name, version="0.1.0", lifespan=lifespan)

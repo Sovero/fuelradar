@@ -3,9 +3,9 @@
 import { useMemo, useState } from "react";
 import { FiltersProvider, useFilters } from "@/lib/hooks/useFilters";
 import { useMeta } from "@/lib/hooks/useMeta";
-import { useAuth } from "@/lib/hooks/useAuth";
 import { useI18n } from "@/lib/hooks/useI18n";
 import { useStations } from "@/lib/hooks/useStations";
+import { useRoutePlan } from "@/lib/hooks/useRoutePlan";
 import { useRouteStations } from "@/lib/hooks/useRouteStations";
 import { useHeat } from "@/lib/hooks/useHeat";
 import { useRealtime } from "@/lib/hooks/useRealtime";
@@ -13,7 +13,7 @@ import { useFavorites } from "@/lib/hooks/useFavorites";
 import { useObservationMode } from "@/lib/hooks/useObservationMode";
 import { useNetworkPreferences } from "@/lib/hooks/useNetworkPreferences";
 import { countConfirmed } from "@/lib/availability";
-import { midpointAlong, polylineLengthKm } from "@/lib/geo";
+import { decimatePolyline, midpointAlong, polylineLengthKm } from "@/lib/geo";
 import { formatDistance, formatEtaMinutes } from "@/lib/format";
 import { applyObservationMode, applyPreferredBrandsOrder } from "@/lib/personalization";
 import { apiPost, ApiError } from "@/lib/api";
@@ -21,7 +21,6 @@ import { Header } from "@/components/layout/Header";
 import { TopControls } from "@/components/layout/TopControls";
 import { FuelQuickFilters } from "@/components/layout/FuelQuickFilters";
 import { Tabs } from "@/components/layout/Tabs";
-import { LoginPanel } from "@/components/layout/LoginPanel";
 import { FiltersPanel } from "@/components/filters/FiltersPanel";
 import { MapView } from "@/components/map/MapView";
 import { StationList } from "@/components/station/StationList";
@@ -44,10 +43,8 @@ export function HomeScreen() {
 
 function HomeScreenBody() {
   const { filters, setFilters } = useFilters();
-  const { user } = useAuth();
   const { fuelLabel, meta } = useMeta();
   const { t } = useI18n();
-  const [loginOpen, setLoginOpen] = useState(false);
   const [alertBusy, setAlertBusy] = useState(false);
   const [alertCreated, setAlertCreated] = useState(false);
   const [alertError, setAlertError] = useState<string | null>(null);
@@ -99,11 +96,29 @@ function HomeScreenBody() {
   // последнем успешном ответе (и офлайн-кэше), EventSource переподключится сам.
   const realtimeState = useRealtime({ onRevision: () => refetch() });
   const routeReady = routeActive && routePoints.length >= 2;
+  // R22.1: линия маршрута идёт по дорогам и улицам (роутер из конфигурации,
+  // профиль driving — односторонние улицы и запреты поворотов учитывает граф
+  // провайдера). Пока роутер не ответил или недоступен, линия — прямая по точкам,
+  // как раньше, и панель честно говорит почему (R97i).
+  const { plan: routePlan, loading: routePlanLoading, error: routePlanError } = useRoutePlan(
+    routeReady,
+    routePoints,
+  );
+  const roadGeometry =
+    routePlan?.is_road_route && routePlan.geometry && routePlan.geometry.length >= 2
+      ? routePlan.geometry
+      : null;
+  // Коридор станций считается по дорожной линии, когда она есть: иначе «АЗС в
+  // коридоре» подсвечивались бы вдоль прямой, а не вдоль дороги. API принимает до
+  // 100 точек, поэтому длинную геометрию прореживаем.
+  const corridorPolyline = useMemo(
+    () => (roadGeometry ? decimatePolyline(roadGeometry, 100) : routePoints),
+    [roadGeometry, routePoints],
+  );
   // Кнопка «Маршрут» в карточке станции: маршрут на ВНУТРЕННЕЙ карте — режим
   // коридора включается, станция становится точкой назначения, старт — позиция
   // пользователя (если определена: GPS/IP/ручная точка из «Найти рядом»), иначе
-  // старт добавляется кликом по карте. Автомобильная навигация не строится
-  // (routing-провайдера нет — честная оговорка панели коридора).
+  // старт добавляется кликом по карте. Линия идёт по дорогам (R22.1).
   const handleBuildRoute = (stationLat: number, stationLon: number) => {
     const start = filters.lat !== null && filters.lon !== null ? [{ lat: filters.lat, lon: filters.lon }] : [];
     setRoutePoints([...start, { lat: stationLat, lon: stationLon }]);
@@ -112,7 +127,7 @@ function HomeScreenBody() {
   };
   const routeQuery = useMemo(
     () => ({
-      polyline: routePoints,
+      polyline: corridorPolyline,
       corridor_km: routeCorridorKm,
       brand: filters.brand ?? undefined,
       fuel: filters.fuels.length === 1 ? filters.fuels[0] : undefined,
@@ -124,15 +139,27 @@ function HomeScreenBody() {
       limit: 100,
       preferred_brands: preferredBrandsParam,
     }),
-    [routePoints, routeCorridorKm, filters.brand, filters.fuels, filters.status, filters.confidenceMin, filters.queueMax, filters.priceMax, preferredBrandsParam],
+    [corridorPolyline, routeCorridorKm, filters.brand, filters.fuels, filters.status, filters.confidenceMin, filters.queueMax, filters.priceMax, preferredBrandsParam],
   );
   const { stations: routeStations, loading: routeLoading, error: routeError } = useRouteStations(routeReady, routeQuery);
   const visibleStations = routeReady ? routeStations : stations;
 
-  // Подпись на линии маршрута: расстояние по прямой + ETA по средней скорости
-  // из /meta (тот же источник, что у Score; маршрута по дорогам нет — честно).
+  // Подпись на линии маршрута: по дорогам — расстояние и время из роутера
+  // (R22.1); если дорожного маршрута нет — по прямой и средней скорости из /meta.
   const routeLabel: RouteLineLabel | null = useMemo(() => {
     if (!routeReady) return null;
+    if (roadGeometry && routePlan?.distance_km) {
+      const roadPoint = midpointAlong(roadGeometry);
+      if (!roadPoint) return null;
+      const roadMinutes = routePlan.duration_min;
+      return {
+        text:
+          formatDistance(routePlan.distance_km) +
+          (roadMinutes !== null ? ` · ~${formatEtaMinutes(roadMinutes)}` : ""),
+        lat: roadPoint.lat,
+        lon: roadPoint.lon,
+      };
+    }
     const km = polylineLengthKm(routePoints);
     if (!(km > 0)) return null;
     const speed = meta?.avg_speed_kmh;
@@ -140,7 +167,7 @@ function HomeScreenBody() {
     const point = midpointAlong(routePoints);
     if (!point) return null;
     return { text: formatDistance(km) + (minutes !== null ? ` · ~${formatEtaMinutes(minutes)}` : ""), lat: point.lat, lon: point.lon };
-  }, [routeReady, routePoints, meta]);
+  }, [routeReady, routePoints, roadGeometry, routePlan, meta]);
 
   // Станции коридора подсвечиваются на карте (маршрут из карточки или ручной).
   const highlightedStationIds = useMemo(
@@ -181,10 +208,6 @@ function HomeScreenBody() {
   const routeIsEmpty = routeReady && !visibleLoading && !visibleError && personalized.length === 0;
 
   async function handleCreateAlert() {
-    if (!user) {
-      setLoginOpen(true);
-      return;
-    }
     setAlertBusy(true);
     setAlertError(null);
     try {
@@ -218,6 +241,9 @@ function HomeScreenBody() {
         active={routeActive}
         points={routePoints}
         corridorKm={routeCorridorKm}
+        plan={routePlan}
+        planLoading={routePlanLoading}
+        planError={routePlanError}
         onActiveChange={(active) => {
           setRouteActive(active);
           if (active) setFilters({ tab: "map" });
@@ -260,7 +286,7 @@ function HomeScreenBody() {
                   selectedStationId={filters.station}
                   onSelectStation={(id) => setFilters({ station: id })}
                   focus={focus}
-                  routePolyline={routeActive ? routePoints : undefined}
+                  routePolyline={routeActive ? (roadGeometry ?? routePoints) : undefined}
                   routeLabel={routeLabel}
                   highlightedStationIds={highlightedStationIds.length ? highlightedStationIds : undefined}
                   onMapClick={routeActive ? (point) => setRoutePoints((current) => [...current, point].slice(0, 100)) : undefined}
@@ -321,7 +347,6 @@ function HomeScreenBody() {
         )}
       </main>
 
-      {loginOpen && <LoginPanel onClose={() => setLoginOpen(false)} />}
       <OnboardingTour />
     </div>
   );

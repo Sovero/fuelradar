@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test";
 
-import { mockAuthUser, mockReportAccepted, primeDeviceState, setupBase } from "./mocks";
+import { mockReportAccepted, primeDeviceState, setupBase } from "./mocks";
 import { assertNoConsoleErrors, watchConsoleErrors } from "./console";
 
 /**
@@ -13,7 +13,6 @@ import { assertNoConsoleErrors, watchConsoleErrors } from "./console";
 test("сообщить о наличии топлива с GPS-подтверждением", async ({ page }) => {
   const errors = watchConsoleErrors(page);
   await setupBase(page);
-  await mockAuthUser(page);
   await mockReportAccepted(page);
   await primeDeviceState(page);
 
@@ -30,23 +29,6 @@ test("сообщить о наличии топлива с GPS-подтверж�
   await page.getByRole("button", { name: "Есть", exact: true }).first().click();
   await page.getByRole("button", { name: "Отправить" }).click();
   await expect(page.getByText(/Отчёт сохранён/)).toBeVisible();
-
-  assertNoConsoleErrors(errors);
-});
-
-/** Без профиля «Сообщить» не открывает форму, а зовёт на вход (R65/R30.2). */
-test("гость у кнопки «Сообщить» получает приглашение на вход", async ({ page }) => {
-  const errors = watchConsoleErrors(page);
-  await setupBase(page);
-  await primeDeviceState(page);
-
-  await page.goto("/?tab=list");
-  await page.getByRole("button", { name: /Лукойл.*92%/ }).click();
-
-  // Карточка открыта, но форму без профиля не открыть: LoginPanel вместо ReportForm.
-  await page.getByRole("button", { name: /Сообщить/ }).click();
-  await expect(page.getByRole("heading", { name: /Вход/ })).toBeVisible();
-  await expect(page.getByText(/Вы рядом со станцией/)).toHaveCount(0);
 
   assertNoConsoleErrors(errors);
 });

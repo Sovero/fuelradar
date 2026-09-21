@@ -23,7 +23,6 @@ from app.db.models import (
     SourceStationRecord,
     Station,
     StationExternalId,
-    User,
 )
 from app.sources.base import HealthResult, RateLimitedError, SourceAdapter, SourceRecord
 from app.worker import Worker, schedule_priority_job
@@ -58,7 +57,7 @@ def worker_db(tmp_path):
     factory = sessionmaker(engine)
     with factory() as db:
         db.add_all([FuelType(code="AI_95", display_name_ru="95"),
-                    FuelType(code="UNKNOWN", display_name_ru="Unknown"), User(id=1)])
+                    FuelType(code="UNKNOWN", display_name_ru="Unknown")])
         db.commit()
     yield factory
     engine.dispose()
@@ -222,14 +221,14 @@ def test_priority_uses_rule_favorite_and_zone(worker_db):
         db.add(station)
         db.commit()
         assert worker.station_priority(db, station) == "P4"
-        zone = MonitoringZone(user_id=1, zone_type="CITY", params={"city": "Town"})
+        zone = MonitoringZone(zone_type="CITY", params={"city": "Town"})
         db.add(zone)
         db.commit()
         assert worker.station_priority(db, station) == "P3"
-        db.add(Favorite(user_id=1, station_id="s"))
+        db.add(Favorite(station_id="s"))
         db.commit()
         assert worker.station_priority(db, station) == "P2"
-        db.add(AlertRule(user_id=1, scope={"type": "zone", "zone_id": zone.id}))
+        db.add(AlertRule(scope={"type": "zone", "zone_id": zone.id}))
         db.commit()
         assert worker.station_priority(db, station) == "P1"
 

@@ -17,7 +17,6 @@ import { HistoryChart } from "@/components/station/HistoryChart";
 import { RouteButton } from "@/components/station/RouteButton";
 import { FavoriteButton } from "@/components/station/FavoriteButton";
 import { ReportButton } from "@/components/station/ReportButton";
-import { LoginPanel } from "@/components/layout/LoginPanel";
 import { formatDistance, formatEtaMinutes } from "@/lib/format";
 
 export function StationCard({
@@ -39,7 +38,6 @@ export function StationCard({
   const { t } = useI18n();
   const { settings: observationSettings, toggleExcluded, isExcluded } = useObservationMode();
   const [historyFuel, setHistoryFuel] = useState<string | null>(null);
-  const [loginOpen, setLoginOpen] = useState(false);
 
   useEffect(() => {
     if (station && !historyFuel && station.statuses.length) {
@@ -132,12 +130,11 @@ export function StationCard({
 
           <div className="flex gap-2 pt-2">
             <RouteButton lat={station.latitude} lon={station.longitude} onBuildRoute={onBuildRoute} />
-            <FavoriteButton stationId={station.id} onRequireLogin={() => setLoginOpen(true)} />
+            <FavoriteButton stationId={station.id} />
             <ReportButton
               stationId={station.id}
               stationLat={station.latitude}
               stationLon={station.longitude}
-              onRequireLogin={() => setLoginOpen(true)}
             />
           </div>
 
@@ -153,7 +150,6 @@ export function StationCard({
         </div>
       )}
 
-      {loginOpen && <LoginPanel onClose={() => setLoginOpen(false)} />}
     </div>
   );
 }

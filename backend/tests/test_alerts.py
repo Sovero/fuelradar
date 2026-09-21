@@ -30,7 +30,7 @@ from app.alerts.models import AlertStateSnapshot
 from app.alerts.service import evaluate_rules
 from app.confidence.service import StatusService
 from app.core.config import settings
-from app.db.models import AlertEvent, AlertRule, Favorite, FuelType, SourceProvider, Station, User
+from app.db.models import AlertEvent, AlertRule, Favorite, FuelType, SourceProvider, Station
 
 pytestmark = pytest.mark.usefixtures("client")  # форсируем полную регистрацию моделей (app.main) до init_db
 
@@ -99,15 +99,6 @@ def _station(db_session, station_id: str, **kwargs) -> Station:
     return station
 
 
-def _user(db_session, telegram_id: str) -> User:
-    user = db_session.scalar(select(User).where(User.telegram_id == telegram_id))
-    if user is None:
-        user = User(telegram_id=telegram_id)
-        db_session.add(user)
-        db_session.flush()
-    return user
-
-
 def _cleanup_rule(db_session, rule: AlertRule) -> None:
     """Не оставлять активные правила на общей тестовой БД (see T05/T06 incident)."""
     db_session.delete(rule)
@@ -118,8 +109,7 @@ def test_one_notification_when_status_becomes_available(db_session):
     """§127-подобный сценарий: правило «следить» → статус стал AVAILABLE → одно уведомление."""
     station = _station(db_session, "fr_station_970001")
     provider = _provider(db_session, "t07_official", trust=0.9)
-    user = _user(db_session, "t07-user-1")
-    rule = AlertRule(user_id=user.id, scope={"station_id": station.id}, status_filter="AVAILABLE", is_active=True)
+    rule = AlertRule(scope={"station_id": station.id}, status_filter="AVAILABLE", is_active=True)
     db_session.add(rule)
     db_session.commit()
     try:
@@ -145,8 +135,7 @@ def test_no_repeat_notification_when_status_stays_available(db_session):
     """R37: AVAILABLE → AVAILABLE повторно не шлёт уведомление."""
     station = _station(db_session, "fr_station_970002")
     provider = _provider(db_session, "t07_official2", trust=0.9)
-    user = _user(db_session, "t07-user-2")
-    rule = AlertRule(user_id=user.id, scope={"station_id": station.id}, status_filter="AVAILABLE", is_active=True)
+    rule = AlertRule(scope={"station_id": station.id}, status_filter="AVAILABLE", is_active=True)
     db_session.add(rule)
     db_session.commit()
     try:
@@ -168,8 +157,7 @@ def test_three_confirmations_within_window_yield_one_notification(db_session):
     fuel_type_id для QUEUE_*), даёт ровно одно уведомление в окне 5 минут."""
     station = _station(db_session, "fr_station_970003")
     provider = _provider(db_session, "t07_queue_src", trust=0.9)
-    user = _user(db_session, "t07-user-3")
-    rule = AlertRule(user_id=user.id, scope={"station_id": station.id}, is_active=True)
+    rule = AlertRule(scope={"station_id": station.id}, is_active=True)
     db_session.add(rule)
     db_session.commit()
     try:
@@ -200,8 +188,7 @@ def test_confidence_min_gates_notification(db_session):
     # trust ниже confidence_min_weight (по умолчанию 0.30) → единственный голос
     # не набирает минимальный вес → UNCERTAIN, confidence <= 50 (R19.1).
     provider = _provider(db_session, "t07_weak_src", trust=0.15)
-    user = _user(db_session, "t07-user-4")
-    rule = AlertRule(user_id=user.id, scope={"station_id": station.id}, confidence_min=90, is_active=True)
+    rule = AlertRule(scope={"station_id": station.id}, confidence_min=90, is_active=True)
     db_session.add(rule)
     db_session.commit()
     try:
@@ -220,9 +207,8 @@ def test_favorites_scope_only_matches_favorited_station(db_session):
     watched = _station(db_session, "fr_station_970005")
     other = _station(db_session, "fr_station_970006")
     provider = _provider(db_session, "t07_fav_src", trust=0.9)
-    user = _user(db_session, "t07-user-5")
-    db_session.add(Favorite(user_id=user.id, station_id=watched.id))
-    rule = AlertRule(user_id=user.id, scope={"type": "favorites"}, is_active=True)
+    db_session.add(Favorite(station_id=watched.id))
+    rule = AlertRule(scope={"type": "favorites"}, is_active=True)
     db_session.add(rule)
     db_session.commit()
     try:
@@ -239,25 +225,8 @@ def test_favorites_scope_only_matches_favorited_station(db_session):
     finally:
         db_session.query(AlertEvent).filter(AlertEvent.rule_id == rule.id).delete()
         db_session.commit()
-        db_session.query(Favorite).filter(Favorite.user_id == user.id).delete()
+        db_session.query(Favorite).filter(Favorite.station_id == watched.id).delete()
         db_session.commit()
-        _cleanup_rule(db_session, rule)
-
-
-def test_rule_with_missing_user_is_skipped_without_crashing(db_session):
-    """Защита от мусора: правило на несуществующего пользователя не роняет оценку."""
-    station = _station(db_session, "fr_station_970007")
-    provider = _provider(db_session, "t07_orphan_src", trust=0.9)
-    rule = AlertRule(user_id=999_999_999, scope={"station_id": station.id}, is_active=True)
-    db_session.add(rule)
-    db_session.commit()
-    try:
-        service = StatusService(db_session)
-        service.record_fuel_observation(station.id, "AI_95", "AVAILABLE", provider.id, observed_at=_ago(1))  # не должно бросить исключение
-        assert db_session.scalar(
-            select(func.count()).select_from(AlertEvent).where(AlertEvent.rule_id == rule.id)
-        ) == 0
-    finally:
         _cleanup_rule(db_session, rule)
 
 
@@ -282,89 +251,40 @@ def test_snapshot_cache_persists_between_calls(db_session):
     assert snapshot.status == "AVAILABLE"
 
 
-# ---------- каналы доставки (R97i) ----------
+# ---------- канал Web Push (R64/R97i) ----------
 
 
 def test_web_push_not_configured_without_keys(monkeypatch):
     monkeypatch.setattr(settings, "vapid_public_key", "")
     monkeypatch.setattr(settings, "vapid_private_key", "")
-    user = User(id=1, telegram_id=None)
-    event = AlertEvent(id=1, user_id=1, station_id="x", event_type="FUEL_APPEARED", payload={})
+    event = AlertEvent(id=1, station_id="x", event_type="FUEL_APPEARED", payload={})
     station = Station(id="x", latitude=1, longitude=1)
-    assert channels.send_web_push(user, event, station) == "not_configured"
+    assert channels.send_web_push(event, station) == "not_configured"
 
 
-def test_web_push_without_subscriptions_is_honest(monkeypatch):
+def test_web_push_without_subscriptions_is_honest(client, db_session, monkeypatch):
     """T14: ключи заданы, но хранилище подписок пусто — честный статус, не «sent»."""
+    from sqlalchemy import select as _select
+
+    from app.db.models import PushSubscription
+
     monkeypatch.setattr(settings, "vapid_public_key", "pub-key")
     monkeypatch.setattr(settings, "vapid_private_key", "priv-key")
-    user = User(id=1, telegram_id=None)
-    event = AlertEvent(id=1, user_id=1, station_id="x", event_type="FUEL_APPEARED", payload={})
+    for row in db_session.scalars(_select(PushSubscription)).all():
+        db_session.delete(row)
+    db_session.commit()
+    event = AlertEvent(id=1, station_id="x", event_type="FUEL_APPEARED", payload={})
     station = Station(id="x", latitude=1, longitude=1)
-    assert channels.send_web_push(user, event, station) == "no_subscriptions"
-
-
-def test_telegram_not_configured_without_token(monkeypatch):
-    monkeypatch.setattr(settings, "telegram_bot_token", "")
-    user = User(id=1, telegram_id="12345")
-    event = AlertEvent(id=1, user_id=1, station_id="x", event_type="FUEL_APPEARED", payload={})
-    station = Station(id="x", latitude=1, longitude=1)
-    assert channels.send_telegram(user, event, station) == "not_configured"
-
-
-def test_telegram_no_recipient_without_telegram_id(monkeypatch):
-    monkeypatch.setattr(settings, "telegram_bot_token", "123:ABC")
-    user = User(id=1, telegram_id=None)
-    event = AlertEvent(id=1, user_id=1, station_id="x", event_type="FUEL_APPEARED", payload={})
-    station = Station(id="x", latitude=1, longitude=1)
-    assert channels.send_telegram(user, event, station) == "no_recipient"
-
-
-def test_telegram_sends_via_mocked_http_when_configured(monkeypatch):
-    monkeypatch.setattr(settings, "telegram_bot_token", "123:ABC")
-    calls = []
-
-    class FakeResponse:
-        def raise_for_status(self) -> None:
-            return None
-
-    def fake_post(url, json=None, timeout=None):
-        calls.append((url, json))
-        return FakeResponse()
-
-    monkeypatch.setattr(channels.httpx, "post", fake_post)
-    user = User(id=1, telegram_id="98765")
-    event = AlertEvent(id=1, user_id=1, station_id="x", event_type="FUEL_APPEARED", payload={})
-    station = Station(id="x", canonical_name="Тест АЗС", latitude=1, longitude=1)
-    assert channels.send_telegram(user, event, station) == "sent"
-    assert len(calls) == 1
-    assert calls[0][1]["chat_id"] == "98765"
-
-
-def test_telegram_send_failure_returns_error_without_raising(monkeypatch):
-    monkeypatch.setattr(settings, "telegram_bot_token", "123:ABC")
-
-    def fake_post(url, json=None, timeout=None):
-        raise RuntimeError("network down")
-
-    monkeypatch.setattr(channels.httpx, "post", fake_post)
-    user = User(id=1, telegram_id="98765")
-    event = AlertEvent(id=1, user_id=1, station_id="x", event_type="FUEL_APPEARED", payload={})
-    station = Station(id="x", latitude=1, longitude=1)
-    assert channels.send_telegram(user, event, station) == "error"
+    assert channels.send_web_push(event, station) == "no_subscriptions"
 
 
 # ---------- лента уведомлений (A03) ----------
 
 
 def test_notifications_feed_and_read_reset(client, db_session):
-    client.post("/api/v1/auth/dev-login", json={"telegram_id": "t07-notif-user"})
-    me = client.get("/api/v1/auth/me").json()["user"]
-    user_id = me["id"]
-
     station = _station(db_session, "fr_station_970009")
     provider = _provider(db_session, "t07_notif_src", trust=0.9)
-    rule = AlertRule(user_id=user_id, scope={"station_id": station.id}, status_filter="AVAILABLE", is_active=True)
+    rule = AlertRule(scope={"station_id": station.id}, status_filter="AVAILABLE", is_active=True)
     db_session.add(rule)
     db_session.commit()
     try:
@@ -382,7 +302,6 @@ def test_notifications_feed_and_read_reset(client, db_session):
 
         page_after = client.get("/api/v1/notifications").json()
         assert page_after["unread_count"] == 0
-        client.post("/api/v1/auth/logout")
     finally:
         db_session.query(AlertEvent).filter(AlertEvent.rule_id == rule.id).delete()
         db_session.commit()

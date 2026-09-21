@@ -10,7 +10,13 @@ from ..alerts.channels import web_push_configured
 from ..core.config import settings
 from ..db.models import FuelBrand, FuelType, SourceProvider, StationBrand
 from ..db.session import get_db
+from ..digest.service import load_telegram_settings
 from ..fuel_status import FUEL_STATUSES, QUEUE_LEVELS
+
+
+def telegram_digest_configured(session: Session) -> bool:
+    """Настроен ли Telegram-дайджест (токен + чат + интервал > 0)."""
+    return load_telegram_settings(session).configured
 
 router = APIRouter(tags=["meta"])
 
@@ -109,11 +115,10 @@ def meta(session: Session = Depends(get_db)) -> dict:
             "enabled": web_push_configured(),
             "vapid_public_key": settings.vapid_public_key if web_push_configured() else None,
         },
-        # Вход через Telegram (R97i): имя бота — не секрет, но отдаём его только
-        # при настроенном токене: иначе фронт показал бы виджет, а backend
-        # отклонил бы вход. Один источник правды для видимости канала.
-        "telegram_login": {
-            "enabled": bool(settings.telegram_bot_token and settings.telegram_bot_username),
-            "bot_username": settings.telegram_bot_username if settings.telegram_bot_token else None,
+        # Telegram (R64): вход больше не нужен — канал стал подпиской одного чата
+        # по расписанию. Здесь только булев факт «настроен или нет» для честной
+        # видимости раздела; токен и chat_id — в /settings/telegram (R68).
+        "telegram_digest": {
+            "enabled": telegram_digest_configured(session),
         },
     }

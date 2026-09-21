@@ -1,12 +1,13 @@
 "use client";
 
 /**
- * RBAC-состояние админ-раздела (M16). Backend проверяет httpOnly-cookie и роль
- * User; статический X-Admin-Token не является способом авторизации.
+ * Состояние админ-раздела. Пользователей в приложении нет: всё, что умеет
+ * система, доступно тому, кто её запустил, поэтому здесь нет ни RBAC, ни
+ * гейта — только флаги совместимости для существующих компонентов (все true)
+ * и приём сообщений об ошибках запросов.
  */
 
-import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
-import { useAuth } from "@/lib/hooks/useAuth";
+import { createContext, useCallback, useContext, useMemo, useState } from "react";
 
 interface AdminAuthState {
   verified: boolean;
@@ -21,43 +22,23 @@ interface AdminAuthState {
 const Ctx = createContext<AdminAuthState | null>(null);
 
 export function AdminAuthProvider({ children }: { children: React.ReactNode }) {
-  const { user, logout: authLogout } = useAuth();
-  const [verified, setVerified] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
-    // A new login must not inherit a failed request from the previous account.
-    setVerified(false);
-    setError(null);
-  }, [user?.id, user?.role]);
-
-  const markVerified = useCallback(() => {
-    setVerified(true);
-    setError(null);
-  }, []);
-
-  const markInvalid = useCallback((message: string) => {
-    setVerified(false);
-    setError(message);
-  }, []);
-
-  const logout = useCallback(async () => {
-    await authLogout();
-    setVerified(false);
-    setError(null);
-  }, [authLogout]);
+  const markVerified = useCallback(() => setError(null), []);
+  const markInvalid = useCallback((message: string) => setError(message), []);
+  const logout = useCallback(async () => setError(null), []);
 
   const value = useMemo<AdminAuthState>(
     () => ({
-      verified,
-      isAdmin: user?.role === "ADMIN",
-      isOperator: user?.role === "OPERATOR" || user?.role === "ADMIN",
+      verified: true,
+      isAdmin: true,
+      isOperator: true,
       markVerified,
       markInvalid,
       error,
       logout,
     }),
-    [user, verified, markVerified, markInvalid, error, logout],
+    [markVerified, markInvalid, error, logout],
   );
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;

@@ -1,8 +1,9 @@
-"""Административный API (T05/M16): источники, refresh, merge/split, очередь дедупликации.
+"""Административный API (T05): источники, refresh, merge/split, очередь дедупликации.
 
-Доступ определяется cookie-сессией и ролью USER/OPERATOR/ADMIN; все действия
-журналируются в admin_action_log (R67). Refresh ставит задание воркеру (T06) —
-без синхронного сбора (R83).
+Пользователей в приложении нет: раздел открыт тому, кто запустил FuelRadar, и
+отделяется от остального API только своим per-IP лимитом (не авторизацией).
+Все действия журналируются в admin_action_log (R67) от имени «local». Refresh
+ставит задание воркеру (T06) — без синхронного сбора (R83).
 """
 
 from __future__ import annotations
@@ -16,7 +17,6 @@ from pydantic import BaseModel
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from ..auth.service import USER_ROLES
 from ..db.models import (
     AdminActionLog,
     CollectionJob,
@@ -25,22 +25,13 @@ from ..db.models import (
     SourceProvider,
     SourceStationRecord,
     Station,
-    User,
     UserReport,
 )
 from ..db.session import get_db
 from ..dedup import DedupService
 from ..normalization.names import normalize_brand
-from .deps import require_admin, require_operator
+from .deps import LOCAL_ACTOR, admin_rate_limit
 from .schemas import AdminMergeBody, DedupQueueAction
-
-
-class BlockUserBody(BaseModel):
-    blocked: bool = True
-
-
-class UserRoleBody(BaseModel):
-    role: str
 
 
 class SourceUpdateBody(BaseModel):
@@ -56,15 +47,15 @@ _CSV_MAX_BYTES = 2 * 1024 * 1024
 router = APIRouter(prefix="/admin", tags=["admin"])
 
 
-_TARGET_TYPE_BY_ACTION = {"refresh_source": "source", "block_user": "user", "unblock_user": "user"}
+_TARGET_TYPE_BY_ACTION = {"refresh_source": "source"}
 
 
 def _journal(session: Session, action: str, target_id: str, payload: dict) -> None:
     target_type = _TARGET_TYPE_BY_ACTION.get(action, "station")
-    session.add(AdminActionLog(actor="admin", action=action, target_type=target_type, target_id=target_id, payload=payload))
+    session.add(AdminActionLog(actor=LOCAL_ACTOR, action=action, target_type=target_type, target_id=target_id, payload=payload))
 
 
-@router.get("/action-log", dependencies=[Depends(require_operator)])
+@router.get("/action-log", dependencies=[Depends(admin_rate_limit)])
 def action_log(
     action: str | None = None,
     actor: str | None = None,
@@ -118,58 +109,6 @@ def _provider_or_404(session: Session, provider_id: int) -> SourceProvider:
     return provider
 
 
-@router.get("/users", dependencies=[Depends(require_operator)])
-def list_users(limit: int = 50, offset: int = 0, session: Session = Depends(get_db)) -> dict:
-    """Список пользователей с ролями (M16): кто чем управляет, кого можно менять/блокировать."""
-    limit = max(1, min(limit, 200))
-    total = session.scalar(select(func.count()).select_from(User))
-    rows = session.scalars(select(User).order_by(User.id).offset(offset).limit(limit)).all()
-    return {
-        "total": total,
-        "items": [
-            {
-                "id": u.id,
-                "display_name": u.display_name or "",
-                "email": u.email,
-                "telegram_id": u.telegram_id,
-                "role": u.role,
-                "is_blocked": u.is_blocked,
-                "reliability_score": u.reliability_score,
-            }
-            for u in rows
-        ],
-    }
-
-
-@router.post("/users/{user_id}/role", dependencies=[Depends(require_admin)])
-def change_user_role(user_id: int, body: UserRoleBody, session: Session = Depends(get_db)) -> dict:
-    """Сменить роль (M16 RBAC). Применяется сразу: deps перечитывают пользователя из БД.
-
-    Последнего ADMIN понизить нельзя: bootstrap одноразовый, администратора было бы
-    некому вернуть. Так же защищён CLI cli/roles.py.
-    """
-    role = (body.role or "").strip().upper()
-    if role not in USER_ROLES:
-        raise HTTPException(status_code=422, detail=f"Роль должна быть одной из {', '.join(sorted(USER_ROLES))}")
-    user = session.get(User, user_id)
-    if user is None:
-        raise HTTPException(status_code=404, detail="Пользователь не найден")
-    if user.role == role:
-        return {"id": user.id, "role": user.role, "changed": False}
-    if user.role == "ADMIN" and role != "ADMIN":
-        admins = session.scalar(select(func.count()).select_from(User).where(User.role == "ADMIN"))
-        if admins <= 1:
-            raise HTTPException(
-                status_code=409,
-                detail="Это последний администратор — понизить нельзя. Сначала назначьте второго ADMIN.",
-            )
-    old_role = user.role
-    user.role = role
-    _journal(session, "role_change", str(user_id), {"from": old_role, "to": role, "email": user.email})
-    session.commit()
-    return {"id": user.id, "role": role, "changed": True, "previous_role": old_role}
-
-
 def _source_file_state(code: str) -> dict | None:
     """Файл-вход источника (R58) — только у файловых адаптеров; у сетевых это None.
 
@@ -202,7 +141,7 @@ def _import_file_state(session: Session) -> dict | None:
     return state
 
 
-@router.get("/sources", dependencies=[Depends(require_operator)])
+@router.get("/sources", dependencies=[Depends(admin_rate_limit)])
 def list_sources(session: Session = Depends(get_db)) -> list[dict]:
     """Список источников: статус (ACTIVE/RESEARCH_REQUIRED), health, доверие (R57/R95i).
 
@@ -233,7 +172,7 @@ def list_sources(session: Session = Depends(get_db)) -> list[dict]:
     ]
 
 
-@router.get("/sources/{provider_id}/health", dependencies=[Depends(require_operator)])
+@router.get("/sources/{provider_id}/health", dependencies=[Depends(admin_rate_limit)])
 def source_health(provider_id: int, session: Session = Depends(get_db)) -> dict:
     provider = _provider_or_404(session, provider_id)
     health = session.scalar(select(SourceHealth).where(SourceHealth.source_provider_id == provider.id))
@@ -249,7 +188,7 @@ def source_health(provider_id: int, session: Session = Depends(get_db)) -> dict:
     }
 
 
-@router.post("/sources/{provider_id}/refresh", dependencies=[Depends(require_admin)])
+@router.post("/sources/{provider_id}/refresh", dependencies=[Depends(admin_rate_limit)])
 def refresh_source(provider_id: int, session: Session = Depends(get_db)) -> dict:
     """R83: не собирает синхронно — ставит задание в очередь воркера (T06, приоритет P2)."""
     provider = _provider_or_404(session, provider_id)
@@ -266,7 +205,7 @@ def refresh_source(provider_id: int, session: Session = Depends(get_db)) -> dict
 SOURCE_STATUSES = {"ACTIVE", "RESEARCH_REQUIRED", "NOT_USED"}
 
 
-@router.patch("/sources/{provider_id}", dependencies=[Depends(require_admin)])
+@router.patch("/sources/{provider_id}", dependencies=[Depends(admin_rate_limit)])
 def update_source(provider_id: int, body: SourceUpdateBody, session: Session = Depends(get_db)) -> dict:
     """ADMIN-управление источником: доверие (trust), статус, интервал сбора.
 
@@ -306,7 +245,7 @@ def update_source(provider_id: int, body: SourceUpdateBody, session: Session = D
     return {"id": provider.id, "code": provider.code, "changed": True, "changes": changes}
 
 
-@router.get("/collection-log", dependencies=[Depends(require_operator)])
+@router.get("/collection-log", dependencies=[Depends(admin_rate_limit)])
 def collection_log(
     provider_id: int | None = None,
     limit: int = 50,
@@ -347,7 +286,7 @@ def collection_log(
     }
 
 
-@router.get("/collection-log/{job_id}/details", dependencies=[Depends(require_operator)])
+@router.get("/collection-log/{job_id}/details", dependencies=[Depends(admin_rate_limit)])
 def collection_log_details(job_id: int, session: Session = Depends(get_db)) -> list[dict]:
     """Построчные сообщения конкретного запуска (collection_logs, R84)."""
     job = session.get(CollectionJob, job_id)
@@ -359,31 +298,21 @@ def collection_log_details(job_id: int, session: Session = Depends(get_db)) -> l
     return [{"level": entry.level, "message": entry.message, "created_at": entry.created_at} for entry in logs]
 
 
-@router.get("/reports", dependencies=[Depends(require_operator)])
-def list_reports(
-    user_id: int | None = None,
-    limit: int = 50,
-    offset: int = 0,
-    session: Session = Depends(get_db),
-) -> dict:
-    """Отчёты всех пользователей (не только свои, в отличие от `/reports/mine`, T07) —
-    иначе администратору неоткуда узнать, кого блокировать (бриф: «блокировать
-    недостоверные пользовательские сообщения»)."""
+@router.get("/reports", dependencies=[Depends(admin_rate_limit)])
+def list_reports(limit: int = 50, offset: int = 0, session: Session = Depends(get_db)) -> dict:
+    """Отчёты с устройств: что и когда сообщили, подтвердил ли GPS.
+
+    Пользователей нет, поэтому список обезличен — видно только факт отчёта
+    (станция, GPS-подтверждение, расстояние, время)."""
     limit = max(1, min(limit, 200))
     query = select(UserReport).order_by(UserReport.id.desc())
-    if user_id is not None:
-        query = query.where(UserReport.user_id == user_id)
     total = session.scalar(select(func.count()).select_from(query.subquery()))
     rows = session.scalars(query.offset(offset).limit(limit)).all()
-    users = {u.id: u for u in session.scalars(select(User))}
     return {
         "total": total,
         "items": [
             {
                 "id": r.id,
-                "user_id": r.user_id,
-                "user_reliability_score": users[r.user_id].reliability_score if r.user_id in users else None,
-                "user_is_blocked": users[r.user_id].is_blocked if r.user_id in users else None,
                 "station_id": r.station_id,
                 "gps_confirmed": r.gps_confirmed,
                 "distance_to_station_m": r.distance_to_station_m,
@@ -394,20 +323,6 @@ def list_reports(
     }
 
 
-@router.post("/users/{user_id}/block", dependencies=[Depends(require_admin)])
-def block_user(user_id: int, body: BlockUserBody = BlockUserBody(), session: Session = Depends(get_db)) -> dict:
-    """R41.1: блокировка недостоверного пользователя — закрывает доступ к новым
-    отчётам сразу (`deps.require_user`/`current_active_user`), история остаётся видимой.
-    `blocked: false` — снять блокировку (тот же эндпоинт, без отдельного /unblock)."""
-    user = session.get(User, user_id)
-    if user is None:
-        raise HTTPException(status_code=404, detail="Пользователь не найден")
-    user.is_blocked = body.blocked
-    _journal(session, "block_user" if body.blocked else "unblock_user", str(user_id), {"blocked": body.blocked})
-    session.commit()
-    return {"id": user.id, "is_blocked": user.is_blocked}
-
-
 def _station_or_404(session: Session, station_id: str) -> Station:
     station = session.get(Station, station_id)
     if station is None:
@@ -415,7 +330,7 @@ def _station_or_404(session: Session, station_id: str) -> Station:
     return station
 
 
-@router.post("/stations/{station_id}/merge", dependencies=[Depends(require_admin)])
+@router.post("/stations/{station_id}/merge", dependencies=[Depends(admin_rate_limit)])
 def merge_station(station_id: str, body: AdminMergeBody, session: Session = Depends(get_db)) -> dict:
     """Объединить запись (и её станцию, если есть) со станцией {station_id} (R09.1/R10)."""
     _station_or_404(session, station_id)
@@ -434,7 +349,7 @@ def merge_station(station_id: str, body: AdminMergeBody, session: Session = Depe
     return {"station_id": target, "merged_record_id": body.record_id}
 
 
-@router.post("/stations/{station_id}/split", dependencies=[Depends(require_admin)])
+@router.post("/stations/{station_id}/split", dependencies=[Depends(admin_rate_limit)])
 def split_station(station_id: str, body: AdminMergeBody, session: Session = Depends(get_db)) -> dict:
     """Выделить запись в отдельную станцию (R09.1): прежние внешние ID сохраняются."""
     _station_or_404(session, station_id)
@@ -500,7 +415,7 @@ def _enrichable_candidates(session: Session) -> dict[str, dict]:
     return enrichable
 
 
-@router.get("/catalog-gaps", dependencies=[Depends(require_operator)])
+@router.get("/catalog-gaps", dependencies=[Depends(admin_rate_limit)])
 def catalog_gaps(limit: int = 20, session: Session = Depends(get_db)) -> dict:
     """Покрытие атрибутов мастер-каталога: где пусто и чем можно дозаполнить.
 
@@ -580,7 +495,7 @@ def catalog_gaps(limit: int = 20, session: Session = Depends(get_db)) -> dict:
     }
 
 
-@router.get("/catalog-gaps/export.csv", dependencies=[Depends(require_operator)])
+@router.get("/catalog-gaps/export.csv", dependencies=[Depends(admin_rate_limit)])
 def catalog_gaps_export_csv(session: Session = Depends(get_db)) -> Response:
     """Кандидаты дозаполнения в CSV формата krasnodar-unnamed-template.csv.
 
@@ -638,7 +553,7 @@ def _csv_upload_dir() -> Path:
     return d
 
 
-@router.post("/catalog-gaps/import-csv", dependencies=[Depends(require_admin)])
+@router.post("/catalog-gaps/import-csv", dependencies=[Depends(admin_rate_limit)])
 async def import_catalog_csv(file: UploadFile, session: Session = Depends(get_db)) -> dict:
     """Загрузка заполненного CSV обогащения напрямую, без правки .env.
 
@@ -699,7 +614,7 @@ async def import_catalog_csv(file: UploadFile, session: Session = Depends(get_db
             "file": _import_file_state(session)}
 
 
-@router.get("/dedup-queue", dependencies=[Depends(require_operator)])
+@router.get("/dedup-queue", dependencies=[Depends(admin_rate_limit)])
 def dedup_queue(session: Session = Depends(get_db)) -> list[dict]:
     """Кандидаты «на подтверждение» (R10): запись + предложение + разбор по весам."""
     service = DedupService(session)
@@ -712,7 +627,7 @@ def dedup_queue(session: Session = Depends(get_db)) -> list[dict]:
     return result
 
 
-@router.post("/dedup-queue", dependencies=[Depends(require_admin)])
+@router.post("/dedup-queue", dependencies=[Depends(admin_rate_limit)])
 def dedup_queue_action(body: DedupQueueAction, session: Session = Depends(get_db)) -> dict:
     """Подтвердить слияние (merge) или выделить запись в отдельную станцию (new_station)."""
     service = DedupService(session)

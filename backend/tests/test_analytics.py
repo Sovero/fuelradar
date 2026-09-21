@@ -11,7 +11,6 @@ from sqlalchemy.pool import StaticPool
 
 from app.analytics.router import router
 from app.analytics.service import deficit_statistics, refresh_analytics, summarize
-from app.auth import COOKIE_NAME, create_access_token
 from app.db.base import Base
 from app.db.models import (
     FuelObservation,
@@ -20,7 +19,6 @@ from app.db.models import (
     SourceStationRecord,
     Station,
     StationCurrentStatus,
-    User,
 )
 from app.db.session import get_db
 
@@ -52,9 +50,6 @@ def analytics_db():
                                              (1, "b", "2"), (2, "x", "1")]:
             db.add(SourceStationRecord(source_provider_id=provider, external_id=external,
                                        station_id=station, latitude=45, longitude=38.1))
-        db.add_all([
-            User(id=9001, email="analytics-admin@example.com", role="ADMIN"),
-        ])
         db.commit()
         yield db
     engine.dispose()
@@ -147,8 +142,7 @@ def test_admin_routes_use_durable_cache_without_history_queries(analytics_db):
     app.include_router(router, prefix="/api/v1")
     app.dependency_overrides[get_db] = lambda: analytics_db
     with TestClient(app) as client:
-        assert client.get("/api/v1/admin/coverage").status_code == 401
-        client.cookies.set(COOKIE_NAME, create_access_token(9001))
+        # Входа нет: админ-аналитика открыта, но до прогрева отвечает честной 503.
         assert client.get("/api/v1/admin/coverage").status_code == 503
         refresh_analytics(analytics_db, now=NOW)
         analytics_db.commit()

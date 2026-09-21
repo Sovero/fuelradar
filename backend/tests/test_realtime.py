@@ -1,4 +1,8 @@
-"""T14 — realtime (R64, §25): SSE-стрим, push-подписки, доставка Web Push."""
+"""T14 — realtime (R64, §25): SSE-стрим, push-подписки, доставка Web Push.
+
+Пользователей в приложении нет: подписки браузеров общие, вход не нужен. Telegram
+здесь больше не доставляется — это канал-подписка по расписанию (tests/test_digest.py).
+"""
 
 from __future__ import annotations
 
@@ -12,8 +16,7 @@ from sqlalchemy import select
 
 from app.alerts import channels
 from app.core.config import settings
-from app.db.models import AlertEvent, PushSubscription, Station, User
-from app.db.session import SessionLocal
+from app.db.models import AlertEvent, PushSubscription, Station
 
 pytestmark = pytest.mark.usefixtures("client")
 
@@ -32,10 +35,6 @@ def _keys() -> dict[str, str]:
     # Валидные по форме base64url-значения: p256dh — 65 байт (uncompressed P-256),
     # auth — 16 байт. Отправка в тестах мокается, реальная криптография не нужна.
     return {"p256dh": _b64url(b"B" + b"\x01" * 64), "auth": _b64url(b"A" * 16)}
-
-
-def _login(client, tag: str) -> None:
-    assert client.post("/api/v1/auth/dev-login", json={"telegram_id": f"t14-{tag}"}).status_code == 200
 
 
 def _seed_station(db_session, station_id: str) -> None:
@@ -96,20 +95,29 @@ def test_revision_sync_changes_on_insert(db_session):
     assert after != before
 
 
-# ---------- push-подписки CRUD ----------
+# ---------- push-подписки CRUD (общие: вход не нужен) ----------
 
 
 def _sub_body(endpoint: str = PUSH_ENDPOINT) -> dict:
     return {"endpoint": endpoint, "keys": _keys()}
 
 
-def test_push_subscription_requires_profile(client):
-    assert client.get("/api/v1/push/subscriptions").status_code == 401
-    assert client.post("/api/v1/push/subscriptions", json=_sub_body()).status_code == 401
+def _clear_subscriptions(db_session) -> None:
+    for row in db_session.scalars(select(PushSubscription)).all():
+        db_session.delete(row)
+    db_session.commit()
+
+
+def test_push_subscription_is_open_without_login(client):
+    """Входа в приложении нет: подписка браузера заводится сразу (R64)."""
+    assert client.get("/api/v1/push/subscriptions").status_code == 200
+    created = client.post("/api/v1/push/subscriptions", json=_sub_body())
+    assert created.status_code == 201
+    assert client.delete(f"/api/v1/push/subscriptions/{created.json()['id']}").status_code == 204
 
 
 def test_push_subscription_crud_roundtrip(client, db_session):
-    _login(client, "crud")
+    _clear_subscriptions(db_session)
     created = client.post("/api/v1/push/subscriptions", json=_sub_body())
     assert created.status_code == 201
     body = created.json()
@@ -123,30 +131,25 @@ def test_push_subscription_crud_roundtrip(client, db_session):
     deleted = client.delete(f"/api/v1/push/subscriptions/{body['id']}")
     assert deleted.status_code == 204
     assert client.get("/api/v1/push/subscriptions").json() == []
-    client.post("/api/v1/auth/logout")
 
 
 def test_push_subscription_limit_ignores_same_endpoint(client, db_session):
-    """Лимит — только для НОВЫХ endpoint: профиль на 10/10 может переподписать
+    """Лимит — только для НОВЫХ endpoint: на пределе можно переподписать
     существующий браузер (ротация ключей), иначе идемпотентность ломается."""
-    client.post("/api/v1/auth/dev-login", json={"telegram_id": "t14-push-limit"})
-    me = client.get("/api/v1/auth/me").json()["user"]
-    user = db_session.get(User, me["id"])
-    assert user is not None
-    from app.db.models import PushSubscription
+    from app.api.personal import MAX_PUSH_SUBSCRIPTIONS
 
-    for i in range(10):
+    _clear_subscriptions(db_session)
+    for i in range(MAX_PUSH_SUBSCRIPTIONS):
         db_session.add(
             PushSubscription(
-                user_id=user.id,
                 endpoint=f"https://push.example.com/{i}",
-                p256dh="B" * 86,
-                auth="A" * 43,
+                p256dh=_keys()["p256dh"],
+                auth=_keys()["auth"],
             )
         )
     db_session.commit()
 
-    # Новый (11-й) endpoint — честный отказ по лимиту.
+    # Новый (лишний) endpoint — честный отказ по лимиту.
     r = client.post("/api/v1/push/subscriptions", json=_sub_body("https://push.example.com/new"))
     assert r.status_code == 400 and "лимит" in r.json()["detail"]
 
@@ -156,15 +159,14 @@ def test_push_subscription_limit_ignores_same_endpoint(client, db_session):
     assert r.json()["endpoint"].endswith("/0")
 
 
-def test_push_subscription_is_idempotent_per_endpoint(client):
+def test_push_subscription_is_idempotent_per_endpoint(client, db_session):
     """Повторная подписка того же браузера обновляет ключи, не плодит строки."""
-    _login(client, "idem")
+    _clear_subscriptions(db_session)
     assert client.post("/api/v1/push/subscriptions", json=_sub_body()).status_code == 201
     rotated = {"endpoint": PUSH_ENDPOINT, "keys": {"p256dh": _b64url(b"C" + b"\x02" * 64), "auth": _b64url(b"B" * 16)}}
     assert client.post("/api/v1/push/subscriptions", json=rotated).status_code == 201
     listed = client.get("/api/v1/push/subscriptions").json()
     assert len(listed) == 1
-    client.post("/api/v1/auth/logout")
 
 
 @pytest.mark.parametrize(
@@ -178,20 +180,7 @@ def test_push_subscription_is_idempotent_per_endpoint(client):
     ],
 )
 def test_push_subscription_validates_input(client, body):
-    _login(client, "invalid")
     assert client.post("/api/v1/push/subscriptions", json=body).status_code == 422
-    client.post("/api/v1/auth/logout")
-
-
-def test_push_subscription_ownership_on_delete(client):
-    """Чужую подписку удалить нельзя (404, а не 403 — не раскрываем существование)."""
-    _login(client, "owner")
-    created = client.post("/api/v1/push/subscriptions", json=_sub_body()).json()
-    client.post("/api/v1/auth/logout")
-
-    _login(client, "attacker")
-    assert client.delete(f"/api/v1/push/subscriptions/{created['id']}").status_code == 404
-    client.post("/api/v1/auth/logout")
 
 
 # ---------- доставка Web Push ----------
@@ -202,28 +191,32 @@ class _FakeResponse:
         self.status_code = status_code
 
 
-def _mk_event() -> tuple[User, AlertEvent, Station]:
-    user = User(id=9001, telegram_id=None)
-    event = AlertEvent(id=1, user_id=user.id, station_id="x", event_type="FUEL_APPEARED", payload={})
+def _mk_event() -> tuple[AlertEvent, Station]:
+    event = AlertEvent(id=1, station_id="x", event_type="FUEL_APPEARED", payload={})
     station = Station(id="x", canonical_name="Тест АЗС", latitude=1, longitude=1)
-    return user, event, station
+    return event, station
 
 
-def test_send_web_push_not_configured_without_keys(monkeypatch):
+def _mk_subscription(endpoint: str) -> PushSubscription:
+    return PushSubscription(endpoint=endpoint, p256dh=_keys()["p256dh"], auth=_keys()["auth"])
+
+
+def test_send_web_push_not_configured_without_keys(client, monkeypatch):
     monkeypatch.setattr(settings, "vapid_public_key", "")
     monkeypatch.setattr(settings, "vapid_private_key", "")
-    user, event, station = _mk_event()
-    assert channels.send_web_push(user, event, station) == "not_configured"
+    event, station = _mk_event()
+    assert channels.send_web_push(event, station) == "not_configured"
 
 
-def test_send_web_push_no_subscriptions_returns_honest_status(monkeypatch):
+def test_send_web_push_no_subscriptions_returns_honest_status(client, db_session, monkeypatch):
     monkeypatch.setattr(settings, "vapid_public_key", "B_public")
     monkeypatch.setattr(settings, "vapid_private_key", "private")
-    user, event, station = _mk_event()
-    assert channels.send_web_push(user, event, station) == "no_subscriptions"
+    _clear_subscriptions(db_session)
+    event, station = _mk_event()
+    assert channels.send_web_push(event, station) == "no_subscriptions"
 
 
-def test_send_web_push_delivers_to_active_subscriptions(monkeypatch):
+def test_send_web_push_delivers_to_active_subscriptions(client, db_session, monkeypatch):
     """Мок pywebpush: отправка реально вызывается для каждой активной подписки."""
     monkeypatch.setattr(settings, "vapid_public_key", "B_public")
     monkeypatch.setattr(settings, "vapid_private_key", "private")
@@ -238,32 +231,24 @@ def test_send_web_push_delivers_to_active_subscriptions(monkeypatch):
         return _R()
 
     monkeypatch.setattr(channels, "_webpush_call", fake_webpush)
+    _clear_subscriptions(db_session)
+    for suffix in ("a", "b"):
+        db_session.add(_mk_subscription(f"https://push.example.com/{suffix}"))
+    db_session.commit()
 
-    station_id = "fr_station_140102"
-    user_id = 9100
-    with SessionLocal() as s:
-        if s.get(Station, station_id) is None:
-            s.add(Station(id=station_id, canonical_name="АЗС Push", latitude=45.0, longitude=39.0))
-        s.add(PushSubscription(user_id=user_id, endpoint=PUSH_ENDPOINT + "a", p256dh=_keys()["p256dh"], auth=_keys()["auth"]))
-        s.add(PushSubscription(user_id=user_id, endpoint=PUSH_ENDPOINT + "b", p256dh=_keys()["p256dh"], auth=_keys()["auth"]))
-        s.commit()
-
-    user = User(id=user_id, telegram_id=None)
-    event = AlertEvent(id=1, user_id=user_id, station_id=station_id, event_type="FUEL_APPEARED", payload={})
-    station = Station(id=station_id, canonical_name="АЗС Push", latitude=45.0, longitude=39.0)
-    assert channels.send_web_push(user, event, station) == "sent"
+    event, station = _mk_event()
+    assert channels.send_web_push(event, station) == "sent"
     assert len(calls) == 2
-    assert all(call["subscription"]["endpoint"].startswith(PUSH_ENDPOINT) for call in calls)
+    assert all(call["subscription"]["endpoint"].startswith("https://push.example.com/") for call in calls)
     payload = json.loads(calls[0]["data"])
-    assert payload["station_id"] == station_id and payload["title"]
+    assert payload["station_id"] == "x" and payload["title"]
     assert calls[0]["claims"]["sub"].startswith("mailto:")
 
-    with SessionLocal() as s:
-        rows = s.scalars(select(PushSubscription).where(PushSubscription.user_id == user_id)).all()
-        assert all(row.last_success_at is not None for row in rows)
+    rows = db_session.scalars(select(PushSubscription)).all()
+    assert rows and all(row.last_success_at is not None for row in rows)
 
 
-def test_send_web_push_deactivates_gone_subscriptions(monkeypatch):
+def test_send_web_push_deactivates_gone_subscriptions(client, db_session, monkeypatch):
     """404/410 от push-сервиса → is_active=False (честная очистка мёртвых подписок)."""
     monkeypatch.setattr(settings, "vapid_public_key", "B_public")
     monkeypatch.setattr(settings, "vapid_private_key", "private")
@@ -274,51 +259,42 @@ def test_send_web_push_deactivates_gone_subscriptions(monkeypatch):
         raise error
 
     monkeypatch.setattr(channels, "_webpush_call", fake_webpush)
+    _clear_subscriptions(db_session)
+    row = _mk_subscription("https://push.example.com/gone")
+    db_session.add(row)
+    db_session.commit()
 
-    user_id = 9101
-    with SessionLocal() as s:
-        s.add(PushSubscription(user_id=user_id, endpoint=PUSH_ENDPOINT + "gone", p256dh=_keys()["p256dh"], auth=_keys()["auth"]))
-        s.commit()
-
-    user = User(id=user_id, telegram_id=None)
-    event = AlertEvent(id=1, user_id=user_id, station_id="x", event_type="FUEL_APPEARED", payload={})
-    station = Station(id="x", canonical_name="Тест", latitude=1, longitude=1)
-    assert channels.send_web_push(user, event, station) == "error"
-
-    with SessionLocal() as s:
-        row = s.scalar(select(PushSubscription).where(PushSubscription.user_id == user_id))
-        assert row.is_active is False and row.last_error == "gone:410"
+    event, station = _mk_event()
+    assert channels.send_web_push(event, station) == "error"
+    db_session.expire_all()
+    assert row.is_active is False and row.last_error == "gone:410"
 
 
-def test_send_web_push_isolates_single_failure(monkeypatch):
-    """Ошибка одной подписки не отменяет остальные (R84-подобная изоляция)."""
+def test_send_web_push_isolates_single_failure(client, db_session, monkeypatch):
+    """Ошибка одной подписки не отменяет остальные (изоляция канала)."""
     monkeypatch.setattr(settings, "vapid_public_key", "B_public")
     monkeypatch.setattr(settings, "vapid_private_key", "private")
 
     def fake_webpush(subscription_info, data, **kwargs):
         if subscription_info["endpoint"].endswith("fail"):
             raise RuntimeError("network down")
+
         class _R:
             status_code = 201
+
         return _R()
 
     monkeypatch.setattr(channels, "_webpush_call", fake_webpush)
+    _clear_subscriptions(db_session)
+    for suffix in ("ok", "fail"):
+        db_session.add(_mk_subscription(f"https://push.example.com/{suffix}"))
+    db_session.commit()
 
-    user_id = 9102
-    with SessionLocal() as s:
-        s.add(PushSubscription(user_id=user_id, endpoint=PUSH_ENDPOINT + "ok", p256dh=_keys()["p256dh"], auth=_keys()["auth"]))
-        s.add(PushSubscription(user_id=user_id, endpoint=PUSH_ENDPOINT + "fail", p256dh=_keys()["p256dh"], auth=_keys()["auth"]))
-        s.commit()
-
-    user = User(id=user_id, telegram_id=None)
-    event = AlertEvent(id=1, user_id=user_id, station_id="x", event_type="FUEL_APPEARED", payload={})
-    station = Station(id="x", canonical_name="Тест", latitude=1, longitude=1)
-    # Доставлено через живую подписку; сбой второй изолирован в last_error.
-    assert channels.send_web_push(user, event, station) == "sent"
-    with SessionLocal() as s:
-        rows = {row.endpoint: row for row in s.scalars(select(PushSubscription).where(PushSubscription.user_id == user_id))}
-        assert rows[PUSH_ENDPOINT + "ok"].last_success_at is not None
-        assert rows[PUSH_ENDPOINT + "fail"].last_error == "RuntimeError"
+    event, station = _mk_event()
+    assert channels.send_web_push(event, station) == "sent"
+    rows = {row.endpoint: row for row in db_session.scalars(select(PushSubscription))}
+    assert rows["https://push.example.com/ok"].last_success_at is not None
+    assert rows["https://push.example.com/fail"].last_error == "RuntimeError"
 
 
 def test_push_delivery_on_alert_event_end_to_end(client, db_session, monkeypatch):
@@ -327,20 +303,19 @@ def test_push_delivery_on_alert_event_end_to_end(client, db_session, monkeypatch
     monkeypatch.setattr(settings, "vapid_public_key", "B_public")
     monkeypatch.setattr(settings, "vapid_private_key", "private")
     sent: list[str] = []
-    monkeypatch.setattr(channels, "_webpush_call", lambda *a, **k: sent.append(k.get("data", a[1] if len(a) > 1 else "")) or _FakeResponse(201))
-    monkeypatch.setattr("app.alerts.service.SessionLocal", SessionLocal, raising=False)
-
-    _login(client, "e2e")
-    # Правило: глобальное (пустой scope), без фильтров — первый отчёт по станции
-    # даёт STATION_NEW (старого состояния нет, см. alerts/events.py), а одиночный
-    # пользовательский голос агрегируется не в AVAILABLE, а в UNCERTAIN.
-    created = client.post(
-        "/api/v1/alerts",
-        json={"name": "t14", "is_active": True, "scope": {}},
+    monkeypatch.setattr(
+        channels,
+        "_webpush_call",
+        lambda *a, **k: sent.append(k.get("data", a[1] if len(a) > 1 else "")) or _FakeResponse(201),
     )
+    _clear_subscriptions(db_session)
+
+    # Правило: глобальное (пустой scope) — первый отчёт по станции даёт STATION_NEW
+    # (старого состояния нет, см. alerts/events.py).
+    created = client.post("/api/v1/alerts", json={"name": "t14", "is_active": True, "scope": {}})
     assert created.status_code == 201
 
-    # Пользовательская подписка на push.
+    # Подписка браузера: вход больше не нужен — список подписок общий.
     assert client.post("/api/v1/push/subscriptions", json=_sub_body()).status_code == 201
 
     # Отчёт меняет статус станции → evaluate_rules → _deliver → web push.
@@ -349,18 +324,4 @@ def test_push_delivery_on_alert_event_end_to_end(client, db_session, monkeypatch
         json={"station_id": "fr_station_140103", "fuel": {"AI_95": "AVAILABLE"}, "idempotency_key": f"t14-{uuid.uuid4().hex[:12]}"},
     )
     assert report.status_code == 201
-    client.post("/api/v1/auth/logout")
-
     assert sent, "web push должен быть вызван при срабатывании правила"
-
-
-# ---------- Telegram: контракт не сломан (R97i) ----------
-
-
-def test_telegram_channel_contract_unchanged(monkeypatch):
-    monkeypatch.setattr(settings, "telegram_bot_token", "token")
-    user, event, station = _mk_event()
-    user.telegram_id = None
-    assert channels.send_telegram(user, event, station) == "no_recipient"
-    monkeypatch.setattr(settings, "telegram_bot_token", "")
-    assert channels.send_telegram(user, event, station) == "not_configured"

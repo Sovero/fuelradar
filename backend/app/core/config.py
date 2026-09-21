@@ -65,7 +65,7 @@ class Settings(BaseSettings):
     }
     gps_proximity_m: float = 300.0         # R40
     alert_dedup_window_minutes: int = 5    # R38
-    max_rules_per_user: int = 20           # §13 №14
+    max_alert_rules: int = 20              # §13 №14 (правил на приложение: пользователей нет)
     score_weights: dict = {                # §10 (R43) — базовые веса
         "fuel_available": 0.30,
         "confidence": 0.20,
@@ -102,25 +102,35 @@ class Settings(BaseSettings):
     network_lists_urls: str = ""  # URL списков АЗС сетей (HTTP); «;» или перевод строки — разделитель
     network_lists_timeout_seconds: int = 30
 
-    # --- секреты (R68): только имена в .env.example, значения никогда в код ---
+    # --- дорожный маршрут (R22.1) ---
+    # OSRM-совместимый роутер: маршрут по дорогам и улицам, односторонние и
+    # запреты поворотов учитывает граф провайдера. По умолчанию — публичный
+    # демо-сервер OSRM без ключей (как OSM-тайлы карты); для пилота указать свой
+    # инстанс (ROUTING_BASE_URL). Пусто → маршрут по дорогам честно недоступен.
+    routing_base_url: str = "https://router.project-osrm.org"
+    routing_profile: str = "driving"        # driving: по дорогам, с односторонними
+    routing_timeout_seconds: int = 8
+
+    # --- Telegram-дайджест: подписка на события без пользователей ------------
+    # Пользователей в приложении нет, поэтому Telegram — это канал-подписка
+    # одного чата: токен бота + chat_id (можно определить автоматически по
+    # getUpdates из UI) и интервал сводки в минутах. Пусто/0 → канал честно
+    # отвечает «не настроено» и ничего не отправляет (R97i). Значения из UI
+    # (app_settings) переопределяют .env.
     telegram_bot_token: str = ""
-    # Публичное имя бота (без @) для виджета входа; не секрет — но отдаётся /meta
-    # только вместе с настроенным токеном, чтобы виджет не появлялся зря (R97i).
-    telegram_bot_username: str = ""
+    telegram_chat_id: str = ""
+    telegram_digest_minutes: int = 0       # 0 — рассылка выключена
     vapid_public_key: str = ""
     vapid_private_key: str = ""
-    smtp_url: str = ""
 
-    # --- API и безопасность (T05, §14/§15) ---
-    jwt_secret: str = ""                   # R68: секрет JWT из .env; пусто → эфемерный на процесс (dev)
-    cookie_secure: bool = False            # secure-cookie — включать за HTTPS (prod)
+    # --- API ---------------------------------------------------------------
     cors_origins: str = ""                 # белый список CORS через запятую (R66); пусто → same-origin
     rate_limit_per_minute: int = 120       # R66: простой per-IP лимит; 0 — выключить
     admin_rate_limit_per_minute: int = 30  # security: отдельный лимит admin API; 0 — выключить
     worker_tick_seconds: int = 10
     worker_backoff_max_minutes: int = 120
-    smtp_from: str = "noreply@localhost"
-    public_app_url: str = "http://localhost:3000"
+    smtp_from: str = "noreply@localhost"   # контакт в VAPID-подписи push (не почта приложения)
+    public_app_url: str = "http://localhost:3000"  # ссылка в тексте Telegram-дайджеста
     api_cache_ttl_seconds: int = 30        # R82: кэш списка/карты (bbox/radius)
 
     # --- прогноз/heatmap/BI (T12, §23) ---

@@ -8,7 +8,6 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { apiGet, apiPost } from "@/lib/api";
-import { useAuth } from "@/lib/hooks/useAuth";
 import type { NotificationItem, NotificationsPage } from "@/lib/types";
 
 interface NotificationsState {
@@ -43,18 +42,12 @@ function extractItems(data: unknown): NotificationItem[] {
 }
 
 export function useNotifications(): NotificationsState {
-  const { user } = useAuth();
   const [items, setItems] = useState<NotificationItem[]>([]);
   const [unreadCount, setUnreadCount] = useState(0);
   const [available, setAvailable] = useState(true);
   const [loading, setLoading] = useState(false);
 
   const load = useCallback(() => {
-    if (!user) {
-      setItems([]);
-      setUnreadCount(0);
-      return;
-    }
     setLoading(true);
     apiGet<unknown>("/notifications")
       .then((data) => {
@@ -69,7 +62,7 @@ export function useNotifications(): NotificationsState {
         setUnreadCount(0);
       })
       .finally(() => setLoading(false));
-  }, [user]);
+  }, []);
 
   useEffect(() => {
     load();

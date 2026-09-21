@@ -1,22 +1,17 @@
 "use client";
 
-import { useState } from "react";
 import Link from "next/link";
 import { NotificationBell } from "@/components/layout/NotificationBell";
-import { LoginPanel } from "@/components/layout/LoginPanel";
 import { ThemeToggle } from "@/components/layout/ThemeToggle";
 import { LocaleToggle } from "@/components/layout/LocaleToggle";
 import { TourRestartButton } from "@/components/layout/TourRestartButton";
 import { MapProviderToggle } from "@/components/layout/MapProviderToggle";
 import { WindowControls } from "@/components/layout/WindowControls";
-import { useAuth } from "@/lib/hooks/useAuth";
 import { useI18n } from "@/lib/hooks/useI18n";
 
-/** Шапка главного экрана по макету брифа §104: логотип, профиль, 🔔, карта OSM/Яндекс (R102.1), тема (R99), язык (R100). */
+/** Шапка главного экрана по макету брифа §104: логотип, 🔔, карта OSM/Яндекс (R102.1), тема (R99), язык (R100). Входа нет — настройки и админка открыты сразу. */
 export function Header() {
-  const { user } = useAuth();
   const { t } = useI18n();
-  const [loginOpen, setLoginOpen] = useState(false);
 
   return (
     // app-drag: в desktop-оболочке безрамочного окна вся шапка — область
@@ -33,16 +28,14 @@ export function Header() {
           <ThemeToggle />
           <TourRestartButton />
           <NotificationBell />
-          {user && (
-            <Link
-              href="/settings"
-              className="rounded-full p-2 text-xl hover:bg-black/5 dark:hover:bg-white/10"
-              aria-label={t("header.settings")}
-              title={t("header.settings")}
-            >
-              ⚙️
-            </Link>
-          )}
+          <Link
+            href="/settings"
+            className="rounded-full p-2 text-xl hover:bg-black/5 dark:hover:bg-white/10"
+            aria-label={t("header.settings")}
+            title={t("header.settings")}
+          >
+            ⚙️
+          </Link>
           <Link
             href="/admin"
             className="rounded-full p-2 text-xl hover:bg-black/5 dark:hover:bg-white/10"
@@ -51,19 +44,9 @@ export function Header() {
           >
             🛠️
           </Link>
-          <button
-            type="button"
-            onClick={() => setLoginOpen(true)}
-            className="rounded-full p-2 text-xl hover:bg-black/5 dark:hover:bg-white/10"
-            aria-label={user ? t("header.profile") : t("header.login")}
-            title={user ? user.email ?? user.telegram_id ?? t("header.profile") : t("header.login")}
-          >
-            {user ? "👤" : "🔑"}
-          </button>
         </div>
         <WindowControls />
       </div>
-      {loginOpen && <LoginPanel onClose={() => setLoginOpen(false)} />}
     </header>
   );
 }

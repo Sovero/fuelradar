@@ -14,20 +14,16 @@ from sqlalchemy.pool import StaticPool
 from app.analytics.heat import router as heat_router
 from app.analytics.router import router as admin_router
 from app.analytics.service import refresh_analytics
-from app.auth import COOKIE_NAME, create_access_token
 from app.db.base import Base
 from app.db.models import (
     FuelObservation,
     FuelType,
     Station,
     StationCurrentStatus,
-    User,
 )
 from app.db.session import get_db
 
 NOW = datetime.now(UTC).replace(tzinfo=None)
-ADMIN_EMAIL = "analytics-admin@example.com"
-ADMIN_TOKEN = create_access_token(9101)
 
 
 @pytest.fixture()
@@ -37,7 +33,6 @@ def t12_db():
     with Session(engine) as db:
         db.add_all([
             FuelType(id=1, code="AI_95", display_name_ru="95"),
-            User(id=9101, email=ADMIN_EMAIL, role="ADMIN"),
         ])
         for number in range(1, 6):
             db.add(Station(id=str(number), latitude=45.0 + number / 100, longitude=39.0 + number / 100,
@@ -162,9 +157,7 @@ def t12_client(t12_db):
     from app.api.stations import router as stations_router
     app.include_router(stations_router, prefix="/api/v1")
     app.dependency_overrides[get_db] = lambda: t12_db
-    client = TestClient(app)
-    client.cookies.set(COOKIE_NAME, ADMIN_TOKEN)
-    return client
+    return TestClient(app)
 
 
 def test_heat_cells_read_snapshot_only(t12_client, t12_db):

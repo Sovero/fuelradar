@@ -41,7 +41,6 @@ from ..ranking import (
     score as compute_score,
 )
 from . import cache
-from .deps import optional_user
 from .schemas import FuelStatusBrief, HistoryItem, QueueBrief, StationBrief, StationDetail
 
 router = APIRouter(tags=["stations"])
@@ -349,7 +348,6 @@ def nearby(
     offset: int = Query(0, ge=0),
     preferred_brands: str | None = None,
     session: Session = Depends(get_db),
-    _: object = Depends(optional_user),
 ) -> list[StationBrief]:
     """Станции вокруг точки (R63); радиус по умолчанию — из региона (§18)."""
     if lat is None and bbox is None:
@@ -387,7 +385,6 @@ def list_stations(
     offset: int = Query(0, ge=0),
     preferred_brands: str | None = None,
     session: Session = Depends(get_db),
-    _: object = Depends(optional_user),
 ) -> list[StationBrief]:
     return _cached_list(
         request, response, session,
@@ -406,7 +403,6 @@ def station_detail(
     fuel: str | None = None,
     preferred_brands: str | None = None,
     session: Session = Depends(get_db),
-    _: object = Depends(optional_user),
 ) -> StationDetail:
     """Карточка: статусы, «почему» с источниками (R92), score_breakdown, ETA (R45)."""
     if lat is not None and not -90 <= lat <= 90:
@@ -491,7 +487,6 @@ def station_history(
     fuel: str | None = None,
     limit: int = Query(100, ge=1, le=500),
     session: Session = Depends(get_db),
-    _: object = Depends(optional_user),
 ) -> list[HistoryItem]:
     """История наблюдений (R17): серия статусов для графика."""
     station = session.get(Station, station_id)

@@ -62,30 +62,30 @@ backend/app/
   fuel_status/        — наборы статусов топлива/очереди, инвариант UNKNOWN≠UNAVAILABLE
   confidence/         — aggregate.py (aggregate — чистая функция), service.py (StatusService: запись наблюдений + пересчёт + expire_stale)
   ranking/            — score.py — FuelRadar Score, 7 компонент + ETA
-  alerts/             — events.py (diff_event), service.py (evaluate_rules), channels.py (in-app/Web Push/Telegram), router.py, authz.py, models.py
+  alerts/             — events.py (diff_event), service.py (evaluate_rules), channels.py (in-app/Web Push/Telegram), router.py, models.py
   reports/            — router.py (POST /reports), service.py (поверх StatusService), schemas.py
   analytics/          — service.py (summarize/deficit_statistics — читают кэш AnalyticsSnapshot), models.py, router.py
-  auth/               — service.py — JWT/httpOnly-cookie, dev-вход, magic-link, Telegram
-  api/                — stations.py, meta.py, personal.py (favorites/monitoring-zones/alerts — требуют профиль), admin.py, login.py, deps.py (rate_limit), cache.py, schemas.py
+  digest/             — service.py — Telegram-дайджест: сводка событий по расписанию (getUpdates/discovery/отправка), настройки в БД
+  api/                — stations.py, meta.py, personal.py (favorites/monitoring-zones/alerts — открыты, без профиля), admin.py, settings.py (Telegram-дайджест), deps.py (rate_limit), cache.py, schemas.py
   worker/             — Worker/run_once, schedule_priority_job, locking.py (advisory/файловый лок); __main__.py — точка входа `python -m app.worker`
 backend/cli/          — seed.py (`python -m cli.seed --region <regions.py> [--offline]`), regions.py
 backend/tests/        — по одному файлу на модуль (test_<module>.py) + fixtures/ (офлайн-данные для seed), conftest.py (client/db_session — session-scope)
 
-frontend/app/          — Next.js App Router: page.tsx (главный экран), admin/, settings/, auth/verify/, stations/
+frontend/app/          — Next.js App Router: page.tsx (главный экран), admin/, settings/, stations/
 frontend/components/
   HomeScreen.tsx        — главный экран (шапка, топливо/радиус, табы Карта/Список/Избранное)
   map/                  — MapView.tsx, Legend.tsx
   station/              — StationCard/StationList/ReportForm/HistoryChart/WhyExplanation/StatusBadge
   filters/, favorites/  — FiltersPanel, FavoritesPanel/FavoriteRulesBar
-  layout/               — Header, LoginPanel, NotificationsPanel, MapProviderToggle, ThemeToggle, LocaleToggle
-  settings/             — SettingsScreen + Privacy/MonitoringZones/ObservationMode/NetworkPreferences/AlertRules панели
-  admin/                — AdminScreen + SourcesTable/CollectionLog/Coverage/DedupQueue/UsersBlock, AdminTokenGate
+  layout/               — Header, NotificationsPanel, MapProviderToggle, ThemeToggle, LocaleToggle
+  settings/             — SettingsScreen + Privacy/MonitoringZones/ObservationMode/NetworkPreferences/AlertRules/Push/TelegramDigest панели
+  admin/                — AdminScreen + SourcesTable/CollectionLog/Coverage/DedupQueue/AdminTokenGate
   onboarding/, providers/, ui/ — OnboardingTour, AppProviders/ServiceWorkerRegister/OfflineReportsSync, EmptyState
 frontend/lib/
-  api.ts, adminApi.ts   — fetch-обёртки (cookie-сессия; роли USER/OPERATOR/ADMIN, M16 bootstrap)
+  api.ts, adminApi.ts   — fetch-обёртки (сессий/ролей нет — приложение открытое, всё доступно запустившему)
   types.ts, filters.ts, format.ts, fuel.ts, availability.ts, geo.ts, i18n.ts, personalization.ts, offlineReports.ts, telegram.ts
   map/                  — types.ts (MapProviderProps — единый контракт), maplibre-provider.tsx, yandex-provider.tsx, index.ts (выбор провайдера), statusColor/brandColor/markerIcon/markerData/cluster/config/osmStyle/yandexLoader
-  hooks/                — useMeta, useAuth, useFilters, useStations, useStationDetail, useFavorites, useNotifications, useTheme, useI18n, useOnboarding, useMapProviderPreference, usePrivacy, useObservationMode, useNetworkPreferences, useMonitoringZones, useAlertRules, useFollowMeZone, useAdminAuth
+  hooks/                — useMeta, useFilters, useStations, useStationDetail, useFavorites, useNotifications, useTheme, useI18n, useOnboarding, useMapProviderPreference, usePrivacy, useObservationMode, useNetworkPreferences, useMonitoringZones, useAlertRules, useFollowMeZone, useAdminAuth, useRoutePlan
 frontend/public/       — manifest.json, icon.svg, sw.js (PWA, network-first для навигации)
 deploy/Caddyfile        — прод-реверс-прокси: /api/* → api:8000, остальное → frontend:3000
 desktop/                — Electron-оболочка (Windows): встроенный Next standalone + reverse-proxy /api/* (Origin переписывается), NSIS-установщик, автообновление electron-updater, Telegram-popup; сборка `make desktop-dist`, детали desktop/README.md
@@ -112,9 +112,7 @@ desktop/                — Electron-оболочка (Windows): встроен�
 
 MapProvider-абстракция: `lib/map/types.ts::MapProviderProps` — единый интерфейс; `maplibre-provider.tsx` (дефолт, OSM-тайлы, без ключей) и `yandex-provider.tsx` (включается только при непустом `NEXT_PUBLIC_YANDEX_MAPS_API_KEY`) — обе реализации подставляются в `lib/map/index.ts`, вызывающий код (`MapView.tsx`) не знает, какая активна.
 
-Auth: JWT в httpOnly-cookie (`backend/app/auth/service.py`), четыре способа входа — bootstrap первого админа (только пока нет ADMIN, M16), пароль, dev (без ключей, только USER), magic-link (активен только при `SMTP_URL`), Telegram (виджет, проверка подписи, активен при `TELEGRAM_BOT_TOKEN`/`NEXT_PUBLIC_TELEGRAM_BOT_USERNAME`) — без соответствующей переменной канал явно отвечает «не настроено», не падает и не притворяется рабочим. Favorites/monitoring-zones/alerts требуют профиль (401 без cookie).
-
-Admin: RBAC по роли в cookie-сессии (M16) — `require_admin`/`require_operator` в `backend/app/api/deps.py` перечитывают пользователя из БД на каждый запрос, так что смена роли/блок применяются сразу. Bootstrap первого ADMIN — одноразовый (`BootstrapState`), повторные попытки → 409. Статический `X-Admin-Token` игнорируется (ответ 401, попытка аудируется).
+Доступ: пользователей/ролей/сессий нет — приложение полностью открытое, всё доступно запустившему (favorites/monitoring-zones/admin отвечают 200 без входа). Единственная подписка на события — Telegram-дайджест (`backend/app/digest/service.py` + `GET/PUT /api/v1/settings/telegram`): оператор вводит токен бота и интервал в настройках UI, чат определяется через getUpdates, сводка событий шлётся воркером по расписанию; без токена канал честно «не настроено», токен наружу не отдаётся (R68) — только отпечаток.
 
 Frontend не ходит в backend напрямую — `next.config.mjs` рёрайтит `/api/:path*` на `API_INTERNAL_URL` (дев: `http://127.0.0.1:8000`); в проде перед обоими стоит `deploy/Caddyfile`.
 
@@ -138,9 +136,9 @@ Frontend не ходит в backend напрямую — `next.config.mjs` рё�
 - `OVERPASS_ENDPOINT`, `NETWORK_IMPORT_PATH` — источники каталога
 - `DEDUP_AUTO_MERGE`, `DEDUP_NEEDS_REVIEW`, `DEDUP_WEIGHTS` — пороги/веса дедупликации
 - `CONFIDENCE_SHARE_STRONG`, `CONFIDENCE_SHARE_LIKELY`, `CONFIDENCE_MIN_WEIGHT`, `GPS_BOOST`, `GPS_PENALTY`, `QUEUE_SECONDS_PER_VEHICLE`, `AVG_SPEED_KMH`, `SCORE_WEIGHTS` — Confidence Engine и Score
-- `TELEGRAM_BOT_TOKEN`, `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `SMTP_URL` — секреты каналов, пусто → канал «не настроено» (админ-доступ — через bootstrap/RBAC, без токена)
-- `JWT_SECRET` (пусто → эфемерный на процесс, только dev), `COOKIE_SECURE`, `CORS_ORIGINS`, `RATE_LIMIT_PER_MINUTE` (0 — выключить), `ADMIN_RATE_LIMIT_PER_MINUTE` (отдельный per-IP лимит admin API, 0 — выключить), `API_CACHE_TTL_SECONDS`
-- `SMTP_FROM`, `PUBLIC_APP_URL` — magic-link
+- `TELEGRAM_BOT_TOKEN`, `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY` — секреты каналов, пусто → канал «не настроено»; токен Telegram-дайджеста также можно задать через настройки UI (хранится в БД, наружу не отдаётся)
+- `CORS_ORIGINS`, `RATE_LIMIT_PER_MINUTE` (0 — выключить), `ADMIN_RATE_LIMIT_PER_MINUTE` (отдельный per-IP лимит admin API, 0 — выключить), `API_CACHE_TTL_SECONDS`
+- `TELEGRAM_DIGEST_CHAT_ID` (опционально), `TELEGRAM_DIGEST_INTERVAL_MINUTES` — дефолты дайджеста, приоритет у настроек из UI
 - `WORKER_TICK_SECONDS`, `WORKER_BACKOFF_MAX_MINUTES` — воркер
 - `NEXT_PUBLIC_YANDEX_MAPS_API_KEY` — дублируется здесь для docker-compose, реально читается frontend из своего `.env.local`
 
@@ -160,8 +158,8 @@ Frontend не ходит в backend напрямую — `next.config.mjs` рё�
 
 ## Подводные камни
 
-- `make dev` сам выставляет `DEBUG=true CORS_ORIGINS=http://localhost:3000` — без них при раздельном запуске (`uvicorn` напрямую) любой POST/PUT/PATCH/DELETE через прокси Next.js получает `403 Недопустимый источник запроса` (browser Origin ≠ адрес backend), а dev-вход отдельно требует `DEBUG=true` (`api/login.py`). В проде оба идут за одним Caddy — один origin, переменные не нужны. Отдельно: `Settings.model_config.env_file` (`core/config.py`) раньше был относительным (`".env"`) — pydantic-settings резолвит его от CWD процесса, а при `cd backend && uvicorn ...` CWD оказывается `backend/`, где `.env` нет, и корневой `.env` молча игнорировался целиком (не только DEBUG/CORS_ORIGINS). Исправлено на абсолютный путь до корня репозитория. Тесты при этом обязаны оставаться герметичными — `conftest.py` выставляет `FUELRADAR_NO_ENV_FILE=1`, чтобы реальный `.env` разработчика не тёк в прогон тестов.
-- `setup.ps1` (корень репозитория) — разворачивает окружение на новой машине с нуля: venv, зависимости, `.env`/`frontend/.env.local` из примеров (DEBUG/CORS для dev), демо-данные офлайн, запуск обоих серверов. Идемпотентен, `git pull` внутри — годится и для обновления уже развёрнутого окружения. Двойной клик — `setup.cmd`. Первый администратор создаётся через bootstrap-мастер в UI при первом открытии.
+- `make dev` сам выставляет `DEBUG=true CORS_ORIGINS=http://localhost:3000` — без них при раздельном запуске (`uvicorn` напрямую) любой POST/PUT/PATCH/DELETE через прокси Next.js получает `403 Недопустимый источник запроса` (browser Origin ≠ адрес backend). В проде оба идут за одним Caddy — один origin, переменные не нужны. Отдельно: `Settings.model_config.env_file` (`core/config.py`) раньше был относительным (`".env"`) — pydantic-settings резолвит его от CWD процесса, а при `cd backend && uvicorn ...` CWD оказывается `backend/`, где `.env` нет, и корневой `.env` молча игнорировался целиком (не только DEBUG/CORS_ORIGINS). Исправлено на абсолютный путь до корня репозитория. Тесты при этом обязаны оставаться герметичными — `conftest.py` выставляет `FUELRADAR_NO_ENV_FILE=1`, чтобы реальный `.env` разработчика не тёк в прогон тестов.
+- `setup.ps1` (корень репозитория) — разворачивает окружение на новой машине с нуля: venv, зависимости, `.env`/`frontend/.env.local` из примеров (DEBUG/CORS для dev), демо-данные офлайн, запуск обоих серверов. Идемпотентен, `git pull` внутри — годится и для обновления уже развёрнутого окружения. Двойной клик — `setup.cmd`.
 - `backend/tests/conftest.py::db_session` — `scope="session"`, одна SQLite-БД на весь прогон backend-тестов; тест, оставляющий "висящую" запись (например PENDING `CollectionJob`), может задеть партиционный уникальный индекс `uq_collection_active` в другом файле теста — уже случалось между `test_api.py` и `test_ingest.py`, лечится доведением job до терминального статуса в тесте, который его создал.
 - Next.js читает `.env*` только из `frontend/`, не из корня репозитория — переменные `NEXT_PUBLIC_*` в корневом `.env.example` там только для докера/справки, реальный источник для `npm run dev` — `frontend/.env.local`.
 - `MapProviderProps` (`frontend/lib/map/types.ts`) — единственный контракт между `MapView.tsx` и обеими реализациями; добавление поля ломает вторую реализацию молча, если не обновить обе.
@@ -212,6 +210,7 @@ https://github.com/Sovero/fuelradar.git (ветка `main`). Коммиты — 
 - T14: Realtime/Web Push (R64/R97i, `backend/app/realtime/` + `frontend/lib/hooks/useRealtime.ts`) — SSE `GET /api/v1/realtime/stream`: сигнал `revision` (max-id станций/наблюдений, append-only R17) + heartbeat + `Last-Event-ID`, лимит `sse_max_clients`; клиент переподтягивает `/stations` обычным GET (R82 не дублируется), при обрыве данные не трогаются. Web Push — реально: `push_subscriptions` (идемпотентный POST по endpoint, endpoint только https, keys base64url-валидация, наружу без ключей R68), доставка pywebpush всем активным подпискам, 404/410 → деактивация, ошибки изолированы; `/meta` отдаёт `push.enabled`+публичный VAPID key; панель в настройках («Push») и обработчики `push`/`notificationclick` в `sw.js` (клик → `/?station=<id>`). Тесты: 191 passed backend (+18 realtime), 96 passed frontend; ruff/typecheck/build чистые.
 - T15: Браузерные E2E (R88, `frontend/e2e/` + `frontend/playwright.config.ts`) — 5 Playwright-тестов в Chromium, запуск `npm run test:e2e` или `make e2e` (~10 с): zero-console smoke домашнего экрана (карта+realtime+фильтр+список), коридор маршрута (2 точки → запрос коридора), «Следить» → правило → уведомление в ленте, отчёт с GPS (гость → логин; профиль → форма → успех). API и внешняя сеть — локальные моки на уровне страницы, service worker в E2E отключён (SW-запросы Chromium мимо page.route); trace/screenshot только при падении; селекторы — роли/доступные имена. Chromium — системный Chrome (`channel: "chrome"`: CDN Playwright в среде сборки недоступен); Тесты: 192 passed backend, 98 passed frontend, 5 E2E.
 - Пост-приёмочная доводка: вкладка «Обновления» в настройках desktop-оболочки — версия из `window.fuelradarDesktop.version` и ручная проверка обновлений через `fuelradarDesktop.checkForUpdates()` (IPC `fuelradar:check-updates` из desktop/main.cjs); в браузере вкладка не показывается вовсе. Честные состояния: dev-запуск → «обновлять не с чего», сбой фида → «последняя (но проверить не удалось)», отказ моста → «не удалось проверить».
+- Пост-M16 волна: дорожный маршрут (R22.1) — `backend/app/routing/` (OSRM-совместимый роутер, `POST /api/v1/route/plan`; чистый разбор `parse_route_payload`, честные причины `not_configured`/`provider_unavailable`/`no_route`), линия на обеих картах идёт по улицам (профиль `driving` — односторонние и запреты поворотов учитывает граф OSM), подпись км/мин и список маневров берутся из роутера, коридор АЗС считается по дорожной геометрии (прореживание до 100 точек). Конфиг — `ROUTING_BASE_URL`/`ROUTING_PROFILE`/`ROUTING_TIMEOUT_SECONDS` (публичный демо-OSRM — только для дев/пилота, для прода поднять свой инстанс). Тесты: 254 backend, 169 frontend, 6 E2E.
 <!-- autopilot:end -->
 
 <!-- IJFW-MEMORY-START -->

@@ -80,68 +80,29 @@ class HistoryItem(BaseModel):
     price_currency: str | None = None
 
 
-class DevLoginBody(BaseModel):
-    telegram_id: str | None = None
-    email: str | None = None
+class TelegramSettingsBody(BaseModel):
+    """R64: подписка на события в Telegram — токен бота, чат и интервал сводки.
 
+    Токен можно не передавать (скрытый ввод не перезаписывает сохранённый),
+    пустая строка — явная очистка значения. Значения перекрывают .env.
+    """
 
-class PasswordLoginBody(BaseModel):
-    email: str
-    password: str = Field(min_length=1, max_length=256)
+    token: str | None = Field(default=None, max_length=256)
+    chat_id: str | None = Field(default=None, max_length=64)
+    interval_minutes: int | None = Field(default=None, ge=0, le=10080)
 
-    @field_validator("email")
+    @field_validator("chat_id")
     @classmethod
-    def email_format(cls, v: str) -> str:
-        v = (v or "").strip().lower()
-        if "@" not in v or "." not in v.split("@")[-1]:
-            raise ValueError("укажите корректный email")
-        return v
-
-
-class BootstrapAdminBody(BaseModel):
-    display_name: str = Field(min_length=1, max_length=128)
-    email: str
-    password: str = Field(min_length=12, max_length=256)
-    password_confirm: str = Field(min_length=12, max_length=256)
-
-    @field_validator("display_name")
-    @classmethod
-    def display_name_format(cls, v: str) -> str:
-        value = " ".join((v or "").split())
-        if not value:
-            raise ValueError("укажите имя")
+    def chat_id_format(cls, v: str | None) -> str | None:
+        if v is None:
+            return None
+        value = v.strip()
+        if value and not value.lstrip("-").isdigit():
+            # Telegram принимает и @username канала — но только для публичных;
+            # числовой id надёжнее, поэтому мусор отсекаем с русской причиной.
+            if not value.startswith("@") or len(value) < 2:
+                raise ValueError("укажите числовой id чата или @username публичного канала")
         return value
-
-    @field_validator("email")
-    @classmethod
-    def email_format(cls, v: str) -> str:
-        v = (v or "").strip().lower()
-        if "@" not in v or "." not in v.split("@")[-1]:
-            raise ValueError("укажите корректный email")
-        return v
-
-    @model_validator(mode="after")
-    def passwords_match(self):
-        if self.password != self.password_confirm:
-            raise ValueError("пароли не совпадают")
-        return self
-
-
-class MagicLinkBody(BaseModel):
-
-    email: str
-
-    @field_validator("email")
-    @classmethod
-    def email_format(cls, v: str) -> str:
-        v = (v or "").strip()
-        if "@" not in v or "." not in v.split("@")[-1]:
-            raise ValueError("укажите корректный email")
-        return v.lower()
-
-
-class MagicVerifyBody(BaseModel):
-    token: str
 
 
 class ZoneBody(BaseModel):

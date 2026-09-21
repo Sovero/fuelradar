@@ -4,28 +4,22 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { apiDelete, apiGet, apiPost, apiPut, ApiError } from "@/lib/api";
-import { useAuth } from "@/lib/hooks/useAuth";
 import type { ZoneOut } from "@/lib/types";
 
 export type ZoneBody = Pick<ZoneOut, "name" | "zone_type" | "params">;
 
 export function useMonitoringZones() {
-  const { user } = useAuth();
   const [zones, setZones] = useState<ZoneOut[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const load = useCallback(() => {
-    if (!user) {
-      setZones([]);
-      return;
-    }
     setLoading(true);
     apiGet<ZoneOut[]>("/monitoring-zones")
       .then(setZones)
       .catch((err: unknown) => setError(err instanceof ApiError ? err.message : "Не удалось загрузить зоны"))
       .finally(() => setLoading(false));
-  }, [user]);
+  }, []);
 
   useEffect(() => {
     load();

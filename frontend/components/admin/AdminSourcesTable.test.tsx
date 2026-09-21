@@ -3,7 +3,6 @@ import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { AdminSourcesTable } from "@/components/admin/AdminSourcesTable";
 import { AdminAuthProvider } from "@/lib/hooks/useAdminAuth";
-import { AuthProvider } from "@/lib/hooks/useAuth";
 import { I18nProvider } from "@/lib/hooks/useI18n";
 import type { AdminSourceOut } from "@/lib/types";
 
@@ -75,11 +74,9 @@ function renderTable(fetchMock: ReturnType<typeof vi.fn> & ((input: RequestInfo 
   });
   render(
     <I18nProvider>
-      <AuthProvider>
         <AdminAuthProvider>
           <AdminSourcesTable />
         </AdminAuthProvider>
-      </AuthProvider>
     </I18nProvider>,
   );
 }

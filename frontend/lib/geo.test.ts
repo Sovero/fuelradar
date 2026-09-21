@@ -1,5 +1,26 @@
 import { describe, expect, it } from "vitest";
-import { haversineKm, haversineMeters, isValidLat, isValidLon, midpointAlong, polylineLengthKm, shouldRebuildFollowMeZone } from "@/lib/geo";
+import { decimatePolyline, haversineKm, haversineMeters, isValidLat, isValidLon, midpointAlong, polylineLengthKm, shouldRebuildFollowMeZone } from "@/lib/geo";
+
+describe("decimatePolyline (R22.1)", () => {
+  it("короткую линию не трогает", () => {
+    const points = [
+      { lat: 45.0, lon: 38.9 },
+      { lat: 45.01, lon: 38.91 },
+    ];
+    expect(decimatePolyline(points, 100)).toEqual(points);
+  });
+
+  it("длинную сводит к лимиту, сохраняя начало и конец (порядок движения)", () => {
+    const points = Array.from({ length: 1000 }, (_, index) => ({ lat: 45 + index * 0.0001, lon: 38.9 }));
+    const kept = decimatePolyline(points, 100);
+
+    expect(kept).toHaveLength(100);
+    expect(kept[0]).toEqual(points[0]);
+    expect(kept[99]).toEqual(points[999]);
+    // Порядок по широте не ломается — линия остаётся направленной.
+    expect(kept[50].lat).toBeGreaterThan(kept[10].lat);
+  });
+});
 
 describe("haversineKm/haversineMeters", () => {
   it("нулевое расстояние в одной и той же точке", () => {

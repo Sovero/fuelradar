@@ -3,7 +3,6 @@ import { expect, test } from "@playwright/test";
 import {
   A95,
   STATION_EMPTY,
-  mockAuthUser,
   mockNotificationsWith,
   notificationItem,
   primeDeviceState,
@@ -15,12 +14,11 @@ import { assertNoConsoleErrors, watchConsoleErrors } from "./console";
  * Сценарий брифа: «AI95 отсутствует … нажимает “Следить” … получает push».
  * Web Push в Chromium E2E без VAPID/сервис-воркера не проверяем (R97i: честно
  * вне охвата T15) — проверяем UI-контракт: правило создаётся, событие появляется
- * в ленте уведомлений. «Следить» требует профиль (R65) — мокаем /auth/me.
+ * в ленте уведомлений. Приложение открытое — профиль не нужен.
  */
 test("следить за АЗС без АИ-95 → правило создано → уведомление в ленте", async ({ page }) => {
   const errors = watchConsoleErrors(page);
   await setupBase(page);
-  await mockAuthUser(page);
   await primeDeviceState(page);
 
   // Фильтр АИ-95 + статус «Нет» → пустой результат (мок фильтрует честно) →

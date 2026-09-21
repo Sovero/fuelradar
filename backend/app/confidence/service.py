@@ -16,7 +16,7 @@ import math
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
-from sqlalchemy import func, select
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from ..core.config import settings
@@ -145,11 +145,12 @@ class StatusService:
             .order_by(FuelObservation.observed_at.desc(), FuelObservation.id.desc())
         ).all()
         # One vote per independent provider or reporter; repeated polls are history,
-        # not additional independent evidence.
+        # not additional independent evidence. Пользователей нет — отчёт нельзя
+        # привязать к человеку, поэтому каждый отчёт (report_id) — это отдельное
+        # независимое свидетельство, а повторные опросы одного источника схлопываются.
         latest: dict[tuple[int, int | None], Any] = {}
         for observation, trust in all_rows:
-            report = self.session.get(UserReport, observation.report_id) if observation.report_id else None
-            key = (observation.source_provider_id, report.user_id if report else None)
+            key = (observation.source_provider_id, observation.report_id)
             latest.setdefault(key, (observation, trust))
         rows = list(latest.values())
         inputs = [
@@ -351,17 +352,8 @@ class StatusService:
         row.queue_vehicles = None
         row.estimated_wait_minutes = None
 
-    # ---------- репутация пользователя (R41, базовый счёт) ----------
-
-    def reliability_score(self, user_id: int) -> float:
-        """Базовый счёт: старт 0.5, каждый GPS-подтверждённый отчёт +0.1 (кап 0.95)."""
-        confirmed = self.session.scalar(
-            select(func.count()).select_from(UserReport).where(
-                UserReport.user_id == user_id,
-                UserReport.gps_confirmed.is_(True),
-            )
-        )
-        return min(settings.reliability_base + 0.1 * (confirmed or 0), 0.95)
+    # Репутации конкретного человека больше нет (пользователей нет): доверие к
+    # отчёту даёт подтверждение GPS (R40) поверх базового счёта RELIABILITY_BASE.
 
     # ---------- хелперы ----------
 

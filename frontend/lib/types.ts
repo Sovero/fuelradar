@@ -57,6 +57,29 @@ export interface RouteStation extends StationBrief {
   distance_from_route_km: number;
 }
 
+/** Причина, по которой дорожный маршрут не построен (R97i): текст собирает i18n. */
+export type RoutePlanReason = "not_configured" | "provider_unavailable" | "no_route";
+
+/** Шаг дорожного маршрута: type/modifier — машинные коды OSRM, перевод — в i18n. */
+export interface RoutePlanStep {
+  type: string;
+  modifier: string | null;
+  street: string | null;
+  distance_m: number;
+  duration_s: number;
+}
+
+/** R22.1: дорожный маршрут по улицам либо честный отказ с причиной. */
+export interface RoutePlan {
+  is_road_route: boolean;
+  provider: string | null;
+  distance_km: number | null;
+  duration_min: number | null;
+  geometry: Array<{ lat: number; lon: number }> | null;
+  steps: RoutePlanStep[];
+  reason: RoutePlanReason | null;
+}
+
 export interface ScoreComponent {
   value: number;
   weight: number;
@@ -139,23 +162,10 @@ export interface Meta {
   queue_levels: MetaStatus[];
   /** T14 (R64): Web Push — публичный VAPID-ключ (не секрет); без ключей на сервере — enabled: false. */
   push?: { enabled: boolean; vapid_public_key: string | null };
-  /**
-   * Вход через Telegram (R97i): backend отдаёт имя бота только при настроенном
-   * токене; поле отсутствует в старых сборках backend — тогда фронт откатывается
-   * на build-time NEXT_PUBLIC_TELEGRAM_BOT_USERNAME.
-   */
-  telegram_login?: { enabled: boolean; bot_username: string | null };
+  /** Telegram-дайджест настроен (токен+чат+интервал) — честная видимость раздела. */
+  telegram_digest?: { enabled: boolean };
   /** Средняя городская скорость (км/ч) для ETA на линии маршрута — из конфига backend; в старых сборках поле отсутствует. */
   avg_speed_kmh?: number;
-}
-
-export interface AuthUser {
-  id: number;
-  telegram_id: string | null;
-  email: string | null;
-  display_name: string;
-  role: "USER" | "OPERATOR" | "ADMIN";
-  reliability_score: number;
 }
 
 export interface ZoneOut {
@@ -312,22 +322,6 @@ export interface AdminReportItem {
 export interface AdminReportsPage {
   total: number;
   items: AdminReportItem[];
-}
-
-/** Пользователь из админ-списка (M16): роль видна, смена — только ADMIN. */
-export interface AdminUserRow {
-  id: number;
-  display_name: string;
-  email: string | null;
-  telegram_id: string | null;
-  role: "USER" | "OPERATOR" | "ADMIN";
-  is_blocked: boolean;
-  reliability_score: number | null;
-}
-
-export interface AdminUsersPage {
-  total: number;
-  items: AdminUserRow[];
 }
 
 /** Запись журнала действий (R67): append-only, наружу без секретов (R68). */

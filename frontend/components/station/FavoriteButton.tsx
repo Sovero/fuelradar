@@ -1,25 +1,18 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { apiDelete, apiGet, apiPost, ApiError } from "@/lib/api";
-import { useAuth } from "@/lib/hooks/useAuth";
+import { apiDelete, apiGet, apiPost } from "@/lib/api";
 import { useI18n } from "@/lib/hooks/useI18n";
-import type { StationBrief } from "@/lib/types";
 
-/** «В избранное» (R26/R30) — требует профиль (R65); анонимному пользователю предлагаем войти. */
-export function FavoriteButton({ stationId, onRequireLogin }: { stationId: string; onRequireLogin: () => void }) {
-  const { user } = useAuth();
+/** «В избранное» (R26/R30) — один общий список приложения, вход не нужен. */
+export function FavoriteButton({ stationId }: { stationId: string }) {
   const { t } = useI18n();
   const [isFavorite, setIsFavorite] = useState<boolean | null>(null);
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
-    if (!user) {
-      setIsFavorite(null);
-      return;
-    }
     let cancelled = false;
-    apiGet<StationBrief[]>("/favorites")
+    apiGet<{ id: string }[]>("/favorites")
       .then((rows) => {
         if (!cancelled) setIsFavorite(rows.some((r) => r.id === stationId));
       })
@@ -29,13 +22,9 @@ export function FavoriteButton({ stationId, onRequireLogin }: { stationId: strin
     return () => {
       cancelled = true;
     };
-  }, [user, stationId]);
+  }, [stationId]);
 
   async function toggle() {
-    if (!user) {
-      onRequireLogin();
-      return;
-    }
     setBusy(true);
     try {
       if (isFavorite) {
@@ -45,10 +34,8 @@ export function FavoriteButton({ stationId, onRequireLogin }: { stationId: strin
         await apiPost(`/favorites/${encodeURIComponent(stationId)}`);
         setIsFavorite(true);
       }
-    } catch (err) {
-      if (!(err instanceof ApiError && err.status === 401)) {
-        // тихо игнорируем — кнопка не должна ронять карточку
-      }
+    } catch {
+      // тихо игнорируем — кнопка не должна ронять карточку
     } finally {
       setBusy(false);
     }

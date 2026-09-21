@@ -18,8 +18,6 @@ from app.db.models import (
     SourceProvider,
     Station,
     StationCurrentStatus,
-    User,
-    UserReport,
 )
 from app.db.session import init_db
 from app.fuel_status import (
@@ -249,27 +247,3 @@ def test_expire_stale_sets_unknown(db_session) -> None:
 
     # повторный прогон ничего не ломает
     assert service.expire_stale() >= 0
-
-
-def test_reliability_score(db_session) -> None:
-    """R41: базовый счёт — GPS-подтверждённые отчёты повышают репутацию."""
-    user = User(telegram_id="t04-user-1")
-    db_session.add(user)
-    db_session.flush()
-    station = _add_station(db_session, "fr_station_940004")
-    service = StatusService(db_session)
-
-    assert service.reliability_score(user.id) == pytest.approx(0.5)
-
-    for i in range(2):
-        db_session.add(
-            UserReport(
-                user_id=user.id,
-                station_id=station.id,
-                gps_confirmed=True,
-                idempotency_key=f"t04-rep-{user.id}-{i}",
-            )
-        )
-    db_session.commit()
-
-    assert service.reliability_score(user.id) == pytest.approx(0.7)

@@ -116,6 +116,39 @@ function stationDetail(brief: StationBrief) {
   return { ...brief, status_explanation: { note: "Свежие наблюдения пользователей" } };
 }
 
+/** Дорожный маршрут из мока роутера: длина/время — его, не прямые между кликами. */
+export const ROUTE_PLAN = {
+  is_road_route: true,
+  provider: "osrm",
+  distance_km: 6.2,
+  duration_min: 14,
+  geometry: [
+    { lat: 45.0356, lon: 38.9412 },
+    { lat: 45.0371, lon: 38.9503 },
+    { lat: 45.0339, lon: 38.9608 },
+    { lat: 45.0302, lon: 38.9711 },
+    { lat: 45.028, lon: 38.979 },
+  ],
+  steps: [
+    { type: "depart", modifier: null, street: null, distance_m: 240, duration_s: 35 },
+    { type: "turn", modifier: "right", street: "ул. Северная", distance_m: 3900, duration_s: 540 },
+    { type: "turn", modifier: "left", street: "ул. Красная", distance_m: 2060, duration_s: 240 },
+    { type: "arrive", modifier: null, street: null, distance_m: 0, duration_s: 0 },
+  ],
+  reason: null,
+};
+
+/** Честный отказ роутера: фронт обязан рисовать прямую линию и объяснять причину. */
+export const ROUTE_PLAN_UNAVAILABLE = {
+  is_road_route: false,
+  provider: null,
+  distance_km: null,
+  duration_min: null,
+  geometry: null,
+  steps: [],
+  reason: "provider_unavailable",
+};
+
 /** created-правило для POST /alerts; GET /alerts возвращает массив. */
 const createdAlert = {
   id: 1,
@@ -133,8 +166,6 @@ const createdAlert = {
 
 export async function installApiMocks(page: Page) {
   await page.route("**/api/v1/meta", json(META));
-  await page.route("**/api/v1/auth/me", json({ user: null }));
-  await page.route("**/api/v1/auth/bootstrap", json({ required: false }));
   // Минимально честная фильтрация как у backend: fuel/status из query сужают
   // выдачу (сама логика фильтров покрыта backend-тестами — тут фикс.truth).
   await page.route("**/api/v1/stations?*", (route) => {
@@ -161,6 +192,10 @@ export async function installApiMocks(page: Page) {
     route.request().method() === "GET" ? json([])(route) : json(createdAlert, 201)(route),
   );
   await page.route("**/api/v1/push/subscriptions*", json([]));
+  // Дорожный маршрут (R22.1): роутер отвечает геометрией по улицам. Расстояние и
+  // время нарочно не совпадают с прямой линией между кликами — тест проверяет,
+  // что подпись берёт числа роутера, а не haversine.
+  await page.route("**/api/v1/route/plan", json(ROUTE_PLAN));
 
   // SSE realtime: честный контент-тип + стартовое событие revision (R64: сигнал,
   // не данные). Поток НЕ завершаем — фолбэк-тело в route.fulfill разорвал бы
@@ -196,26 +231,6 @@ export async function mockReportAccepted(page: Page) {
 export async function mockNotificationsWith(page: Page, items: NotificationItem[]) {
   await page.route("**/api/v1/notifications*", (route) =>
     route.request().method() === "GET" ? json(notificationsPage(items))(route) : json({ ok: true })(route),
-  );
-}
-
-/** Профиль вместо анонима (регистрировать ПОСЛЕ installApiMocks — позже = важнее). */
-export async function mockAuthUser(page: Page, telegramId = "e2e-user") {
-  await page.route("**/api/v1/auth/me", (route) =>
-    route.fulfill({
-      status: 200,
-      contentType: "application/json",
-      body: JSON.stringify({
-        user: {
-          id: 1,
-          telegram_id: telegramId,
-          email: null,
-          display_name: "E2E user",
-          role: "USER",
-          reliability_score: 0.5,
-        },
-      }),
-    }),
   );
 }
 
@@ -265,7 +280,7 @@ export async function disableServiceWorker(page: Page) {
  * 1. отключаем service worker — иначе после его активации все /api/v1/stations*
  *    идут мимо page.route (SW-запросы Chromium не перехватывает на уровне
  *    страницы) и проваливаются в реальный backend: 404 «Станция не найдена»;
- * 2. внешняя сеть — заглушки, API — моки. Сценарные моки (mockAuthUser и т.п.)
+ * 2. внешняя сеть — заглушки, API — моки. Сценарные моки (mockReportAccepted и т.п.)
  *    регистрировать ПОСЛЕ setupBase (позже = важнее).
  */
 export async function setupBase(page: Page) {

@@ -1,6 +1,6 @@
 "use client";
 
-/** Админка (R58/R51/R52/T03/T07/M16) — cookie-сессия и RBAC. */
+/** Админка (R58/R51/R52/T03/T07) — входа нет: раздел открыт локальному оператору. */
 
 import { useState } from "react";
 import Link from "next/link";
@@ -13,12 +13,11 @@ import { AdminCatalogGaps } from "@/components/admin/AdminCatalogGaps";
 import { AdminCoverage } from "@/components/admin/AdminCoverage";
 import { AdminDeficitByRegion } from "@/components/admin/AdminDeficitByRegion";
 import { AdminDedupQueue } from "@/components/admin/AdminDedupQueue";
-import { AdminUsersBlock } from "@/components/admin/AdminUsersBlock";
 import { AdminActionLogView } from "@/components/admin/AdminActionLogView";
 import { useI18n } from "@/lib/hooks/useI18n";
 
-type AdminTab = "sources" | "log" | "gaps" | "coverage" | "bi" | "dedup" | "users" | "audit";
-const TABS: AdminTab[] = ["sources", "log", "gaps", "coverage", "bi", "dedup", "users", "audit"];
+type AdminTab = "sources" | "log" | "gaps" | "coverage" | "bi" | "dedup" | "audit";
+const TABS: AdminTab[] = ["sources", "log", "gaps", "coverage", "bi", "dedup", "audit"];
 
 function AdminTabs() {
   const [tab, setTab] = useState<AdminTab>("sources");
@@ -49,7 +48,6 @@ function AdminTabs() {
         {tab === "coverage" && <AdminCoverage />}
         {tab === "bi" && <AdminDeficitByRegion />}
         {tab === "dedup" && <AdminDedupQueue />}
-        {tab === "users" && <AdminUsersBlock />}
         {tab === "audit" && <AdminActionLogView />}
       </div>
     </div>

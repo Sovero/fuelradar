@@ -192,53 +192,38 @@ class StationCurrentStatus(Base):  # §83/§85 station_current_status — рез
     status_explanation: Mapped[dict] = mapped_column(JSON, default=dict)  # R71 — источники и вклады
 
 
-# ---------- пользователи и персонализация ----------
+# ---------- данные приложения: без пользователей — всё общее для того, кто запустил ----------
 
-class User(Base):  # §83 users
-    __tablename__ = "users"
+class AppSetting(Base):
+    """Настройки приложения (ключ → JSON): то, что оператор задаёт в UI, а не в .env.
 
-    id: Mapped[int] = mapped_column(primary_key=True)
-    telegram_id: Mapped[str | None] = mapped_column(String(64), nullable=True, unique=True)
-    email: Mapped[str | None] = mapped_column(String(256), nullable=True)
-    display_name: Mapped[str] = mapped_column(String(128), default="")
-    role: Mapped[str] = mapped_column(String(16), default="USER")  # USER | OPERATOR | ADMIN
-    password_hash: Mapped[str | None] = mapped_column(Text, nullable=True)
-    reliability_score: Mapped[float] = mapped_column(Float, default=0.5)  # R41
-    is_blocked: Mapped[bool] = mapped_column(Boolean, default=False)  # R41.1
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=_now)
-
-
-class BootstrapState(Base):  # M16: one-time first-admin bootstrap gate
-    """Singleton state that closes the bootstrap endpoint after the first admin.
-
-    The conditional update in the bootstrap endpoint claims this row atomically,
-    so two first-run requests cannot create two administrators concurrently.
+    Сейчас здесь живут параметры Telegram-дайджеста (токен бота, чат, интервал).
+    Значения из .env остаются дефолтами: если ключа в таблице нет, берётся .env.
+    Секреты наружу не отдаются — API возвращает только маску/отпечаток (R68).
     """
 
-    __tablename__ = "bootstrap_state"
+    __tablename__ = "app_settings"
 
-    id: Mapped[int] = mapped_column(primary_key=True, default=1)
-    completed: Mapped[bool] = mapped_column(Boolean, default=False)
-    completed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    key: Mapped[str] = mapped_column(String(64), primary_key=True)
+    value: Mapped[dict] = mapped_column(JSON, default=dict)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=_now, onupdate=_now)
 
 
-class MonitoringZone(Base):  # §83 monitoring_zones
+class MonitoringZone(Base):  # §83 monitoring_zones (общая зона мониторинга приложения)
     __tablename__ = "monitoring_zones"
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
     name: Mapped[str] = mapped_column(String(128), default="")
     zone_type: Mapped[str] = mapped_column(String(32))  # CITY | CIRCLE | POLYGON (R21)
     params: Mapped[dict] = mapped_column(JSON, default=dict)  # lat/lon/radius | polygon | city
     created_at: Mapped[datetime] = mapped_column(DateTime, default=_now)
 
 
-class Favorite(Base):  # §83 favorites
+class Favorite(Base):  # §83 favorites (одно общее избранное)
     __tablename__ = "favorites"
-    __table_args__ = (UniqueConstraint("user_id", "station_id", name="uq_user_station"),)
+    __table_args__ = (UniqueConstraint("station_id", name="uq_favorite_station"),)
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
     station_id: Mapped[str] = mapped_column(ForeignKey("stations.id"))
     created_at: Mapped[datetime] = mapped_column(DateTime, default=_now)
 
@@ -253,13 +238,9 @@ class PushSubscription(Base):  # T14 (R64/R97i): браузерные push-по�
     """
 
     __tablename__ = "push_subscriptions"
-    __table_args__ = (
-        UniqueConstraint("endpoint", name="uq_push_endpoint"),
-        Index("ix_push_subscriptions_user", "user_id"),
-    )
+    __table_args__ = (UniqueConstraint("endpoint", name="uq_push_endpoint"),)
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
     endpoint: Mapped[str] = mapped_column(Text)
     p256dh: Mapped[str] = mapped_column(String(128))
     auth: Mapped[str] = mapped_column(String(64))
@@ -272,11 +253,10 @@ class PushSubscription(Base):  # T14 (R64/R97i): браузерные push-по�
 
 # ---------- уведомления ----------
 
-class AlertRule(Base):  # §83 alert_rules
+class AlertRule(Base):  # §83 alert_rules (общие правила приложения)
     __tablename__ = "alert_rules"
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
     name: Mapped[str] = mapped_column(String(128), default="")
     fuel_type_id: Mapped[int | None] = mapped_column(ForeignKey("fuel_types.id"), nullable=True)
     distance_km: Mapped[float | None] = mapped_column(Float, nullable=True)
@@ -296,7 +276,6 @@ class AlertEvent(Base):  # §83 alert_events
 
     id: Mapped[int] = mapped_column(primary_key=True)
     rule_id: Mapped[int | None] = mapped_column(ForeignKey("alert_rules.id"), nullable=True, index=True)
-    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
     station_id: Mapped[str] = mapped_column(ForeignKey("stations.id"))
     event_type: Mapped[str] = mapped_column(String(32))  # R35: FUEL_APPEARED …
     payload: Mapped[dict] = mapped_column(JSON, default=dict)
@@ -308,11 +287,10 @@ class AlertEvent(Base):  # §83 alert_events
 
 # ---------- отчёты пользователей ----------
 
-class UserReport(Base):  # §83 user_reports
+class UserReport(Base):  # §83 user_reports (анонимный отчёт с устройства)
     __tablename__ = "user_reports"
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
     station_id: Mapped[str | None] = mapped_column(ForeignKey("stations.id"), nullable=True)
     latitude: Mapped[float | None] = mapped_column(Float, nullable=True)
     longitude: Mapped[float | None] = mapped_column(Float, nullable=True)

@@ -130,7 +130,6 @@ def test_expired_observation_does_not_supply_price(db_session):
 
 def test_report_with_price_stores_observation_and_exposes_price(client, db_session):
     _seed_station(db_session, STATION_RPT)
-    client.post("/api/v1/auth/dev-login", json={"telegram_id": "t13-price-reporter"})
     r = client.post(
         "/api/v1/reports",
         json={
@@ -153,7 +152,6 @@ def test_report_with_price_stores_observation_and_exposes_price(client, db_sessi
     assert status_row["price"] == 62.4
     assert status_row["price_currency"] == "RUB"
     assert status_row["price_updated_at"] is not None
-    client.post("/api/v1/auth/logout")
 
 
 @pytest.mark.parametrize(
@@ -167,18 +165,15 @@ def test_report_with_price_stores_observation_and_exposes_price(client, db_sessi
 )
 def test_report_rejects_invalid_prices_with_422(client, db_session, prices):
     _seed_station(db_session, STATION_RPT)
-    client.post("/api/v1/auth/dev-login", json={"telegram_id": "t13-invalid-price"})
     r = client.post(
         "/api/v1/reports",
         json={"station_id": STATION_RPT, "fuel": {"AI_95": "AVAILABLE"}, "prices": prices, "idempotency_key": _key()},
     )
     assert r.status_code == 422
-    client.post("/api/v1/auth/logout")
 
 
 def test_report_price_is_idempotent(client, db_session):
     _seed_station(db_session, STATION_IDEM)
-    client.post("/api/v1/auth/dev-login", json={"telegram_id": "t13-price-idem"})
     key = _key()
     body = {
         "station_id": STATION_IDEM,
@@ -193,7 +188,6 @@ def test_report_price_is_idempotent(client, db_session):
 
     count = len(db_session.scalars(select(FuelObservation).where(FuelObservation.station_id == STATION_IDEM)).all())
     assert count == 1  # повтор не дублирует наблюдение (R39.1/R78.4)
-    client.post("/api/v1/auth/logout")
 
 
 # ---------- price_max-фильтр (R78.1: «где АИ-95 есть дешевле 75, не далее 10 км») ----------

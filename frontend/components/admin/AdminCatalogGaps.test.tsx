@@ -3,7 +3,6 @@ import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { AdminCatalogGaps, deferredRunLabel } from "@/components/admin/AdminCatalogGaps";
 import { AdminAuthProvider } from "@/lib/hooks/useAdminAuth";
-import { AuthProvider } from "@/lib/hooks/useAuth";
 import { I18nProvider } from "@/lib/hooks/useI18n";
 import type { Meta } from "@/lib/types";
 
@@ -98,11 +97,9 @@ function renderGaps(
   });
   render(
     <I18nProvider>
-      <AuthProvider>
         <AdminAuthProvider>
           <AdminCatalogGaps />
         </AdminAuthProvider>
-      </AuthProvider>
     </I18nProvider>,
   );
 }

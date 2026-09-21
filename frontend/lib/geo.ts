@@ -61,6 +61,23 @@ export function midpointAlong(points: ReadonlyArray<{ lat: number; lon: number }
   return { lat: points[points.length - 1].lat, lon: points[points.length - 1].lon };
 }
 
+/**
+ * Прореживает длинную геометрию маршрута до `maxPoints`, сохраняя первую и
+ * последнюю точки. Нужна, чтобы коридор станций считался по реальной дорожной
+ * линии (её может быть несколько тысяч точек, а API принимает до 100).
+ */
+export function decimatePolyline<T extends { lat: number; lon: number }>(
+  points: ReadonlyArray<T>,
+  maxPoints: number,
+): Array<{ lat: number; lon: number }> {
+  const plain = points.map((point) => ({ lat: point.lat, lon: point.lon }));
+  if (plain.length <= maxPoints || maxPoints < 2) return plain;
+  const step = (plain.length - 1) / (maxPoints - 1);
+  const kept = Array.from({ length: maxPoints }, (_, index) => plain[Math.round(index * step)]);
+  kept[maxPoints - 1] = plain[plain.length - 1];
+  return kept;
+}
+
 /** R23.1: «переезд» — новая позиция ушла за порог от прежнего центра зоны. */
 export const FOLLOW_ME_REBUILD_THRESHOLD_KM = 2;
 

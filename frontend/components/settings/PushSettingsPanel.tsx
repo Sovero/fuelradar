@@ -16,7 +16,6 @@ import { useCallback, useEffect, useState } from "react";
 import { apiDelete, apiGet, apiPost } from "@/lib/api";
 import { pushSupport, urlBase64ToUint8Array } from "@/lib/push";
 import { isDesktopShell } from "@/lib/desktop";
-import { useAuth } from "@/lib/hooks/useAuth";
 import { useMeta } from "@/lib/hooks/useMeta";
 import { useI18n } from "@/lib/hooks/useI18n";
 
@@ -30,7 +29,6 @@ interface PushSubscriptionView {
 }
 
 export function PushSettingsPanel() {
-  const { user } = useAuth();
   const { meta } = useMeta();
   const { t } = useI18n();
   const [subscriptions, setSubscriptions] = useState<PushSubscriptionView[]>([]);
@@ -44,14 +42,10 @@ export function PushSettingsPanel() {
   const support = isDesktopShell() ? "unsupported" : pushSupport();
 
   const reload = useCallback(() => {
-    if (!user) {
-      setSubscriptions([]);
-      return;
-    }
     apiGet<PushSubscriptionView[]>("/push/subscriptions")
       .then(setSubscriptions)
       .catch(() => setSubscriptions([]));
-  }, [user]);
+  }, []);
 
   useEffect(() => {
     reload();
@@ -97,10 +91,6 @@ export function PushSettingsPanel() {
     } finally {
       setBusy(false);
     }
-  }
-
-  if (!user) {
-    return <p className="text-sm text-gray-500 dark:text-gray-400">{t("settings.push.needLogin")}</p>;
   }
 
   return (

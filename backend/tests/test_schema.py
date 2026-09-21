@@ -1,10 +1,15 @@
-"""Все базовые таблицы брифа §83 существуют (R62)."""
+"""Все базовые таблицы брифа §83 существуют (R62).
+
+``users`` из §83 больше нет: пользователей в приложении не осталось (приложение
+показывает всё тому, кто его запустил). Привязка к профилю убрана из favorites/
+monitoring_zones/alert_rules/alert_events/push_subscriptions/user_reports.
+"""
 
 from sqlalchemy import inspect
 
 # Таблицы, перечисленные в брифе §83 + служебные (R67, R10).
 REQUIRED_TABLES = {
-    "users", "fuel_types", "fuel_brands", "station_brands",
+    "fuel_types", "fuel_brands", "station_brands",
     "stations", "station_external_ids", "source_providers",
     "source_station_records", "fuel_observations", "queue_observations",
     "station_current_status", "monitoring_zones", "favorites",

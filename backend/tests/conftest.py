@@ -1,4 +1,8 @@
-"""Тест-харнесс: отдельная временная SQLite-БД на каждый прогон."""
+"""Тест-харнесс: отдельная временная SQLite-БД на каждый прогон.
+
+Входа и ролей в приложении нет — API открыт целиком, поэтому харнессу нужны
+только клиент и сессия к БД.
+"""
 
 from __future__ import annotations
 
@@ -7,7 +11,6 @@ import tempfile
 
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy import select
 
 # БД для тестов — до импорта приложения.
 _tmpdir = tempfile.mkdtemp(prefix="fuelradar_test_")
@@ -23,10 +26,6 @@ os.environ.setdefault("RATE_LIMIT_PER_MINUTE", "10000")
 os.environ.setdefault("ADMIN_RATE_LIMIT_PER_MINUTE", "10000")
 os.environ.setdefault("API_CACHE_TTL_SECONDS", "60")
 
-TEST_ADMIN_EMAIL = "test-admin@example.com"
-TEST_ADMIN_PASSWORD = "test-admin-password-123"
-
-
 @pytest.fixture(scope="session")
 def client():
     from app.main import app
@@ -37,33 +36,9 @@ def client():
 
 @pytest.fixture(scope="session")
 def db_session():
-    from app.auth import hash_password
-    from app.db.models import BootstrapState, User
     from app.db.session import SessionLocal, init_db
 
     init_db()
+    # Пользователей в приложении нет: сессия к БД — это весь тест-харнесс.
     with SessionLocal() as s:
-        if s.scalar(select(User.id).where(User.role == "ADMIN").limit(1)) is None:
-            s.add(
-                User(
-                    display_name="Test Administrator",
-                    email=TEST_ADMIN_EMAIL,
-                    role="ADMIN",
-                    password_hash=hash_password(TEST_ADMIN_PASSWORD),
-                )
-            )
-            s.flush()
-        state = s.get(BootstrapState, 1)
-        if state is not None and not state.completed:
-            state.completed = True
-        s.commit()
         yield s
-
-
-def login_as_admin(client: TestClient) -> None:
-    """Authenticate the shared API client through the real cookie-login flow."""
-    response = client.post(
-        "/api/v1/auth/login",
-        json={"email": TEST_ADMIN_EMAIL, "password": TEST_ADMIN_PASSWORD},
-    )
-    assert response.status_code == 200, response.text

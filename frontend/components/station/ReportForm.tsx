@@ -45,7 +45,7 @@ export function ReportForm({
 }) {
   const { meta, fuelLabel, queueLabel } = useMeta();
   const { t } = useI18n();
-  const geo = useGeolocation();
+  const geo = useGeolocation(t);
   const privacy = usePrivacy();
 
   const [answers, setAnswers] = useState<Record<string, string>>({});
@@ -156,7 +156,7 @@ export function ReportForm({
       >
         <div className="mb-2 flex items-center justify-between">
           <h2 className="text-lg font-semibold">{t("report.title")}</h2>
-          <button type="button" onClick={onClose} aria-label={t("login.close")} className="rounded-full p-1 text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800">
+          <button type="button" onClick={onClose} aria-label={t("window.close")} className="rounded-full p-1 text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800">
             ✕
           </button>
         </div>
@@ -165,7 +165,7 @@ export function ReportForm({
           <div className="flex flex-col gap-3 py-4 text-center">
             <p className="text-emerald-700 dark:text-emerald-400">{t("report.success")}</p>
             <button type="button" onClick={onClose} className="rounded-md bg-blue-600 px-3 py-2 text-sm font-medium text-white hover:bg-blue-700">
-              {t("login.close")}
+              {t("window.close")}
             </button>
           </div>
         )}
@@ -174,7 +174,7 @@ export function ReportForm({
           <div className="flex flex-col gap-3 py-4 text-center">
             <p className="text-amber-700 dark:text-amber-400">{t("report.queued")}</p>
             <button type="button" onClick={onClose} className="rounded-md bg-blue-600 px-3 py-2 text-sm font-medium text-white hover:bg-blue-700">
-              {t("login.close")}
+              {t("window.close")}
             </button>
           </div>
         )}

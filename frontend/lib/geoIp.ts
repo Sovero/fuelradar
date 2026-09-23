@@ -12,6 +12,13 @@
  * чтобы «Найти рядом» уехал в правильный город; точную точку пользователь
  * всегда может задать вручную (настройки приватности).
  *
+ * Проверка правдоподобия: IP-провайдер видит внешний адрес (VPN/прокси/CDN-вход
+ * оператора) и может вернуть точку в другой стране. Такая точка хуже отсутствия:
+ * карта улетает за тысячи км и «рядом» показывает пустоту. Поэтому перед
+ * применением ответ проверяется на удалённость от домашнего якоря региона
+ * (центр по умолчанию из env) — слишком далёкие ответы отбрасываются, и
+ * пользователь получает честную ошибку вместо перелёта не туда (R97i).
+ *
  * Провайдеры: ipwho.is (HTTPS, без ключа) → ip-api.com (HTTP, без ключа;
  * годится на http-страницах dev/десктоп-оболочки, на HTTPS-проде браузер
  * заблокирует mixed content — поэтому он только вторым). Запросы идут по
@@ -23,12 +30,29 @@
  * не уходят и не сохраняются в истории позиций.
  */
 
+import { haversineKm } from "@/lib/geo";
+
 export interface IpLookupResult {
   lat: number;
   lon: number;
   /** Город, как его назвал провайдер (может быть пустым) — для сообщений пользователю. */
   place: string;
 }
+
+/** Домашний якорь: точка, рядом с которой IP-ответ считается правдоподобным. */
+export interface HomeAnchor {
+  lat: number;
+  lon: number;
+}
+
+export interface LookupIpOptions {
+  /** Якорь домашнего региона + максимальное расстояние до него в км. */
+  anchor?: HomeAnchor;
+  maxDistanceKm?: number;
+}
+
+/** Радиус правдоподобия по умолчанию: Щедрый запас поверх городского радиуса. */
+export const IP_FAR_THRESHOLD_KM = 150;
 
 const TIMEOUT_MS = 6_000;
 
@@ -87,15 +111,66 @@ async function tryProvider(provider: (typeof PROVIDERS)[number]): Promise<IpLook
   }
 }
 
-/** Перебирает провайдеров по цепочке; бросает последнюю ошибку, если ни один не ответил. */
-export async function lookupIpPosition(): Promise<IpLookupResult> {
+/** IP-точка слишком далеко от домашнего якоря (VPN/прокси в другой стране). */
+export class IpPositionUnplausibleError extends Error {
+  constructor(
+    public readonly distanceKm: number,
+    public readonly thresholdKm: number,
+  ) {
+    super(`ip-lookup: result ${Math.round(distanceKm)} km away from home region (limit ${thresholdKm} km)`);
+    this.name = "IpPositionUnplausibleError";
+  }
+}
+
+/**
+ * Память о том, что сеть отвечает «не отсюда» (VPN/прокси). Заполняется при
+ * первом отклонённом IP-ответе; настройки приватности показывают по ней
+ * предупреждение заранее — до того, как пользователь нажмёт «Найти рядом».
+ * Сессия-уровень: обновляется при новой проверке, в localStorage не пишется.
+ */
+let networkFarFromHome = false;
+
+export function isNetworkFarFromHome(): boolean {
+  return networkFarFromHome;
+}
+
+/** Для тестов: сбросить сессионный флаг. */
+export function resetNetworkFarFromHome(): void {
+  networkFarFromHome = false;
+}
+
+/** Для тестов: пометить сеть «не отсюда» без сетевого вызова. */
+export function markNetworkFarFromHome(): void {
+  networkFarFromHome = true;
+}
+
+/**
+ * Перебирает провайдеров по цепочке; бросает последнюю ошибку, если ни один
+ * не ответил. С якорем: ответ правдоподобного радиуса — успех, дальний —
+ * отбрасывается и цепочка продолжается (у обоих провайдеров один внешний IP,
+ * так что на практике это приведёт к честной ошибке, а не к перелёту не туда).
+ */
+export async function lookupIpPosition(options: LookupIpOptions = {}): Promise<IpLookupResult> {
+  const { anchor, maxDistanceKm = IP_FAR_THRESHOLD_KM } = options;
   let lastError: unknown = new Error("ip-lookup: no providers configured");
+  let farError: IpPositionUnplausibleError | null = null;
   for (const provider of PROVIDERS) {
     try {
-      return await tryProvider(provider);
+      const result = await tryProvider(provider);
+      const distance = anchor ? haversineKm(anchor.lat, anchor.lon, result.lat, result.lon) : 0;
+      if (anchor && distance > maxDistanceKm) {
+        // Дальняя точка: помечаем сеть «не отсюда» (важно для подсказки в
+        // приватности — см. isNetworkFarFromHome), запоминаем причину и
+        // пробуем следующего провайдера.
+        networkFarFromHome = true;
+        farError = new IpPositionUnplausibleError(distance, maxDistanceKm);
+        lastError = farError;
+        continue;
+      }
+      return result;
     } catch (err) {
       lastError = err;
     }
   }
-  throw lastError;
+  throw farError ?? lastError;
 }

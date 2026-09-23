@@ -47,7 +47,7 @@ export function NotificationsPanel({ onClose }: { onClose: () => void }) {
       >
         <div className="flex items-center justify-between border-b border-gray-100 px-4 py-3 dark:border-gray-800">
           <h2 className="text-lg font-semibold">{t("notifications.title")}</h2>
-          <button type="button" onClick={onClose} aria-label={t("login.close")} className="rounded-full p-1 text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800">
+          <button type="button" onClick={onClose} aria-label={t("window.close")} className="rounded-full p-1 text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800">
             ✕
           </button>
         </div>

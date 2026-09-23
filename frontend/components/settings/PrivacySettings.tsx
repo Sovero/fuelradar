@@ -10,6 +10,7 @@ import { useState } from "react";
 import { usePrivacy } from "@/lib/hooks/usePrivacy";
 import { useI18n } from "@/lib/hooks/useI18n";
 import { isValidLat, isValidLon } from "@/lib/geo";
+import { isNetworkFarFromHome } from "@/lib/geoIp";
 
 export function PrivacySettings() {
   const privacy = usePrivacy();
@@ -30,8 +31,24 @@ export function PrivacySettings() {
     privacy.setManualPoint({ lat, lon });
   }
 
+  // Заранее предупреждаем: сеть уже отвечала «не отсюда» (VPN/прокси), а ручная
+  // точка не задана — «Найти рядом» по IP заведомо ошибётся. Показываем один
+  // честный баннер вместо surprise-ошибки при первом нажатии (R97i).
+  const showVpnNotice = isNetworkFarFromHome() && !privacy.manualPoint;
+
   return (
     <div className="flex flex-col gap-5">
+      {showVpnNotice && (
+        <section
+          role="status"
+          data-testid="privacy-vpn-notice"
+          className="rounded-lg border border-amber-300 bg-amber-50 p-3 dark:border-amber-700 dark:bg-amber-950"
+        >
+          <p className="font-medium text-amber-800 dark:text-amber-200">{t("privacy.vpnNotice.title")}</p>
+          <p className="mt-1 text-sm text-amber-700 dark:text-amber-300">{t("privacy.vpnNotice.description")}</p>
+        </section>
+      )}
+
       <section className="flex items-start justify-between gap-4 rounded-lg border border-gray-200 p-3 dark:border-gray-800">
         <div>
           <p className="font-medium text-gray-800 dark:text-gray-200">{t("privacy.gps.title")}</p>

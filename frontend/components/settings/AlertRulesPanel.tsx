@@ -23,8 +23,8 @@ export function AlertRulesPanel() {
   const { rules, loading, error, create, update, remove } = useAlertRules();
   const { zones } = useMonitoringZones();
   const { meta, fuelLabel, statusLabel, queueLabel } = useMeta();
-  const geo = useGeolocation();
   const { t } = useI18n();
+  const geo = useGeolocation(t);
 
   const [formOpen, setFormOpen] = useState(false);
   const [name, setName] = useState("");
@@ -265,7 +265,7 @@ export function AlertRulesPanel() {
             disabled={busy}
             className="rounded-md bg-blue-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
           >
-            {busy ? t("login.submitting") : t("rules.form.create")}
+            {busy ? t("common.saving") : t("rules.form.create")}
           </button>
         </div>
       )}

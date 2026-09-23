@@ -244,7 +244,7 @@ export function MonitoringZonesPanel() {
               disabled={busy}
               className="rounded-md bg-blue-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
             >
-              {busy ? t("login.submitting") : editingId !== null ? t("zones.form.save") : t("zones.form.create")}
+              {busy ? t("common.saving") : editingId !== null ? t("zones.form.save") : t("zones.form.create")}
             </button>
           </div>
         )}

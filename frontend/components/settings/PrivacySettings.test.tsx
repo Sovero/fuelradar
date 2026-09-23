@@ -4,9 +4,13 @@ import userEvent from "@testing-library/user-event";
 import { PrivacySettings } from "@/components/settings/PrivacySettings";
 import { PrivacyProvider } from "@/lib/hooks/usePrivacy";
 import { I18nProvider } from "@/lib/hooks/useI18n";
+import { markNetworkFarFromHome, resetNetworkFarFromHome } from "@/lib/geoIp";
 
 beforeEach(() => window.localStorage.clear());
-afterEach(() => window.localStorage.clear());
+afterEach(() => {
+  window.localStorage.clear();
+  resetNetworkFarFromHome();
+});
 
 function renderSettings() {
   render(
@@ -61,5 +65,31 @@ describe("PrivacySettings (R24)", () => {
 
     await waitFor(() => expect(window.localStorage.getItem("fr_privacy_last_position")).toBeNull());
     expect(screen.getByText(/удалена/)).toBeInTheDocument();
+  });
+
+  it("при сети «не отсюда» без ручной точки показывает VPN-предупреждение заранее", () => {
+    markNetworkFarFromHome();
+    renderSettings();
+
+    expect(screen.getByTestId("privacy-vpn-notice")).toBeInTheDocument();
+    expect(screen.getByText(/за пределами региона/)).toBeInTheDocument();
+  });
+
+  it("VPN-предупреждение исчезает, когда ручная точка задана", async () => {
+    markNetworkFarFromHome();
+    renderSettings();
+    expect(screen.getByTestId("privacy-vpn-notice")).toBeInTheDocument();
+
+    const user = userEvent.setup();
+    await user.type(screen.getByPlaceholderText("широта"), "45.05");
+    await user.type(screen.getByPlaceholderText("долгота"), "38.97");
+    await user.click(screen.getByText("Сохранить"));
+
+    await waitFor(() => expect(screen.queryByTestId("privacy-vpn-notice")).not.toBeInTheDocument());
+  });
+
+  it("без VPN-детекта предупреждения нет", () => {
+    renderSettings();
+    expect(screen.queryByTestId("privacy-vpn-notice")).not.toBeInTheDocument();
   });
 });

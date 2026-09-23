@@ -12,9 +12,9 @@ const RADIUS_PRESETS = [5, 10, 20, 30, 50];
 /** Выбор топлива/радиуса и кнопка «Найти топливо рядом» (R73, §104). GPS — только если разрешено в приватности (R24). */
 export function TopControls() {
   const { filters, setFilters } = useFilters();
-  const geo = useGeolocation();
+  const { t, tt } = useI18n();
+  const geo = useGeolocation(t);
   const privacy = usePrivacy();
-  const { t } = useI18n();
   const [customRadius, setCustomRadius] = useState(false);
   const [privacyNotice, setPrivacyNotice] = useState(false);
 
@@ -31,6 +31,8 @@ export function TopControls() {
     geo.request();
   }
 
+  // Карта уезжает только на GPS-точку или на ПОДТВЕРЖДЁННУЮ IP-точку:
+  // city-candidate из IP-резерва сначала показывается в баннере «Вы в X?».
   useEffect(() => {
     if (geo.status === "ready" && geo.position) {
       if (filters.lat !== geo.position.lat || filters.lon !== geo.position.lon) {
@@ -40,6 +42,9 @@ export function TopControls() {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [geo.status, geo.position?.lat, geo.position?.lon]);
+
+  const candidate = geo.ipCandidate;
+  const candidateCity = candidate?.place?.trim() || "";
 
   return (
     <div className="flex flex-col gap-2 px-4 pb-2 sm:flex-row sm:items-center sm:justify-between">
@@ -91,6 +96,35 @@ export function TopControls() {
       {geo.error && <p className="text-sm text-red-600 dark:text-red-400">{geo.error}</p>}
       {geo.status === "ready" && geo.source === "ip" && (
         <p className="text-xs text-gray-500 dark:text-gray-400">{t("findNearby.ipSource")}</p>
+      )}
+      {candidate && (
+        <div
+          role="status"
+          data-testid="ip-city-banner"
+          className="flex flex-wrap items-center gap-2 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-800 dark:border-amber-700 dark:bg-amber-950 dark:text-amber-200"
+        >
+          <span>
+            {candidateCity
+              ? tt("findNearby.ipConfirm", { city: candidateCity })
+              : t("findNearby.ipConfirmUnknown")}
+          </span>
+          <button
+            type="button"
+            onClick={geo.confirmIpCandidate}
+            className="rounded-md bg-emerald-600 px-3 py-1 text-xs font-semibold text-white hover:bg-emerald-700"
+          >
+            {candidateCity
+              ? tt("findNearby.ipConfirmYes", { city: candidateCity })
+              : t("findNearby.ipConfirmYesUnknown")}
+          </button>
+          <button
+            type="button"
+            onClick={geo.dismissIpCandidate}
+            className="rounded-md border border-amber-400 px-3 py-1 text-xs font-medium hover:bg-amber-100 dark:border-amber-600 dark:hover:bg-amber-900"
+          >
+            {t("findNearby.ipConfirmNo")}
+          </button>
+        </div>
       )}
       {privacyNotice && <p className="text-sm text-amber-700 dark:text-amber-400">{t("privacy.gps.blockedNotice")}</p>}
     </div>

@@ -136,19 +136,31 @@ def _osrm_payload(*, code: str = "Ok", coordinates: int = 4, distance: float = 4
                     {
                         "steps": [
                             {
-                                "maneuver": {"type": "depart", "modifier": None},
+                                "maneuver": {
+                                    "type": "depart",
+                                    "modifier": None,
+                                    "location": [38.941, 45.035],
+                                },
                                 "name": "",
                                 "distance": 120.0,
                                 "duration": 20.0,
                             },
                             {
-                                "maneuver": {"type": "turn", "modifier": "right"},
+                                "maneuver": {
+                                    "type": "turn",
+                                    "modifier": "right",
+                                    "location": [38.942, 45.036],
+                                },
                                 "name": "ул. Северная",
                                 "distance": 3100.0,
                                 "duration": 420.0,
                             },
                             {
-                                "maneuver": {"type": "arrive", "modifier": None},
+                                "maneuver": {
+                                    "type": "arrive",
+                                    "modifier": None,
+                                    "location": [38.944, 45.038],
+                                },
                                 "name": "",
                                 "distance": 0.0,
                                 "duration": 0.0,
@@ -189,6 +201,24 @@ def test_parse_route_payload_converts_lon_lat_to_lat_lon():
     assert [step.type for step in route.steps] == ["depart", "turn", "arrive"]
     assert route.steps[1].modifier == "right"
     assert route.steps[1].street == "ул. Северная"
+    # Точка маневра переводится из [lon, lat] в lat/lon: карта перелетает к ней,
+    # когда пользователь кликает по подписи расстояния на линии маршрута.
+    assert route.steps[1].lat == 45.036
+    assert route.steps[1].lon == 38.942
+
+
+def test_parse_route_payload_tolerates_missing_or_broken_maneuver_location():
+    """Шаг без ``maneuver.location`` (или с мусором) — не ошибка: точка неизвестна."""
+    payload = _osrm_payload()
+    steps = payload["routes"][0]["legs"][0]["steps"]
+    steps[0]["maneuver"].pop("location")
+    steps[1]["maneuver"]["location"] = ["мусор", None]
+    steps[2]["maneuver"]["location"] = [200.0, 45.0]
+
+    route = routing_service.parse_route_payload(payload)
+
+    assert route is not None
+    assert [(step.lat, step.lon) for step in route.steps] == [(None, None), (None, None), (None, None)]
 
 
 def test_parse_route_payload_rejects_unusable_answers():
@@ -254,6 +284,7 @@ def test_plan_route_endpoint_returns_road_geometry(client, monkeypatch):
     assert body["duration_min"] == 9.0
     assert body["geometry"][0] == {"lat": 45.035, "lon": 38.941}
     assert body["steps"][1]["street"] == "ул. Северная"
+    assert body["steps"][1]["lat"] == 45.036 and body["steps"][1]["lon"] == 38.942
     assert body["reason"] is None
 
 

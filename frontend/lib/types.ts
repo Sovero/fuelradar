@@ -67,6 +67,11 @@ export interface RoutePlanStep {
   street: string | null;
   distance_m: number;
   duration_s: number;
+  /** Координаты самого маневра (maneuver.location у роутера): по клику на подпись
+   * карта перелетает к подсвеченному маневру. Могут отсутствовать — тогда точка
+   * берётся из геометрии маршрута (см. lib/route.ts). */
+  lat?: number | null;
+  lon?: number | null;
 }
 
 /** R22.1: дорожный маршрут по улицам либо честный отказ с причиной. */

@@ -42,13 +42,20 @@ class RoutePlanRequest(PolylineRequest):
 
 
 class RoutePlanStep(BaseModel):
-    """Шаг маршрута: машиночитаемый тип + улица + длина/время (перевод — на фронте)."""
+    """Шаг маршрута: машиночитаемый тип + улица + длина/время (перевод — на фронте).
+
+    ``lat``/``lon`` — координаты маневра; клиент перелетает к ним камерой, когда
+    пользователь кликает по подписи маршрута. Может отсутствовать, если роутер
+    точку не отдал — тогда клиент берёт её из геометрии.
+    """
 
     type: str
     modifier: str | None = None
     street: str | None = None
     distance_m: float
     duration_s: float
+    lat: float | None = Field(default=None, ge=-90, le=90)
+    lon: float | None = Field(default=None, ge=-180, le=180)
 
 
 class RoutePlanResponse(BaseModel):

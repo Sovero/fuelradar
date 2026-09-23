@@ -52,6 +52,8 @@ def route_plan(body: RoutePlanRequest) -> RoutePlanResponse:
                 street=step.street,
                 distance_m=step.distance_m,
                 duration_s=step.duration_s,
+                lat=step.lat,
+                lon=step.lon,
             )
             for step in route.steps
         ],

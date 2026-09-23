@@ -142,4 +142,70 @@ describe("RouteModePanel (R22)", () => {
     expect(screen.queryByTestId("route-steps")).toBeNull();
     expect(screen.queryByTestId("route-steps-toggle")).toBeNull();
   });
+
+  it("stepsOpenRequest открывает вкладку маневров и подсвечивает активный шаг", async () => {
+    const user = userEvent.setup();
+    const onStepsOpenHandled = vi.fn();
+    const plan = {
+      is_road_route: true,
+      provider: "osrm",
+      distance_km: 4.2,
+      duration_min: 9,
+      geometry: [
+        { lat: 45.03, lon: 38.94 },
+        { lat: 45.02, lon: 38.97 },
+      ],
+      steps: [
+        { type: "depart", modifier: null, street: null, distance_m: 120, duration_s: 20 },
+        { type: "turn", modifier: "right", street: "ул. Северная", distance_m: 300, duration_s: 60 },
+      ],
+      reason: null,
+    };
+    const { rerender } = render(
+      <I18nProvider>
+        <RouteModePanel
+          active
+          points={[]}
+          corridorKm={5}
+          plan={plan}
+          onActiveChange={vi.fn()}
+          onCorridorChange={vi.fn()}
+          onRemovePoint={vi.fn()}
+          onClear={vi.fn()}
+        />
+      </I18nProvider>,
+    );
+
+    // Вкладка закрыта, пока триггера не было (маневры не занимают место).
+    expect(screen.queryByTestId("route-steps")).toBeNull();
+
+    // Клик по подписи линии приходит как счётчик-триггер: вкладка открывается,
+    // родителю сообщается об обработке (чтобы он сбросил счётчик), активный шаг
+    // (ближайший к подписи) подсвечен и помечен data-testid для E2E.
+    rerender(
+      <I18nProvider>
+        <RouteModePanel
+          active
+          points={[]}
+          corridorKm={5}
+          plan={plan}
+          onActiveChange={vi.fn()}
+          onCorridorChange={vi.fn()}
+          onRemovePoint={vi.fn()}
+          onClear={vi.fn()}
+          stepsOpenRequest={1}
+          onStepsOpenHandled={onStepsOpenHandled}
+          activeStepIndex={1}
+        />
+      </I18nProvider>,
+    );
+
+    expect(await screen.findByTestId("route-steps")).toBeInTheDocument();
+    expect(onStepsOpenHandled).toHaveBeenCalled();
+    expect(screen.getByTestId("route-step-active")).toHaveTextContent(/Северная/);
+
+    // Пользователь всё ещё может закрыть вкладку вручную.
+    await user.click(screen.getByTestId("route-steps-toggle"));
+    expect(screen.queryByTestId("route-steps")).toBeNull();
+  });
 });

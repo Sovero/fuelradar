@@ -88,6 +88,12 @@ interface RouteModePanelProps {
   plan?: RoutePlan | null;
   planLoading?: boolean;
   planError?: string | null;
+  /** Счётчик-триггер «открыть вкладку маневров» (клик по подписи на линии). */
+  stepsOpenRequest?: number;
+  /** Вызывается после обработки триггера, чтобы родитель мог сбросить счётчик. */
+  onStepsOpenHandled?: () => void;
+  /** Маневр для подсветки (ближайший к подписи на линии); null — без подсветки. */
+  activeStepIndex?: number | null;
   onActiveChange: (active: boolean) => void;
   onCorridorChange: (corridorKm: number) => void;
   onRemovePoint: (index: number) => void;
@@ -101,6 +107,9 @@ export function RouteModePanel({
   plan = null,
   planLoading = false,
   planError = null,
+  stepsOpenRequest = 0,
+  onStepsOpenHandled,
+  activeStepIndex = null,
   onActiveChange,
   onCorridorChange,
   onRemovePoint,
@@ -112,10 +121,25 @@ export function RouteModePanel({
 
   useEffect(() => setCorridorInput(String(corridorKm)), [corridorKm]);
 
+  // Клик по подписи на линии маршрута открывает вкладку маневров (и только
+  // открывает: повторный клик по подписи — просто держим вкладку открытой).
+  useEffect(() => {
+    if (stepsOpenRequest > 0) {
+      setStepsOpen(true);
+      onStepsOpenHandled?.();
+    }
+  }, [stepsOpenRequest, onStepsOpenHandled]);
+
   const isRoadRoute = Boolean(plan?.is_road_route && plan?.geometry && plan.geometry.length >= 2);
   const steps = plan?.steps ?? [];
   const hasSteps = isRoadRoute && steps.length > 0;
-  const extraSteps = Math.max(0, steps.length - MAX_VISIBLE_STEPS);
+  // Активный шаг (ближайший к подписи на линии) обязан быть видимым, даже если он
+  // за пределами первых MAX_VISIBLE_STEPS — иначе подсветки не видно вовсе.
+  const visibleCount =
+    activeStepIndex !== null && activeStepIndex >= MAX_VISIBLE_STEPS
+      ? Math.min(activeStepIndex + 1, steps.length)
+      : MAX_VISIBLE_STEPS;
+  const extraSteps = Math.max(0, steps.length - visibleCount);
 
   return (
     <section
@@ -262,21 +286,34 @@ export function RouteModePanel({
                   aria-label={t("route.stepsLabel")}
                   data-testid="route-steps"
                 >
-                  {steps.slice(0, MAX_VISIBLE_STEPS).map((step, index) => (
-                    <li key={`${step.type}-${step.modifier}-${index}`} className="flex min-w-0 items-baseline gap-1.5">
-                      <span
-                        aria-hidden
-                        className="inline-flex w-5 shrink-0 justify-center text-sm leading-none text-blue-700 dark:text-blue-300"
+                  {steps.slice(0, visibleCount).map((step, index) => {
+                    const isHighlighted = index === activeStepIndex;
+                    return (
+                      <li
+                        key={`${step.type}-${step.modifier}-${index}`}
+                        className={`flex min-w-0 items-baseline gap-1.5 rounded px-1 ${
+                          isHighlighted
+                            ? "bg-blue-600/15 ring-1 ring-blue-500 dark:bg-blue-400/20 dark:ring-blue-400"
+                            : ""
+                        }`}
+                        data-testid={isHighlighted ? "route-step-active" : undefined}
                       >
-                        {stepIcon(step)}
-                      </span>
-                      <span className="min-w-0 truncate">
-                        {t(maneuverKey(step))}
-                        {step.street ? ` · ${tt("route.onStreet", { street: step.street })}` : ""}
-                        {` · ${formatDistance(step.distance_m / 1000)}`}
-                      </span>
-                    </li>
-                  ))}
+                        <span
+                          aria-hidden
+                          className={`inline-flex w-5 shrink-0 justify-center text-sm leading-none ${
+                            isHighlighted ? "font-bold text-blue-900 dark:text-blue-100" : "text-blue-700 dark:text-blue-300"
+                          }`}
+                        >
+                          {stepIcon(step)}
+                        </span>
+                        <span className={`min-w-0 truncate ${isHighlighted ? "font-semibold text-blue-900 dark:text-blue-100" : ""}`}>
+                          {t(maneuverKey(step))}
+                          {step.street ? ` · ${tt("route.onStreet", { street: step.street })}` : ""}
+                          {` · ${formatDistance(step.distance_m / 1000)}`}
+                        </span>
+                      </li>
+                    );
+                  })}
                 </ol>
               )}
               {stepsOpen && extraSteps > 0 && (

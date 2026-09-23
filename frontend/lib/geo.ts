@@ -39,26 +39,40 @@ export function polylineLengthKm(points: ReadonlyArray<{ lat: number; lon: numbe
 }
 
 /**
- * Точка на половине длины полилинии (по кумулятивному haversine) — место подписи
- * расстояния/ETA на линии маршрута. Для двух точек это середина отрезка.
+ * Точка на заданной доле (0..1) длины полилинии (по кумулятивному haversine).
+ * ratio=0.5 — место подписи маршрута; используется и для поиска ближайшего
+ * маневра (см. stepIndexAtRatio в HomeScreen).
  */
-export function midpointAlong(points: ReadonlyArray<{ lat: number; lon: number }>): { lat: number; lon: number } | null {
+export function pointAlongRatio(
+  points: ReadonlyArray<{ lat: number; lon: number }>,
+  ratio: number,
+): { lat: number; lon: number } | null {
   if (points.length < 2) return null;
+  const clamped = Math.min(1, Math.max(0, ratio));
   const segments = points.slice(1).map((point, index) => haversineKm(points[index].lat, points[index].lon, point.lat, point.lon));
   const total = segments.reduce((sum, length) => sum + length, 0);
   if (total === 0) return { lat: points[0].lat, lon: points[0].lon };
+  const target = total * clamped;
   let passed = 0;
   for (let i = 0; i < segments.length; i++) {
-    if (passed + segments[i] >= total / 2) {
-      const ratio = (total / 2 - passed) / segments[i];
+    if (passed + segments[i] >= target) {
+      const ratioInSegment = total > 0 ? (target - passed) / segments[i] : 0;
       return {
-        lat: points[i].lat + (points[i + 1].lat - points[i].lat) * ratio,
-        lon: points[i].lon + (points[i + 1].lon - points[i].lon) * ratio,
+        lat: points[i].lat + (points[i + 1].lat - points[i].lat) * ratioInSegment,
+        lon: points[i].lon + (points[i + 1].lon - points[i].lon) * ratioInSegment,
       };
     }
     passed += segments[i];
   }
   return { lat: points[points.length - 1].lat, lon: points[points.length - 1].lon };
+}
+
+/**
+ * Точка на половине длины полилинии (по кумулятивному haversine) — место подписи
+ * расстояния/ETA на линии маршрута. Для двух точек это середина отрезка.
+ */
+export function midpointAlong(points: ReadonlyArray<{ lat: number; lon: number }>): { lat: number; lon: number } | null {
+  return pointAlongRatio(points, 0.5);
 }
 
 /**

@@ -4,6 +4,7 @@ import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
 import { MapView } from "@/components/map/MapView";
+import { MANEUVER_ZOOM } from "@/lib/map/config";
 import type { MapProviderProps } from "@/lib/map/types";
 
 const received: MapProviderProps[] = [];
@@ -109,6 +110,58 @@ describe("MapView route label and corridor highlight", () => {
 
     expect(received.at(-1)?.routeLabel).toEqual(routeLabel);
     expect(received.at(-1)?.highlightedStationIds).toEqual(highlightedStationIds);
+  });
+
+  it("клик-обработчик подписи доходит до провайдера", () => {
+    const onRouteLabelClick = vi.fn();
+    render(
+      <MapView
+        stations={[]}
+        selectedFuelCodes={[]}
+        selectedStationId={null}
+        onSelectStation={vi.fn()}
+        focus={null}
+        routeLabel={{ text: "5,2 км", lat: 45.0, lon: 38.97 }}
+        onRouteLabelClick={onRouteLabelClick}
+      />,
+    );
+
+    expect(received.at(-1)?.onRouteLabelClick).toBe(onRouteLabelClick);
+  });
+
+  it("перелёт к подсвеченному маневру доходит до карты как flyTo с зумом маневра", () => {
+    render(
+      <MapView
+        stations={[]}
+        selectedFuelCodes={[]}
+        selectedStationId={null}
+        onSelectStation={vi.fn()}
+        focus={null}
+        flyToPoint={{ lat: 45.05, lon: 38.95 }}
+      />,
+    );
+
+    expect(received.at(-1)?.flyTo).toEqual({ center: [38.95, 45.05], zoom: MANEUVER_ZOOM });
+  });
+
+  it("повторный клик по подписи (новый объект с теми же координатами) летит снова", () => {
+    const props = {
+      stations: [],
+      selectedFuelCodes: [],
+      selectedStationId: null,
+      onSelectStation: vi.fn(),
+      focus: null,
+    };
+    const { rerender } = render(<MapView {...props} flyToPoint={{ lat: 45.05, lon: 38.95 }} />);
+    const first = received.at(-1)?.flyTo;
+
+    rerender(<MapView {...props} flyToPoint={{ lat: 45.05, lon: 38.95 }} />);
+    const second = received.at(-1)?.flyTo;
+
+    // Провайдер летит на изменение ссылки: те же координаты, но новый объект —
+    // новый перелёт (пользователь мог увести карту в сторону).
+    expect(second).toEqual(first);
+    expect(second).not.toBe(first);
   });
 
   it("без маршрута подпись и подсветка не передаются", () => {

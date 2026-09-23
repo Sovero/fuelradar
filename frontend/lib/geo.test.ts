@@ -1,5 +1,49 @@
 import { describe, expect, it } from "vitest";
-import { decimatePolyline, haversineKm, haversineMeters, isValidLat, isValidLon, midpointAlong, polylineLengthKm, shouldRebuildFollowMeZone } from "@/lib/geo";
+import { decimatePolyline, haversineKm, haversineMeters, isValidLat, isValidLon, midpointAlong, pointAlongRatio, polylineLengthKm, shouldRebuildFollowMeZone } from "@/lib/geo";
+
+describe("pointAlongRatio (клик по подписи → ближайший маневр)", () => {
+  const line = [
+    { lat: 45.0, lon: 38.9 },
+    { lat: 45.0, lon: 38.92 },
+    { lat: 45.0, lon: 38.94 },
+    { lat: 45.0, lon: 38.96 },
+  ];
+
+  it("0.5 — середина, 0 — начало, 1 — конец", () => {
+    const mid = pointAlongRatio(line, 0.5);
+    expect(mid?.lat).toBeCloseTo(45.0, 5);
+    expect(mid?.lon).toBeCloseTo(38.93, 5);
+
+    const start = pointAlongRatio(line, 0);
+    expect(start?.lon).toBeCloseTo(38.9, 5);
+
+    const end = pointAlongRatio(line, 1);
+    expect(end?.lon).toBeCloseTo(38.96, 5);
+  });
+
+  it("выходит за [0..1] без аварий — зажимается", () => {
+    expect(pointAlongRatio(line, -1)?.lon).toBeCloseTo(38.9, 5);
+    expect(pointAlongRatio(line, 2)?.lon).toBeCloseTo(38.96, 5);
+  });
+
+  it("нулевой длины линия не делит на ноль", () => {
+    const degenerate = [line[0], line[0]];
+    const point = pointAlongRatio(degenerate, 0.5);
+    expect(point?.lat).toBeCloseTo(45.0, 5);
+    expect(point?.lon).toBeCloseTo(38.9, 5);
+  });
+
+  it("менее двух точек — null", () => {
+    expect(pointAlongRatio([line[0]], 0.5)).toBeNull();
+  });
+
+  it("midpointAlong согласован с pointAlongRatio(0.5)", () => {
+    const a = midpointAlong(line);
+    const b = pointAlongRatio(line, 0.5);
+    expect(a?.lat).toBeCloseTo(b?.lat ?? 0, 6);
+    expect(a?.lon).toBeCloseTo(b?.lon ?? 0, 6);
+  });
+});
 
 describe("decimatePolyline (R22.1)", () => {
   it("короткую линию не трогает", () => {

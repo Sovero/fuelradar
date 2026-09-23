@@ -129,11 +129,13 @@ export const ROUTE_PLAN = {
     { lat: 45.0302, lon: 38.9711 },
     { lat: 45.028, lon: 38.979 },
   ],
+  // lat/lon — точка самого маневра (maneuver.location у роутера): по клику на
+  // подпись карта перелетает к подсвеченному шагу.
   steps: [
-    { type: "depart", modifier: null, street: null, distance_m: 240, duration_s: 35 },
-    { type: "turn", modifier: "right", street: "ул. Северная", distance_m: 3900, duration_s: 540 },
-    { type: "turn", modifier: "left", street: "ул. Красная", distance_m: 2060, duration_s: 240 },
-    { type: "arrive", modifier: null, street: null, distance_m: 0, duration_s: 0 },
+    { type: "depart", modifier: null, street: null, distance_m: 240, duration_s: 35, lat: 45.0356, lon: 38.9412 },
+    { type: "turn", modifier: "right", street: "ул. Северная", distance_m: 3900, duration_s: 540, lat: 45.0371, lon: 38.9503 },
+    { type: "turn", modifier: "left", street: "ул. Красная", distance_m: 2060, duration_s: 240, lat: 45.0339, lon: 38.9608 },
+    { type: "arrive", modifier: null, street: null, distance_m: 0, duration_s: 0, lat: 45.028, lon: 38.979 },
   ],
   reason: null,
 };

@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { FiltersProvider, useFilters } from "@/lib/hooks/useFilters";
 import { useMeta } from "@/lib/hooks/useMeta";
 import { useI18n } from "@/lib/hooks/useI18n";
@@ -14,6 +14,7 @@ import { useObservationMode } from "@/lib/hooks/useObservationMode";
 import { useNetworkPreferences } from "@/lib/hooks/useNetworkPreferences";
 import { countConfirmed } from "@/lib/availability";
 import { decimatePolyline, midpointAlong, polylineLengthKm } from "@/lib/geo";
+import { stepAtFraction } from "@/lib/route";
 import { formatDistance, formatEtaMinutes } from "@/lib/format";
 import { applyObservationMode, applyPreferredBrandsOrder } from "@/lib/personalization";
 import { apiPost, ApiError } from "@/lib/api";
@@ -49,6 +50,13 @@ function HomeScreenBody() {
   const [alertCreated, setAlertCreated] = useState(false);
   const [alertError, setAlertError] = useState<string | null>(null);
   const [routeActive, setRouteActive] = useState(false);
+  // Клик по подписи на линии маршрута: поднимает вкладку маневров в панели
+  // (RouteModePanel сам её погасит при повторном клике/закрытии пользователем).
+  const [stepsRequestedOpen, setStepsRequestedOpen] = useState(false);
+  // Перелёт камеры к подсвеченному маневру — по клику на подпись маршрута.
+  // Новый объект в состоянии (даже с теми же координатами) = новый перелёт:
+  // так повторный клик возвращает карту назад, если пользователь её увёл.
+  const [maneuverFocus, setManeuverFocus] = useState<MapPoint | null>(null);
   const [routePoints, setRoutePoints] = useState<MapPoint[]>([]);
   const [routeCorridorKm, setRouteCorridorKm] = useState(5);
   const [isHeatmapOn, setIsHeatmapOn] = useState(false);
@@ -146,6 +154,9 @@ function HomeScreenBody() {
 
   // Подпись на линии маршрута: по дорогам — расстояние и время из роутера
   // (R22.1); если дорожного маршрута нет — по прямой и средней скорости из /meta.
+  // Клик по подписи открывает вкладку маневров и перелетает к подсвеченному
+  // маневру (handleRouteLabelClick), поэтому при дорожном маршруте подпись
+  // кликабельна (с подсказкой), иначе — просто бейдж.
   const routeLabel: RouteLineLabel | null = useMemo(() => {
     if (!routeReady) return null;
     if (roadGeometry && routePlan?.distance_km) {
@@ -158,6 +169,8 @@ function HomeScreenBody() {
           (roadMinutes !== null ? ` · ~${formatEtaMinutes(roadMinutes)}` : ""),
         lat: roadPoint.lat,
         lon: roadPoint.lon,
+        clickable: true,
+        title: t("route.labelHint"),
       };
     }
     const km = polylineLengthKm(routePoints);
@@ -167,13 +180,26 @@ function HomeScreenBody() {
     const point = midpointAlong(routePoints);
     if (!point) return null;
     return { text: formatDistance(km) + (minutes !== null ? ` · ~${formatEtaMinutes(minutes)}` : ""), lat: point.lat, lon: point.lon };
-  }, [routeReady, routePoints, roadGeometry, routePlan, meta]);
+  }, [routeReady, routePoints, roadGeometry, routePlan, meta, t]);
 
   // Станции коридора подсвечиваются на карте (маршрут из карточки или ручной).
   const highlightedStationIds = useMemo(
     () => (routeReady ? routeStations.map((s) => s.id) : []),
     [routeReady, routeStations],
   );
+
+  // Маневр, ближайший к середине дорожной линии (где стоит подпись): долю середины
+  // переводим в кумулятивную дистанцию и берём шаг, в диапазон которого она попадает
+  // (lib/route.ts). Клик по подписи подсвечивает этот шаг и перелетает к его точке.
+  const activeStep = useMemo(
+    () => (routeReady ? stepAtFraction(routePlan?.steps ?? [], roadGeometry, routePlan?.distance_km ?? null) : null),
+    [routeReady, routePlan, roadGeometry],
+  );
+  const activeStepIndex = activeStep?.index ?? null;
+  const handleRouteLabelClick = useCallback(() => {
+    setStepsRequestedOpen(true);
+    if (activeStep?.point) setManeuverFocus({ ...activeStep.point });
+  }, [activeStep]);
   const visibleLoading = routeReady ? routeLoading : loading;
   const visibleError = routeReady ? routeError : error;
   const { favorites } = useFavorites();
@@ -244,6 +270,9 @@ function HomeScreenBody() {
         plan={routePlan}
         planLoading={routePlanLoading}
         planError={routePlanError}
+        stepsOpenRequest={stepsRequestedOpen ? 1 : 0}
+        onStepsOpenHandled={() => setStepsRequestedOpen(false)}
+        activeStepIndex={activeStepIndex}
         onActiveChange={(active) => {
           setRouteActive(active);
           if (active) setFilters({ tab: "map" });
@@ -288,6 +317,8 @@ function HomeScreenBody() {
                   focus={focus}
                   routePolyline={routeActive ? (roadGeometry ?? routePoints) : undefined}
                   routeLabel={routeLabel}
+                  onRouteLabelClick={handleRouteLabelClick}
+                  flyToPoint={maneuverFocus}
                   highlightedStationIds={highlightedStationIds.length ? highlightedStationIds : undefined}
                   onMapClick={routeActive ? (point) => setRoutePoints((current) => [...current, point].slice(0, 100)) : undefined}
                   heatCircles={heatCircles.length ? heatCircles : undefined}

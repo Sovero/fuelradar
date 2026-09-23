@@ -40,13 +40,21 @@ class RoutingError(RuntimeError):
 
 @dataclass(slots=True)
 class RouteStep:
-    """Один шаг маршрута: машиночитаемый тип + улица + длина/время."""
+    """Один шаг маршрута: машиночитаемый тип + улица + длина/время.
+
+    ``lat``/``lon`` — точка самого маневра (``maneuver.location`` у OSRM):
+    интерфейс перелетает к ней камерой, когда пользователь кликает по подписи
+    расстояния и вкладка подсвечивает этот шаг. Если роутер её не отдал —
+    координаты остаются пустыми, и фронт берёт точку из геометрии.
+    """
 
     type: str
     modifier: str | None
     street: str | None
     distance_m: float
     duration_s: float
+    lat: float | None = None
+    lon: float | None = None
 
 
 @dataclass(slots=True)
@@ -96,6 +104,25 @@ def _decimate(points: list[dict[str, float]], max_points: int = MAX_GEOMETRY_POI
     return kept
 
 
+def _maneuver_point(maneuver: dict[str, Any]) -> tuple[float | None, float | None]:
+    """``maneuver.location`` OSRM (``[lon, lat]``) → ``(lat, lon)``.
+
+    Координаты вне допустимых диапазонов и любой мусор в поле — не ошибка
+    маршрута: точка маневра просто остаётся неизвестной.
+    """
+    location = maneuver.get("location")
+    if not isinstance(location, (list, tuple)) or len(location) < 2:
+        return None, None
+    try:
+        lon = float(location[0])
+        lat = float(location[1])
+    except (TypeError, ValueError):
+        return None, None
+    if not -90.0 <= lat <= 90.0 or not -180.0 <= lon <= 180.0:
+        return None, None
+    return lat, lon
+
+
 def _step_from_payload(payload: dict[str, Any]) -> RouteStep | None:
     """Шаг OSRM → ``RouteStep``; шаги без движения отбрасываются."""
     maneuver = payload.get("maneuver") or {}
@@ -104,12 +131,15 @@ def _step_from_payload(payload: dict[str, Any]) -> RouteStep | None:
         return None
     modifier = maneuver.get("modifier")
     street = payload.get("name") or None
+    lat, lon = _maneuver_point(maneuver)
     return RouteStep(
         type=step_type,
         modifier=str(modifier) if modifier else None,
         street=str(street).strip() or None if street else None,
         distance_m=round(float(payload.get("distance") or 0.0), 1),
         duration_s=round(float(payload.get("duration") or 0.0), 1),
+        lat=lat,
+        lon=lon,
     )
 
 

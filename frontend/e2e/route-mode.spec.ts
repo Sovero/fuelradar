@@ -55,6 +55,26 @@ test("маршрут по дорогам: две точки → геометри
   await expect(routeLabel).toContainText("6.2 км");
   await expect(routeLabel).toContainText("14 мин");
 
+  // Клик по подписи открывает вкладку маневров, подсвечивает ближайший к ней шаг
+  // и перелетает камерой к точке маневра — подпись на экране сдвигается.
+  // Вкладка уже открыта (клик по переключателю выше), поэтому вёрстка при этом
+  // клике не меняется: сдвиг позиции может дать только камера.
+  const labelBox = async () => (await routeLabel.boundingBox()) ?? { x: 0, y: 0 };
+  const labelBefore = await labelBox();
+
+  await routeLabel.click();
+  await expect(page.getByTestId("route-steps")).toBeVisible();
+  await expect(page.getByTestId("route-step-active")).toContainText("ул. Северная");
+  await expect
+    .poll(
+      async () => {
+        const now = await labelBox();
+        return Math.hypot(now.x - labelBefore.x, now.y - labelBefore.y);
+      },
+      { message: "карта не перелетела к подсвеченному маневру" },
+    )
+    .toBeGreaterThan(20);
+
   // Коридор станций считается по дорожной линии (первая точка — геометрия мока).
   await expect
     .poll(() => corridorRequested, { message: "POST /route/stations не вызван после двух точек" })

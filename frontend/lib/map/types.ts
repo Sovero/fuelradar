@@ -42,6 +42,10 @@ export interface RouteLineLabel {
   text: string;
   lat: number;
   lon: number;
+  /** Подпись кликабельна: открывает вкладку маневров (обе карты обязаны поддержать). */
+  clickable?: boolean;
+  /** Текст всплывающей подсказки подписи. */
+  title?: string;
 }
 
 export interface MapProviderProps {
@@ -57,6 +61,8 @@ export interface MapProviderProps {
   routePolyline?: MapPoint[];
   /** Подпись расстояния/ETA на середине линии маршрута (позицию считает вызывающий код). */
   routeLabel?: RouteLineLabel | null;
+  /** Клик по подписи маршрута — открывает вкладку маневров в панели. */
+  onRouteLabelClick?: () => void;
   /** Идентификаторы станций коридора для визуальной подсветки поверх обычных маркеров. */
   highlightedStationIds?: ReadonlyArray<string>;
   /** Клик по фону карты; Route Mode использует его для добавления точки. */

@@ -49,6 +49,7 @@ export function YandexMapProvider({
   userLocation,
   routePolyline = [],
   routeLabel = null,
+  onRouteLabelClick,
   highlightedStationIds = [],
   onMapClick,
   heatCircles = [],
@@ -68,9 +69,11 @@ export function YandexMapProvider({
   const onMarkerClickRef = useRef(onMarkerClick);
   const onViewportChangeRef = useRef(onViewportChange);
   const onMapClickRef = useRef(onMapClick);
+  const onRouteLabelClickRef = useRef(onRouteLabelClick);
   onMarkerClickRef.current = onMarkerClick;
   onViewportChangeRef.current = onViewportChange;
   onMapClickRef.current = onMapClick;
+  onRouteLabelClickRef.current = onRouteLabelClick;
 
   const [state, setState] = useState<LoadState>(apiKey ? "loading" : "no-key");
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -257,6 +260,7 @@ export function YandexMapProvider({
   }, [highlightedStationIds, markers, state]);
 
   // Подпись расстояния/ETA на середине линии маршрута — stretchy-плейсмарк.
+  // Кликабельна, когда routeLabel.clickable: клик открывает вкладку маневров.
   useEffect(() => {
     const ymaps = ymapsRef.current;
     const map = mapRef.current;
@@ -268,9 +272,15 @@ export function YandexMapProvider({
     if (!routeLabel) return;
     const placemark = new ymaps.Placemark(
       [routeLabel.lat, routeLabel.lon],
-      { iconContent: routeLabel.text },
-      { preset: "islands#blueStretchyIcon", zIndex: 1200 },
+      { iconContent: routeLabel.text, hintContent: routeLabel.title ?? "" },
+      { preset: "islands#blueStretchyIcon", zIndex: 1200, hasHint: Boolean(routeLabel.title) },
     );
+    if (routeLabel.clickable && onRouteLabelClickRef.current) {
+      placemark.events.add("click", (event: unknown) => {
+        (event as { stopPropagation?: () => void }).stopPropagation?.();
+        onRouteLabelClickRef.current?.();
+      });
+    }
     map.geoObjects.add(placemark);
     routeLabelPlacemarkRef.current = placemark;
   }, [routeLabel, state]);

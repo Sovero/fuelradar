@@ -16,3 +16,5 @@ export const DEFAULT_MAP_CENTER: [number, number] = [
 ]; // [lon, lat]
 export const DEFAULT_MAP_ZOOM = 12;
 export const NEARBY_ZOOM = 13;
+/** Перелёт к подсвеченному маневру маршрута: улицы и сам поворот различимы. */
+export const MANEUVER_ZOOM = 15;

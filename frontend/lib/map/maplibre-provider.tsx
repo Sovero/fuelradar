@@ -65,6 +65,7 @@ export function MapLibreProvider({
   userLocation,
   routePolyline = [],
   routeLabel = null,
+  onRouteLabelClick,
   highlightedStationIds = [],
   onMapClick,
   heatCircles = [],
@@ -78,9 +79,11 @@ export function MapLibreProvider({
   const onMarkerClickRef = useRef(onMarkerClick);
   const onViewportChangeRef = useRef(onViewportChange);
   const onMapClickRef = useRef(onMapClick);
+  const onRouteLabelClickRef = useRef(onRouteLabelClick);
   onMarkerClickRef.current = onMarkerClick;
   onViewportChangeRef.current = onViewportChange;
   onMapClickRef.current = onMapClick;
+  onRouteLabelClickRef.current = onRouteLabelClick;
 
   // Инициализация карты — один раз.
   useEffect(() => {
@@ -383,7 +386,9 @@ export function MapLibreProvider({
     userMarkerRef.current.setLngLat([userLocation.lon, userLocation.lat]).addTo(map);
   }, [userLocation]);
 
-  // Подпись расстояния/ETA на середине линии маршрута — DOM-маркер (не мешает кликам).
+  // Подпись расстояния/ETA на середине линии маршрута — DOM-маркер. Кликабельна,
+  // когда routeLabel.clickable: клик открывает вкладку маневров (stopPropagation —
+  // чтобы клик не дошёл до карты и не добавил точку коридора).
   useEffect(() => {
     const map = mapRef.current;
     if (!map) return;
@@ -408,7 +413,30 @@ export function MapLibreProvider({
       ].join(";");
       routeLabelMarkerRef.current = new maplibregl.Marker({ element: el });
     }
-    routeLabelMarkerRef.current.getElement().textContent = routeLabel.text;
+    const el = routeLabelMarkerRef.current.getElement();
+    el.textContent = routeLabel.text;
+    const clickable = Boolean(routeLabel.clickable && onRouteLabelClickRef.current);
+    el.style.pointerEvents = clickable ? "auto" : "none";
+    el.style.cursor = clickable ? "pointer" : "default";
+    el.style.borderWidth = clickable ? "2px" : "1px";
+    el.title = routeLabel.title ?? "";
+    if (clickable) {
+      el.onclick = (event) => {
+        event.stopPropagation();
+        onRouteLabelClickRef.current?.();
+      };
+      // Hover-эффект: подпись — кнопка, реагируем как кнопка.
+      el.onmouseenter = () => {
+        el.style.background = "#eff6ff";
+      };
+      el.onmouseleave = () => {
+        el.style.background = "#ffffff";
+      };
+    } else {
+      el.onclick = null;
+      el.onmouseenter = null;
+      el.onmouseleave = null;
+    }
     routeLabelMarkerRef.current.setLngLat([routeLabel.lon, routeLabel.lat]).addTo(map);
   }, [routeLabel]);
 

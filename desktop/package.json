@@ -1,7 +1,7 @@
 {
   "name": "fuelradar-desktop",
   "productName": "FuelRadar",
-  "version": "0.1.3",
+  "version": "0.1.4",
   "private": true,
   "description": "FuelRadar — мониторинг доступности топлива на АЗС (десктоп-оболочка)",
   "author": "FuelRadar <dev@fuelradar.local>",

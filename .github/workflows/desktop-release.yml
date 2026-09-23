@@ -18,6 +18,11 @@ jobs:
     runs-on: windows-latest
     env:
       NODE_VERSION: "22"
+      # Подпись активируется автоматически, когда в репозитории задан секрет
+      # сертификата (WINDOWS_CERTIFICATE_BASE64). Без него релиз публикуется
+      # неподписанным с предупреждением в логе — выпуск не блокируется до
+      # покупки сертификата.
+      HAS_SIGNING_CERT: ${{ secrets.WINDOWS_CERTIFICATE_BASE64 != '' }}
 
     steps:
       - name: Check out tagged source
@@ -71,6 +76,7 @@ jobs:
         run: npm run feed:token:status -- --require
 
       - name: Configure Windows code signing
+        if: env.HAS_SIGNING_CERT == 'true'
         shell: pwsh
         env:
           WINDOWS_CERTIFICATE_BASE64: ${{ secrets.WINDOWS_CERTIFICATE_BASE64 }}
@@ -94,13 +100,19 @@ jobs:
           "CSC_LINK=$certificatePath" >> $env:GITHUB_ENV
           "CSC_KEY_PASSWORD=$env:WINDOWS_CERTIFICATE_PASSWORD" >> $env:GITHUB_ENV
 
-      - name: Build signed Windows installer and update metadata
+      - name: Note unsigned build
+        if: env.HAS_SIGNING_CERT != 'true'
+        shell: pwsh
+        run: |
+          Write-Host "::warning::WINDOWS_CERTIFICATE_BASE64 is not configured - publishing an UNSIGNED installer. SmartScreen will show a warning until a code-signing certificate is added."
+
+      - name: Build Windows installer and update metadata
         working-directory: desktop
         env:
           UPDATE_FEED_TOKEN: ${{ secrets.UPDATE_FEED_TOKEN }}
         run: npm run icon && npm run prepare:server && npx electron-builder --win nsis --publish never
 
-      - name: Verify release artifacts and Authenticode signatures
+      - name: Verify release artifacts
         shell: pwsh
         run: |
           $installer = @(Get-ChildItem -Path "desktop/dist" -Filter "FuelRadar-Setup-*.exe" -File)
@@ -111,9 +123,19 @@ jobs:
           if ($installer.Count -ne 1) { throw "Expected exactly one NSIS installer, found $($installer.Count)." }
           if ($blockmap.Count -ne 1) { throw "Expected exactly one installer blockmap, found $($blockmap.Count)." }
           if ($latest.Count -ne 1) { throw "Expected desktop/dist/latest.yml." }
-          if ($application.Count -ne 1) { throw "Expected the unpacked FuelRadar.exe for signature verification." }
+          if ($application.Count -ne 1) { throw "Expected the unpacked FuelRadar.exe for verification." }
 
-          foreach ($artifact in @($application[0], $installer[0])) {
+          Get-Item $application[0].FullName, $installer[0].FullName, $blockmap[0].FullName, $latest[0].FullName |
+            Select-Object FullName, Length
+
+      - name: Verify Authenticode signatures
+        if: env.HAS_SIGNING_CERT == 'true'
+        shell: pwsh
+        run: |
+          $application = Get-Item "desktop/dist/win-unpacked/FuelRadar.exe"
+          $installer = Get-ChildItem -Path "desktop/dist" -Filter "FuelRadar-Setup-*.exe" -File | Select-Object -First 1
+
+          foreach ($artifact in @($application, $installer)) {
             $signature = Get-AuthenticodeSignature -FilePath $artifact.FullName
             if ($signature.Status -ne "Valid") {
               throw "$($artifact.Name) Authenticode signature is $($signature.Status), expected Valid. $($signature.StatusMessage)"
@@ -123,9 +145,6 @@ jobs:
             }
             Write-Host "$($artifact.Name) signed by: $($signature.SignerCertificate.Subject)"
           }
-
-          Get-Item $application[0].FullName, $installer[0].FullName, $blockmap[0].FullName, $latest[0].FullName |
-            Select-Object FullName, Length
 
       - name: Publish GitHub Release
         shell: pwsh

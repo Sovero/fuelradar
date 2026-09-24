@@ -25,7 +25,7 @@ from app.db.models import (
     StationBrand,
     UserReport,
 )
-from app.db.session import init_db
+from app.db.session import SessionLocal, init_db
 
 LAT, LON = 45.0355, 38.9753
 S1, S2, S3, S4 = "fr_station_950001", "fr_station_950002", "fr_station_950003", "fr_station_950004"
@@ -551,6 +551,82 @@ def test_admin_shows_file_read_by_network_import(client, db_session, monkeypatch
     if job.status in ("PENDING", "RUNNING"):
         job.status = "DONE"
         db_session.commit()
+
+
+def test_admin_network_lists_crud_and_audit(client, db_session) -> None:
+    """Пополняемый список URL сетевых списков: БД поверх .env, валидация, аудит.
+
+    Пустой список возвращает .env-дефолт (адаптер никогда не остаётся без URL
+    молча), дубли схлопываются, журнал R67 хранит только хосты, не полные URL.
+    Сохранение непустого списка — «обновление по запросу»: активирует источник
+    (NOT_USED → ACTIVE) и сразу ставит P1-джобу сбора (R83 не нарушен — сбор
+    выполняет воркер, не API).
+    """
+    provider = db_session.scalar(select(SourceProvider).where(SourceProvider.code == "network_lists"))
+    original_status = provider.status
+
+    # стартовое состояние: список из .env (в тестовой среде он пуст)
+    r = client.get("/api/v1/admin/sources/network-lists")
+    assert r.status_code == 200
+    initial = r.json()
+    assert initial["source"] == "env"
+
+    # сохранение: дубли схлопываются, порядок сохранён; источник активируется,
+    # джоба P1 поставлена — сбор начнётся сам на ближайшем тике воркера
+    r = client.put("/api/v1/admin/sources/network-lists", json={
+        "urls": ["https://a.example.com/azs.json", "https://b.example.com/list.csv", "https://a.example.com/azs.json"],
+    })
+    assert r.status_code == 200
+    body = r.json()
+    assert body["source"] == "db"
+    assert body["urls"] == ["https://a.example.com/azs.json", "https://b.example.com/list.csv"]
+    assert body["count"] == 2 and body["previous_count"] == len(initial["urls"])
+    assert body["activated"] is True and body["provider_status"] == "ACTIVE"
+    assert isinstance(body["job_id"], int)
+
+    db_session.expire_all()
+    assert provider.status == "ACTIVE"
+    job = db_session.get(CollectionJob, body["job_id"])
+    assert job is not None and job.status == "PENDING"
+    assert job.priority == "P1" and job.job_type == "catalog" and job.trigger == "manual"
+    # джоба доводится до терминального статуса (гигиена session-scope БД)
+    job.status = "DONE"
+    db_session.commit()
+
+    # в БД записано, адаптер загрузки увидит именно этот список
+    from app.sources.network_lists import load_urls, urls_source
+
+    with SessionLocal() as session:
+        assert load_urls(session) == body["urls"]
+        assert urls_source(session) == "db"
+
+    # аудит: действие есть, полных URL нет (только хосты и количество)
+    log = db_session.scalar(select(AdminActionLog).order_by(AdminActionLog.id.desc()))
+    assert log.action == "network_lists_update"
+    assert log.payload["count"] == 2
+    assert log.payload["activated"] is True and log.payload["job_id"] == body["job_id"]
+    assert set(log.payload["hosts"]) == {"a.example.com", "b.example.com"}
+    assert all("https://" not in str(v) for v in log.payload.values())
+
+    # валидация: не-URL отклоняется, список в БД не портится
+    r = client.put("/api/v1/admin/sources/network-lists", json={"urls": ["ftp://nope.example.com"]})
+    assert r.status_code == 422
+    with SessionLocal() as session:
+        assert load_urls(session) == body["urls"]
+
+    # пустой список → возврат к .env-дефолту; статус источника не трогается
+    # (выключение — явный PATCH /sources/{id}, не побочный эффект очистки)
+    r = client.put("/api/v1/admin/sources/network-lists", json={"urls": []})
+    assert r.status_code == 200 and r.json()["source"] == "env"
+    assert r.json()["activated"] is False and r.json()["job_id"] is None
+    with SessionLocal() as session:
+        assert urls_source(session) == "env"
+
+    db_session.expire_all()
+    assert provider.status == "ACTIVE"
+    # восстановить сид-статус, чтобы не влиять на другие тесты
+    provider.status = original_status
+    db_session.commit()
 
 
 def test_admin_updates_source_trust_status_interval(client, db_session) -> None:

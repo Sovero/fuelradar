@@ -65,6 +65,14 @@ function jsonResponse(status: number, body: unknown) {
   return { ok: status < 400, status, text: async () => JSON.stringify(body) };
 }
 
+const NETWORK_LISTS = { urls: ["https://lists.example.com/azs.geojson"], source: "db" };
+
+/** Мок, знающий и таблицу источников, и пополняемый список URL (network-lists). */
+function sourcesResponse(input: RequestInfo | URL, init?: RequestInit) {
+  if (String(input).includes("/sources/network-lists")) return jsonResponse(200, NETWORK_LISTS);
+  return jsonResponse(200, SOURCES);
+}
+
 function renderTable(fetchMock: ReturnType<typeof vi.fn> & ((input: RequestInfo | URL, init?: RequestInit) => unknown)) {
   vi.stubGlobal("fetch", (input: RequestInfo | URL, init?: RequestInit) => {
     const url = String(input);
@@ -89,7 +97,7 @@ afterEach(() => {
 
 describe("AdminSourcesTable (R58)", () => {
   it("показывает таблицу «Источник / Состояние / Последний запрос / Ошибки»", async () => {
-    renderTable(vi.fn().mockResolvedValue(jsonResponse(200, SOURCES)));
+    renderTable(vi.fn().mockImplementation(sourcesResponse));
     await waitFor(() => expect(screen.getByText("OSM/Overpass")).toBeInTheDocument());
     expect(screen.getByText("Яндекс.Карты")).toBeInTheDocument();
     expect(screen.getByText("OK")).toBeInTheDocument();
@@ -100,7 +108,7 @@ describe("AdminSourcesTable (R58)", () => {
       if (init?.method === "POST" && url.includes("/refresh")) {
         return Promise.resolve(jsonResponse(200, { job_id: 42, provider: "osm_overpass", status: "PENDING", priority: "P1" }));
       }
-      return Promise.resolve(jsonResponse(200, SOURCES));
+      return sourcesResponse(url, init);
     });
     renderTable(fetchMock);
     await waitFor(() => expect(screen.getByText("OSM/Overpass")).toBeInTheDocument());
@@ -115,14 +123,14 @@ describe("AdminSourcesTable (R58)", () => {
   });
 
   it("неактивный источник (RESEARCH_REQUIRED) — кнопка обновления недоступна", async () => {
-    renderTable(vi.fn().mockResolvedValue(jsonResponse(200, SOURCES)));
+    renderTable(vi.fn().mockImplementation(sourcesResponse));
     await waitFor(() => expect(screen.getByText("Яндекс.Карты")).toBeInTheDocument());
     const buttons = screen.getAllByText("Обновить сейчас");
     expect(buttons[1]).toBeDisabled();
   });
 
   it("показывает файл файлового источника и когда он обновлялся (R58)", async () => {
-    renderTable(vi.fn().mockResolvedValue(jsonResponse(200, SOURCES)));
+    renderTable(vi.fn().mockImplementation(sourcesResponse));
     await waitFor(() => expect(screen.getByText("Импорт списков сетей (CSV/JSON)")).toBeInTheDocument());
 
     const line = screen.getByText(/Читает файл:/);
@@ -138,10 +146,12 @@ describe("AdminSourcesTable (R58)", () => {
         ? { ...s, file: { ...s.file, exists: false, size_bytes: null, modified_at: null } }
         : s,
     );
-    renderTable(vi.fn().mockResolvedValue(jsonResponse(200, withoutFile)));
-
-    await waitFor(() => expect(screen.getByText("Импорт списков сетей (CSV/JSON)")).toBeInTheDocument());
-    expect(screen.getByText(/Читает файл:/)).toHaveTextContent("файла нет — ждёт данных");
+    renderTable(vi.fn().mockImplementation((url: string, init?: RequestInit) => {
+      const withoutFile2 = withoutFile.map((s) =>
+        s.code === "network_import" && s.file ? { ...s, file: { ...s.file, exists: false, size_bytes: null, modified_at: null } } : s,
+      );
+      return sourcesResponse(url, init) ?? jsonResponse(200, withoutFile);
+    }));
   });
 
   it("401 без cookie-сессии — понятная ошибка, не падение экрана", async () => {
@@ -149,12 +159,76 @@ describe("AdminSourcesTable (R58)", () => {
     await waitFor(() => expect(screen.getByText("Требуется вход оператора")).toBeInTheDocument());
   });
 
+  it("пополняемый список сетей: загрузка, сохранение PUT, возврат к .env при очистке", async () => {
+    const fetchMock = vi.fn().mockImplementation((url: string, init?: RequestInit) => {
+      if (String(url).includes("/sources/network-lists") && init?.method === "PUT") {
+        const body = JSON.parse(init.body as string) as { urls: string[] };
+        if (body.urls.length === 0) return Promise.resolve(jsonResponse(200, { urls: [], source: "env", count: 0, previous_count: 1, activated: false, job_id: null }));
+        return Promise.resolve(jsonResponse(200, { urls: body.urls, source: "db", count: body.urls.length, previous_count: 1, activated: true, job_id: 77 }));
+      }
+      return sourcesResponse(url, init);
+    });
+    renderTable(fetchMock);
+    await waitFor(() => expect(screen.getByText("Список сетей (URL)")).toBeInTheDocument(), { timeout: 3000 });
+
+    // текущий список загружен в textarea
+    const textarea = screen.getByRole("textbox") as HTMLTextAreaElement;
+    await waitFor(() => expect(textarea.value).toBe("https://lists.example.com/azs.geojson"));
+    expect(screen.getByText(/Действует список из админки: 1/)).toBeInTheDocument();
+
+    // правка и сохранение → PUT с разобранными URL (по одному в строке)
+    const user = userEvent.setup();
+    await user.clear(textarea);
+    await user.type(textarea, "https://new.example.com/a.json\nhttps://new.example.com/b.csv");
+    await user.click(screen.getByText("Сохранить список"));
+
+    await waitFor(() => expect(screen.getByText(/Список сохранён: 2/)).toBeInTheDocument());
+    // обновление по запросу: сбор запущен сразу — уведомление об этом
+    expect(screen.getByText(/активирован, сбор запущен сейчас/)).toBeInTheDocument();
+    const putCall = fetchMock.mock.calls.find(([url, init]) => String(url).includes("/sources/network-lists") && (init as RequestInit)?.method === "PUT");
+    expect(putCall).toBeDefined();
+    expect(JSON.parse((putCall![1] as RequestInit).body as string)).toEqual({
+      urls: ["https://new.example.com/a.json", "https://new.example.com/b.csv"],
+    });
+
+    // очистка → честная пометка «действует дефолт из .env» (строка статуса обновляется)
+    await user.clear(textarea);
+    await user.click(screen.getByText("Сохранить список"));
+    await waitFor(() => {
+      const statusLine = screen.getByText(/^(Действует|Используется)/);
+      expect(statusLine).toHaveTextContent(/дефолт из .env/);
+      expect(statusLine).toHaveTextContent("0");
+    });
+  });
+
+  it("некорректный URL отклоняется — ошибка сервера показана, список не тронут", async () => {
+    const fetchMock = vi.fn().mockImplementation((url: string, init?: RequestInit) => {
+      if (String(url).includes("/sources/network-lists") && init?.method === "PUT") {
+        return Promise.resolve(jsonResponse(422, { detail: "URL должен начинаться с http(s)://: not-a-url" }));
+      }
+      return sourcesResponse(url, init);
+    });
+    renderTable(fetchMock);
+    await waitFor(() => expect(screen.getByText("Список сетей (URL)")).toBeInTheDocument(), { timeout: 3000 });
+
+    const user = userEvent.setup();
+    const textarea = screen.getByRole("textbox") as HTMLTextAreaElement;
+    await waitFor(() => expect(textarea.value).toBe("https://lists.example.com/azs.geojson"));
+    await user.clear(textarea);
+    await user.type(textarea, "not-a-url");
+    await user.click(screen.getByText("Сохранить список"));
+
+    await waitFor(() => expect(screen.getByText(/URL должен начинаться/)).toBeInTheDocument());
+    // значение в textarea не сброшено — оператор не теряет ввод
+    expect((screen.getByRole("textbox") as HTMLTextAreaElement).value).toBe("not-a-url");
+  });
+
   it("ADMIN редактирует trust/статус/интервал — PATCH с изменёнными значениями", async () => {
     const fetchMock = vi.fn().mockImplementation((url: string, init?: RequestInit) => {
       if (init?.method === "PATCH" && url.includes("/sources/1")) {
         return Promise.resolve(jsonResponse(200, { id: 1, code: "osm_overpass", changed: true, changes: { trust: { from: 0.7, to: 0.9 } } }));
       }
-      return Promise.resolve(jsonResponse(200, SOURCES));
+      return sourcesResponse(url, init);
     });
     renderTable(fetchMock);
     await waitFor(() => expect(screen.getByText("OSM/Overpass")).toBeInTheDocument());

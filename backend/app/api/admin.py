@@ -42,6 +42,12 @@ class SourceUpdateBody(BaseModel):
     min_interval_minutes: int | None = None
 
 
+class NetworkListsBody(BaseModel):
+    """PUT списка URL сетевых списков АЗС: пополняемый перечень через админку."""
+
+    urls: list[str]
+
+
 # Потолок размера загружаемого CSV обогащения (2 МБ с запасом: 10k строк ~ 1.5 МБ)
 _CSV_MAX_BYTES = 2 * 1024 * 1024
 router = APIRouter(prefix="/admin", tags=["admin"])
@@ -243,6 +249,81 @@ def update_source(provider_id: int, body: SourceUpdateBody, session: Session = D
     _journal(session, "source_update", provider.code, changes)
     session.commit()
     return {"id": provider.id, "code": provider.code, "changed": True, "changes": changes}
+
+
+@router.get("/sources/network-lists", dependencies=[Depends(admin_rate_limit)])
+def get_network_lists(session: Session = Depends(get_db)) -> dict:
+    """Пополняемый список URL сетевых списков АЗС: БД (админка) поверх .env-дефолта.
+
+    source показывает, откуда берётся действующий список: "db" (переопределён
+    через админку) или "env" (дефолт NETWORK_LISTS_URLS из .env).
+    """
+    from ..sources.network_lists import load_urls, urls_source
+
+    return {"urls": load_urls(session), "source": urls_source(session)}
+
+
+@router.put("/sources/network-lists", dependencies=[Depends(admin_rate_limit)])
+def put_network_lists(body: NetworkListsBody, session: Session = Depends(get_db)) -> dict:
+    """Сохранить пополняемый список URL (админка). Пустой список → возврат к .env-дефолту.
+
+    Обновление по запросу: непустой список активирует источник (NOT_USED → ACTIVE)
+    и сразу ставит P1-задание сбора каталога — воркер подхватит его на ближайшем
+    тике, без правки .env и без кнопки «Обновить сейчас». Синхронной загрузки нет
+    (R83): API не дёргает внешние источники. Очистка списка возвращает .env-дефолт
+    и НЕ меняет статус источника — выключать надо явно (PATCH /sources/{id}).
+
+    Валидация: только http(s), без дублей (порядок сохранён). Журналируется итоговый
+    список (R67); секретов в URL быть не должно — но на случай пары user:pass@ в
+    ссылке журнал хранит только хост, сами URL остаются в app_settings.
+    """
+    from ..sources.network_lists import load_urls, save_urls, urls_source
+
+    cleaned: list[str] = []
+    for url in body.urls:
+        text = url.strip()
+        if not text:
+            continue
+        if not (text.startswith("http://") or text.startswith("https://")):
+            raise HTTPException(status_code=422, detail=f"URL должен начинаться с http(s)://: {text}")
+        if text not in cleaned:
+            cleaned.append(text)
+    before = load_urls(session)
+    saved = save_urls(session, cleaned)
+
+    provider = session.scalar(select(SourceProvider).where(SourceProvider.code == "network_lists"))
+    activated = False
+    job_id: int | None = None
+    if provider is not None:
+        if saved and provider.status != "ACTIVE":
+            provider.status = "ACTIVE"
+            activated = True
+        if saved and provider.status == "ACTIVE":
+            from ..worker import schedule_priority_job
+
+            job = schedule_priority_job(session, provider.id, priority="P1", trigger="manual")
+            job_id = job.id
+    _journal(
+        session,
+        "network_lists_update",
+        "network_lists",
+        {
+            "count": len(saved),
+            "hosts": [url.split("/")[2] for url in saved if url.count("/") >= 2],
+            **({"activated": True} if activated else {}),
+            **({"job_id": job_id} if job_id is not None else {}),
+        },
+    )
+    session.commit()
+    return {
+        "urls": saved,
+        "source": urls_source(session),
+        "count": len(saved),
+        "previous_count": len(before),
+        "provider_status": provider.status if provider is not None else None,
+        "activated": activated,
+        "job_id": job_id,
+    }
 
 
 @router.get("/collection-log", dependencies=[Depends(admin_rate_limit)])

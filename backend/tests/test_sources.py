@@ -294,6 +294,41 @@ def test_lists_no_urls_health_degraded() -> None:
     assert adapter.health_check().health == "DEGRADED"
 
 
+def test_lists_urls_loader_dynamic_list() -> None:
+    """Пополняемый список: без явных urls адаптер берёт список из загрузчика
+
+    (БД → .env) при каждом обращении — добавленная в админке ссылка подхватывается
+    следующим запуском сбора без пересоздания адаптера.
+    """
+    seen: list[list[str]] = []
+
+    def loader() -> list[str]:
+        urls = ["https://first.example.com/a.geojson"] + (["https://second.example.com/b.csv"] if seen else [])
+        seen.append(urls)
+        return urls
+
+    payloads = {
+        "https://first.example.com/a.geojson": "name,brand,lat,lon\nАЗС 1,Тест,45.05,38.95\n",
+        "https://second.example.com/b.csv": "name,brand,lat,lon\nАЗС 2,Тест,45.06,38.96\n",
+    }
+    adapter = NetworkListsAdapter(http_get=lambda url: payloads[url], urls_loader=loader)
+    first = adapter.discover_stations(REGION)
+    assert len(first) == 1
+    second = adapter.discover_stations(REGION)
+    assert len(second) == 2  # список пополнили — следующий сбор видит обе ссылки
+
+
+def test_lists_urls_loader_failure_falls_back_to_env() -> None:
+    """Сбой БД не роняет сбор: загрузчик падает → берётся .env-дефолт (пустой)."""
+
+    def broken_loader() -> list[str]:
+        raise RuntimeError("db down")
+
+    adapter = NetworkListsAdapter(http_get=lambda url: "", urls_loader=broken_loader)
+    with pytest.raises(AdapterError):
+        adapter.discover_stations(REGION)  # .env-дефолт в тестах пуст → честный AdapterError
+
+
 # ---------- RESEARCH_REQUIRED (R89): без сети, без выдуманных данных ----------
 
 def test_research_adapters_raise_and_never_network() -> None:

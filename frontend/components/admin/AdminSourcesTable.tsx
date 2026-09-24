@@ -4,10 +4,15 @@
  * Экран источников (R58): «Источник / Состояние / Последний запрос / Ошибки»
  * + «обновить сейчас» (R53.1/R58.1) — ставит задание воркеру, не собирает
  * синхронно (R83, `POST /admin/sources/{id}/refresh`).
+ *
+ * Внизу — пополняемый список URL сетевых списков АЗС (GET/PUT
+ * /admin/sources/network-lists): хранится в БД, .env — только стартовый дефолт.
+ * Адаптер читает список при каждом запуске сбора, поэтому добавленная ссылка
+ * подхватывается следующим тиком воркера без перезапуска.
  */
 
 import { Fragment, useCallback, useEffect, useState } from "react";
-import { adminGet, adminPatch, adminPost } from "@/lib/adminApi";
+import { adminGet, adminPatch, adminPost, adminPut } from "@/lib/adminApi";
 import { useAdminAuth } from "@/lib/hooks/useAdminAuth";
 import { useI18n } from "@/lib/hooks/useI18n";
 import { formatUpdatedAt, formatUtcDateTime } from "@/lib/format";
@@ -23,6 +28,11 @@ const HEALTH_COLOR: Record<string, string> = {
   UNKNOWN: "text-gray-400",
 };
 
+interface NetworkListsState {
+  urls: string[];
+  source: "db" | "env";
+}
+
 export function AdminSourcesTable() {
   const { markVerified, markInvalid, isAdmin } = useAdminAuth();
   const { t } = useI18n();
@@ -36,6 +46,12 @@ export function AdminSourcesTable() {
   const [editStatus, setEditStatus] = useState("ACTIVE");
   const [editInterval, setEditInterval] = useState("");
   const [saving, setSaving] = useState(false);
+
+  const [networkLists, setNetworkLists] = useState<NetworkListsState | null>(null);
+  const [nlText, setNlText] = useState("");
+  const [nlSaving, setNlSaving] = useState(false);
+  const [nlNotice, setNlNotice] = useState<string | null>(null);
+  const [nlError, setNlError] = useState<string | null>(null);
 
   const load = useCallback(() => {
     setLoading(true);
@@ -55,6 +71,16 @@ export function AdminSourcesTable() {
   useEffect(() => {
     load();
   }, [load]);
+
+  useEffect(() => {
+    adminGet<NetworkListsState>("/sources/network-lists")
+      .then((data) => {
+        setNetworkLists(data);
+        setNlText(data.urls.join("\n"));
+        setNlError(null);
+      })
+      .catch((err: unknown) => setNlError(err instanceof ApiError ? err.message : t("admin.loadError")));
+  }, [t]);
 
   async function refresh(id: number) {
     setRefreshingId(id);
@@ -101,6 +127,36 @@ export function AdminSourcesTable() {
       setNotice(err instanceof ApiError ? err.message : t("admin.loadError"));
     } finally {
       setSaving(false);
+    }
+  }
+
+  async function saveNetworkLists() {
+    setNlSaving(true);
+    setNlNotice(null);
+    setNlError(null);
+    try {
+      const urls = nlText
+        .split(/[\n;]+/)
+        .map((u) => u.trim())
+        .filter(Boolean);
+      const res = await adminPut<NetworkListsState & { count: number; previous_count: number; activated: boolean; job_id: number | null }>(
+        "/sources/network-lists",
+        { urls },
+      );
+      setNetworkLists({ urls: res.urls, source: res.source });
+      setNlText(res.urls.join("\n"));
+      if (res.source === "env") {
+        setNlNotice(t("admin.sources.networkLists.defaultRestored"));
+      } else if (res.activated) {
+        setNlNotice(t("admin.sources.networkLists.savedActivated").replace("{count}", String(res.count)));
+      } else {
+        setNlNotice(t("admin.sources.networkLists.saved").replace("{count}", String(res.count)));
+      }
+      load();
+    } catch (err) {
+      setNlError(err instanceof ApiError ? err.message : t("admin.loadError"));
+    } finally {
+      setNlSaving(false);
     }
   }
 
@@ -243,6 +299,43 @@ export function AdminSourcesTable() {
           </tbody>
         </table>
       </div>
+
+      {/* Пополняемый список URL сетевых списков АЗС: БД поверх .env-дефолта,
+          подхватывается следующим тиком воркера (адаптер читает список лениво). */}
+      <section className="mt-6 border-t border-gray-200 pt-4 dark:border-gray-800">
+        <h3 className="text-base font-semibold">{t("admin.sources.networkLists.title")}</h3>
+        <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
+          {t("admin.sources.networkLists.hint")}
+        </p>
+        {networkLists && (
+          <p className="mt-1 text-xs text-gray-400">
+            {networkLists.source === "db"
+              ? t("admin.sources.networkLists.fromDb").replace("{count}", String(networkLists.urls.length))
+              : t("admin.sources.networkLists.fromEnv").replace("{count}", String(networkLists.urls.length))}
+          </p>
+        )}
+        {nlNotice && <p className="mt-2 text-sm text-emerald-700 dark:text-emerald-400">{nlNotice}</p>}
+        {nlError && <p className="mt-2 text-sm text-red-600 dark:text-red-400">{nlError}</p>}
+        <textarea
+          value={nlText}
+          onChange={(e) => setNlText(e.target.value)}
+          rows={5}
+          spellCheck={false}
+          placeholder={"https://example.com/stations.json\nhttps://example2.ru/azs.csv"}
+          className="mt-2 w-full max-w-3xl rounded-md border border-gray-300 px-3 py-2 font-mono text-xs dark:border-gray-700 dark:bg-gray-800"
+        />
+        <div className="mt-2 flex items-center gap-3">
+          <button
+            type="button"
+            onClick={saveNetworkLists}
+            disabled={nlSaving}
+            className="rounded-md bg-emerald-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-emerald-700 disabled:opacity-40"
+          >
+            {nlSaving ? t("common.saving") : t("admin.sources.networkLists.save")}
+          </button>
+          <span className="text-xs text-gray-400">{t("admin.sources.networkLists.formats")}</span>
+        </div>
+      </section>
     </div>
   );
 }

@@ -37,8 +37,8 @@ cd frontend && npm install
 cd frontend && npm run dev                # localhost:3000, проксирует /api/* на API_INTERNAL_URL
 cd frontend && npm run typecheck          # tsc --noEmit, чисто
 cd frontend && npm run build              # успешно, ~331 kB First Load JS
-cd frontend && npm test                   # vitest run — 197 passed (41 файл)
-cd frontend && npm run test:e2e           # Playwright/Chromium E2E — 6 passed (нужен system Chrome)
+cd frontend && npm test                   # vitest run — 213 passed (42 файла)
+cd frontend && npm run test:e2e           # Playwright/Chromium E2E — 8 passed (нужен system Chrome)
 make e2e                                  # то же, одной командой
 cd frontend && npm test -- ReportForm     # один файл/маска
 make compose-up                           # полный docker-compose: api+worker+db(Postgres/PostGIS)+redis+frontend+caddy
@@ -152,7 +152,7 @@ Frontend не ходит в backend напрямую — `next.config.mjs` рё�
 ## Тесты
 
 - Backend: `backend/tests/test_<module>.py`, один файл на модуль/API-поверхность (`test_api.py`, `test_dedup.py`, `test_worker.py`, `test_alerts.py`, `test_reports.py`, `test_analytics.py`, `test_confidence.py`, `test_confidence_freshness.py`, `test_ranking.py`, `test_normalization.py`, `test_fuel_status.py`, `test_sources.py`, `test_ingest.py`, `test_seed_cli.py`, `test_migrations.py`, `test_schema.py`, `test_health.py`). Гонять один файл: `pytest tests/test_dedup.py`; по имени теста: `pytest -k merge`. 255 passed.
-- Frontend: рядом с модулем как `*.test.ts(x)` (например `frontend/lib/geo.test.ts`, `frontend/components/station/ReportForm.test.tsx`). Один файл/маска: `npm test -- ReportForm`. 197 passed (41 файл).
+- Frontend: рядом с модулем как `*.test.ts(x)` (например `frontend/lib/geo.test.ts`, `frontend/components/station/ReportForm.test.tsx`). Один файл/маска: `npm test -- ReportForm`. 213 passed (42 файла).
 - E2E: `frontend/e2e/*.spec.ts` (Playwright, Chromium), общий раннер `npm run test:e2e`; моки/фикстуры — `frontend/e2e/mocks.ts` (setupBase — базовая установка: SW отключён + внешние заглушки + API-моки), ассерты консоли — `frontend/e2e/console.ts`.
 - Офлайн-фикстуры для `seed`: `backend/tests/fixtures/`.
 

@@ -40,4 +40,11 @@ describe("format helpers", () => {
     expect(buildRouteUrl(45.03, 38.97)).toContain("yandex.ru/maps");
     expect(buildRouteUrl(45.03, 38.97, "google")).toContain("google.com/maps");
   });
+
+  it("buildRouteUrl поддерживает 2ГИС: координаты станции в deep-link", () => {
+    const url = buildRouteUrl(45.03, 38.97, "2gis");
+    expect(url).toContain("2gis.ru");
+    expect(url).toContain("45.03");
+    expect(url).toContain("38.97");
+  });
 });

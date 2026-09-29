@@ -1,6 +1,7 @@
 "use client";
 
 import { buildRouteUrl } from "@/lib/format";
+import type { RouteProvider } from "@/lib/format";
 import { useI18n } from "@/lib/hooks/useI18n";
 
 /**
@@ -19,17 +20,20 @@ export function RouteButton({
   lat,
   lon,
   onBuildRoute,
+  navProvider = "yandex",
 }: {
   lat: number;
   lon: number;
   onBuildRoute?: (lat: number, lon: number) => void;
+  /** Провайдер внешнего навигатора (выбор пользователя); используется в fallback-ветке. */
+  navProvider?: RouteProvider;
 }) {
   const { t } = useI18n();
 
   if (!onBuildRoute) {
     return (
       <a
-        href={buildRouteUrl(lat, lon, "yandex")}
+        href={buildRouteUrl(lat, lon, navProvider)}
         target="_blank"
         rel="noopener noreferrer"
         className="flex-1 rounded-md bg-blue-600 px-3 py-2 text-center text-sm font-semibold text-white hover:bg-blue-700"

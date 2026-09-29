@@ -15,6 +15,8 @@ import { StatusBadge } from "@/components/station/StatusBadge";
 import { WhyExplanation } from "@/components/station/WhyExplanation";
 import { HistoryChart } from "@/components/station/HistoryChart";
 import { RouteButton } from "@/components/station/RouteButton";
+import { NavigationPreference } from "@/components/station/NavigationPreference";
+import { useNavigationPreference } from "@/lib/hooks/useNavigationPreference";
 import { FavoriteButton } from "@/components/station/FavoriteButton";
 import { ReportButton } from "@/components/station/ReportButton";
 import { formatDistance, formatEtaMinutes } from "@/lib/format";
@@ -38,6 +40,7 @@ export function StationCard({
   const { t } = useI18n();
   const { settings: observationSettings, toggleExcluded, isExcluded } = useObservationMode();
   const [historyFuel, setHistoryFuel] = useState<string | null>(null);
+  const { provider: navProvider, setProvider: setNavProvider } = useNavigationPreference();
 
   useEffect(() => {
     if (station && !historyFuel && station.statuses.length) {
@@ -128,8 +131,10 @@ export function StationCard({
             <HistoryChart stationId={station.id} fuelCode={historyFuel} />
           </div>
 
+          <NavigationPreference provider={navProvider} onSelect={setNavProvider} />
+
           <div className="flex gap-2 pt-2">
-            <RouteButton lat={station.latitude} lon={station.longitude} onBuildRoute={onBuildRoute} />
+            <RouteButton lat={station.latitude} lon={station.longitude} onBuildRoute={onBuildRoute} navProvider={navProvider} />
             <FavoriteButton stationId={station.id} />
             <ReportButton
               stationId={station.id}

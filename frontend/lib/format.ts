@@ -65,9 +65,14 @@ export function formatUpdatedAt(isoDate: string | null | undefined, now: Date = 
 }
 
 /** Внешний навигатор по координатам станции (R80) — deep-link, без встроенной навигации. */
-export function buildRouteUrl(lat: number, lon: number, provider: "yandex" | "google" = "yandex"): string {
+export type RouteProvider = "yandex" | "2gis" | "google";
+
+export function buildRouteUrl(lat: number, lon: number, provider: RouteProvider = "yandex"): string {
   if (provider === "google") {
     return `https://www.google.com/maps/dir/?api=1&destination=${lat},${lon}`;
+  }
+  if (provider === "2gis") {
+    return `https://2gis.ru/directions/points/${lon}%2C${lat}`;
   }
   return `https://yandex.ru/maps/?rtext=~${lat},${lon}&rtt=auto`;
 }

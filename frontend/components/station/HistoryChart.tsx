@@ -5,6 +5,7 @@ import { useQueueHistory, useStationHistory } from "@/lib/hooks/useStationDetail
 import { statusVisual } from "@/lib/map/statusColor";
 import { Sparkline, type SparklinePoint } from "@/components/station/Sparkline";
 import { formatUpdatedAt } from "@/lib/format";
+import { buildPricePoints } from "@/lib/priceHistory";
 
 // Порядок и цвет по возрастанию очереди — своей палитры для очереди в проекте
 // ещё не было, шкала качественная (0..4), NONE зелёный -> VERY_HIGH красный.
@@ -34,6 +35,7 @@ export function HistoryChart({ stationId, fuelCode }: { stationId: string; fuelC
     );
   }
 
+  const pricePoints = buildPricePoints(history);
   const sorted = [...history].sort((a, b) => new Date(a.observed_at).getTime() - new Date(b.observed_at).getTime());
   const points: SparklinePoint[] = sorted.map((h) => ({
     x: new Date(h.observed_at).getTime(),
@@ -66,6 +68,19 @@ export function HistoryChart({ stationId, fuelCode }: { stationId: string; fuelC
       ) : (
         <p className="text-xs text-gray-400">По очереди наблюдений пока мало.</p>
       )}
+      {pricePoints.length >= 2 ? (
+        <div>
+          <Sparkline points={pricePoints} />
+          <p className="mt-1 text-xs text-gray-400">
+            Цена во времени, {pricePoints.length} {pricePoints.length === 1 ? "точка" : pricePoints.length < 5 ? "точки" : "точек"}
+            {pricePoints.some((p) => p.label.includes("без цены"))
+              ? " · часть записей без цены пропущена (видно в подписи точек)"
+              : ""}
+          </p>
+        </div>
+      ) : pricePoints.length === 1 ? (
+        <p className="text-xs text-gray-400">По цене данных пока мало — только одно наблюдение.</p>
+      ) : null}
     </div>
   );
 }

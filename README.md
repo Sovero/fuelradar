@@ -1,5 +1,8 @@
 # FuelRadar
 
+[![Последний релиз](https://img.shields.io/github/v/release/Sovero/fuelradar?sort=semver&label=%D1%80%D0%B5%D0%BB%D0%B8%D0%B7&logo=github)](https://github.com/Sovero/fuelradar/releases/latest)
+[![CHANGELOG](https://img.shields.io/badge/%D0%B8%D1%81%D1%82%D0%BE%D1%80%D0%B8%D1%8F-%D0%B8%D0%B7%D0%BC%D0%B5%D0%BD%D0%B5%D0%BD%D0%B8%D0%B9-blue)](CHANGELOG.md)
+
 PWA-система независимой агрегации данных о наличии топлива на АЗС (пилот — Краснодар).
 
 Собственный мастер-каталог АЗС из нескольких источников; отделение факта существования
@@ -7,6 +10,9 @@ PWA-система независимой агрегации данных о н�
 каждого статуса с объяснением; очереди и ETA; уведомления по правилам пользователя.
 
 Стек: FastAPI (Python) + SQLite (dev) / PostgreSQL+PostGIS (prod) + Next.js (React, TypeScript, Tailwind) + MapLibre GL.
+
+История изменений по версиям — [CHANGELOG.md](CHANGELOG.md). Установщик desktop-приложения
+и автообновление — на странице [последнего релиза](https://github.com/Sovero/fuelradar/releases/latest).
 
 ## Быстрый старт на новой машине (Windows)
 

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildPricePoints } from "./priceHistory";
+import { buildPricePoints, priceRangeLabel } from "./priceHistory";
 import type { HistoryItem } from "./types";
 
 const entry = (overrides: Partial<HistoryItem>): HistoryItem => ({
@@ -65,5 +65,39 @@ describe("buildPricePoints", () => {
     const points = buildPricePoints(history);
     expect(points[0].label).toContain("USD");
     expect(points[0].label).not.toContain("₽");
+  });
+
+  it("priceRangeLabel: пустой набор → null", () => {
+    expect(priceRangeLabel([])).toBeNull();
+  });
+
+  it("priceRangeLabel: одна цена → null (диапазона нет, подпись не нужна)", () => {
+    const history = [entry({ price: 59.9, observed_at: "2026-09-08T09:00:00" })];
+    expect(priceRangeLabel(history)).toBeNull();
+  });
+
+  it("priceRangeLabel: диапазон мин—макс по ценовым точкам с валютой", () => {
+    const history = [
+      entry({ price: 58.0, observed_at: "2026-09-08T09:00:00" }),
+      entry({ price: 63.7, observed_at: "2026-09-08T12:00:00" }),
+      entry({ price: 61.0, observed_at: "2026-09-08T15:00:00" }),
+    ];
+    expect(priceRangeLabel(history)).toBe("58.00 ₽ — 63.70 ₽");
+  });
+
+  it("priceRangeLabel: цена одинаковая во всех точках → null (мин = макс)", () => {
+    const history = [
+      entry({ price: 60.0, observed_at: "2026-09-08T09:00:00" }),
+      entry({ price: 60.0, observed_at: "2026-09-08T12:00:00" }),
+    ];
+    expect(priceRangeLabel(history)).toBeNull();
+  });
+
+  it("priceRangeLabel: валюта берётся из наблюдений", () => {
+    const history = [
+      entry({ price: 1.5, price_currency: "USD", observed_at: "2026-09-08T09:00:00" }),
+      entry({ price: 2.5, price_currency: "USD", observed_at: "2026-09-08T12:00:00" }),
+    ];
+    expect(priceRangeLabel(history)).toBe("1.50 USD — 2.50 USD");
   });
 });

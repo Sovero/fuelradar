@@ -42,6 +42,10 @@ test("график цены: две цены с пропуском между н
   await expect(page.locator("svg title", { hasText: "60.50 ₽ — Пользовательские отчёты" })).toHaveCount(1);
   await expect(page.locator("svg title", { hasText: "2 записей без цены" })).toHaveCount(1);
 
+  // Крайние точки подписаны прямо на графике: мин и макс — это SVG-текст.
+  await expect(page.locator("svg text", { hasText: "58.00 ₽" })).toBeVisible();
+  await expect(page.locator("svg text", { hasText: "60.50 ₽" })).toBeVisible();
+
   assertNoConsoleErrors(errors);
 });
 

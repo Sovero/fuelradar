@@ -106,4 +106,39 @@ describe("HistoryChart", () => {
     expect(screen.getByText(/2 записей без цены/)).toBeInTheDocument();
     expect(screen.getAllByRole("img").length).toBeGreaterThanOrEqual(2);
   });
+
+  it("на графике цены подписаны мин и макс (58.00 ₽ и 60.50 ₽)", async () => {
+    mockFetchOnce([
+      { fuel_code: "AI_95", status: "AVAILABLE", confidence_raw: 90, source: "OSM", observed_at: "2026-09-08T09:00:00", received_at: null, price: 58.0, price_currency: "RUB" },
+      { fuel_code: "AI_95", status: "AVAILABLE", confidence_raw: 92, source: "OSM", observed_at: "2026-09-08T10:00:00", received_at: null },
+      { fuel_code: "AI_95", status: "AVAILABLE", confidence_raw: 94, source: "OSM", observed_at: "2026-09-08T11:00:00", received_at: null },
+      { fuel_code: "AI_95", status: "AVAILABLE", confidence_raw: 95, source: "OSM", observed_at: "2026-09-08T12:00:00", received_at: null, price: 60.5, price_currency: "RUB" },
+    ]);
+    render(
+      <I18nProvider>
+        <MetaProvider>
+          <HistoryChart stationId="fr_station_1" fuelCode="AI_95" />
+        </MetaProvider>
+      </I18nProvider>,
+    );
+    await waitFor(() => expect(screen.getByText(/Цена во времени/)).toBeInTheDocument());
+    expect(screen.getByText("58.00 ₽")).toBeInTheDocument();
+    expect(screen.getByText("60.50 ₽")).toBeInTheDocument();
+  });
+
+  it("цена одинакова во всех точках → подписи мин/макс не нужны", async () => {
+    mockFetchOnce([
+      { fuel_code: "AI_95", status: "AVAILABLE", confidence_raw: 90, source: "OSM", observed_at: "2026-09-08T09:00:00", received_at: null, price: 60.0, price_currency: "RUB" },
+      { fuel_code: "AI_95", status: "AVAILABLE", confidence_raw: 95, source: "OSM", observed_at: "2026-09-08T12:00:00", received_at: null, price: 60.0, price_currency: "RUB" },
+    ]);
+    render(
+      <I18nProvider>
+        <MetaProvider>
+          <HistoryChart stationId="fr_station_1" fuelCode="AI_95" />
+        </MetaProvider>
+      </I18nProvider>,
+    );
+    await waitFor(() => expect(screen.getByText(/Цена во времени/)).toBeInTheDocument());
+    expect(screen.queryByText("60.00 ₽")).not.toBeInTheDocument();
+  });
 });

@@ -50,3 +50,19 @@ export function buildPricePoints(history: HistoryItem[]): SparklinePoint[] {
   }
   return points;
 }
+
+/**
+ * Подпись диапазона «мин — макс» для графика цены; null, когда диапазона нет:
+ * меньше двух ценовых точек или все цены равны — подписывать нечего.
+ */
+export function priceRangeLabel(history: HistoryItem[]): string | null {
+  const prices = history
+    .filter((h) => h.price !== null && h.price !== undefined)
+    .map((h) => h.price as number);
+  if (prices.length < 2) return null;
+  const min = Math.min(...prices);
+  const max = Math.max(...prices);
+  if (min === max) return null;
+  const currency = history.find((h) => h.price !== null && h.price !== undefined)?.price_currency ?? "RUB";
+  return `${formatPrice(min, currency)} — ${formatPrice(max, currency)}`;
+}

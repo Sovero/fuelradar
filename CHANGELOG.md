@@ -4,6 +4,15 @@
 Формат основан на [Keep a Changelog](https://keepachangelog.com/ru/1.1.0/),
 версионирование — [SemVer](https://semver.org/lang/ru/).
 
+## [0.1.6] — 2026-09-30
+
+### Добавлено
+- Выбор навигатора для внешнего маршрута: Яндекс.Карты / 2ГИС / Google
+  Maps, выбор запоминается и восстанавливается между запусками
+- История цены графиком: спарклайн «Цена во времени» на карточке
+  станции — только ценовые наблюдения, честный учёт записей без цены,
+  подписи мин/макс с валютой
+
 ## [0.1.5] — 2026-09-24
 
 ### Добавлено
@@ -82,3 +91,4 @@
 [0.1.3]: https://github.com/Sovero/fuelradar/releases/tag/v0.1.3
 [0.1.4]: https://github.com/Sovero/fuelradar/releases/tag/v0.1.4
 [0.1.5]: https://github.com/Sovero/fuelradar/releases/tag/v0.1.5
+[0.1.6]: https://github.com/Sovero/fuelradar/releases/tag/v0.1.6

@@ -60,6 +60,62 @@ export interface DesktopWindowState {
   isMaximized: boolean;
 }
 
+/**
+ * Состояние данных десктоп-приложения (IPC fuelradar:db-status): где лежит
+ * локальная база, настроена ли внешняя и можно ли делать копию/перенос.
+ *
+ * `supported: false` — честное «нечем» (в сборке нет ни встроенного backend,
+ * ни каталога с Python): панель не показывает кнопки, которые ничего не сделают.
+ */
+export interface DesktopDatabaseStatus {
+  supported: boolean;
+  reason: string | null;
+  external: boolean;
+  /** Адрес внешней базы без пароля (R68). */
+  externalUrl: string | null;
+  externalSource: string | null;
+  dataDir: string | null;
+  localFile: string | null;
+  localExists: boolean;
+  localBytes: number | null;
+  localModifiedAt: string | null;
+  backupDir: string | null;
+  newestBackup: { path: string; bytes: number; modifiedAt: string } | null;
+  migrationSupported: boolean;
+}
+
+/** Результат копии/экспорта (IPC fuelradar:db-backup и fuelradar:db-export). */
+export interface DesktopDatabaseBackupResult {
+  supported?: boolean;
+  ok: boolean;
+  canceled?: boolean;
+  path?: string | null;
+  bytes?: number;
+  created_at?: string;
+  rows?: number;
+  tables?: Record<string, number>;
+  error?: string;
+  reason?: string;
+  /** Хвост вывода backend — техническая подробность для подсказки. */
+  output?: string | null;
+}
+
+/** Результат переноса во внешнюю базу (IPC fuelradar:db-migrate). */
+export interface DesktopDatabaseMigrateResult {
+  supported?: boolean;
+  ok: boolean;
+  target?: string | null;
+  inserted?: number;
+  skipped?: number;
+  tables?: Record<string, { rows: number; inserted: number; skipped: number }>;
+  target_rows?: Record<string, number>;
+  sequences_reset?: string[];
+  snapshot?: { bytes?: number | null; created_at?: string | null; rows?: number | null };
+  error?: string;
+  reason?: string;
+  output?: string | null;
+}
+
 declare global {
   interface Window {
     fuelradarDesktop?: {
@@ -78,6 +134,18 @@ declare global {
         toggleMaximize: () => boolean;
         close: () => boolean;
         state: () => Promise<DesktopWindowState>;
+      };
+      /**
+       * Данные приложения: копия/экспорт локальной базы и перенос во внешний
+       * Postgres. Появилось вместе с панелью «Данные»; в более старых сборках
+       * оболочки блока нет — панель честно сообщает, что мост недоступен.
+       */
+      database?: {
+        status: () => Promise<DesktopDatabaseStatus>;
+        backup: () => Promise<DesktopDatabaseBackupResult>;
+        exportCopy: () => Promise<DesktopDatabaseBackupResult>;
+        migrate: () => Promise<DesktopDatabaseMigrateResult>;
+        reveal: (target: string) => Promise<{ ok: boolean; error?: string }>;
       };
     };
   }
@@ -113,6 +181,18 @@ export async function checkDesktopUpdates(): Promise<DesktopUpdateResult | null>
   if (!isDesktopShell()) return null;
   const result = await window.fuelradarDesktop?.checkForUpdates();
   return result ?? null;
+}
+
+/**
+ * Мост данных (панель «Данные»). null — браузер или сборка оболочки старше
+ * этой панели: кнопки копии/переноса тогда не показываются (R97i — не изображать
+ * работу). Появилось вместе с DatabasePanel.
+ */
+export function desktopDatabase():
+  | NonNullable<NonNullable<Window["fuelradarDesktop"]>["database"]>
+  | null {
+  if (!isDesktopShell()) return null;
+  return window.fuelradarDesktop?.database ?? null;
 }
 
 /**

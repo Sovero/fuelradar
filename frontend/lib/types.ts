@@ -313,6 +313,64 @@ export interface CollectionLogDetail {
   created_at: string;
 }
 
+/** Последний завершённый прогон сбора источника (журнал циклов, R58). */
+export interface CollectionCycleJob {
+  id: number;
+  job_type: string;
+  trigger: string;
+  status: string;
+  records_count: number;
+  error_count: number;
+  error_message: string;
+  started_at: string | null;
+  finished_at: string | null;
+}
+
+export interface CollectionCycleSource {
+  id: number;
+  code: string;
+  name: string;
+  status: string;
+  /** Планировщик опрашивает источник в цикле сбора (user_reports — нет: отчёты push). */
+  collectable: boolean;
+  min_interval_minutes: number;
+  health: string;
+  last_success_at: string | null;
+  last_attempt_at: string | null;
+  consecutive_failures: number;
+  last_error: string;
+  next_run_at: string | null;
+  queued_job_id: number | null;
+  /** Статус активного задания (PENDING — ждёт тика, RUNNING — уже идёт); null — активных нет. */
+  active_job_status: "PENDING" | "RUNNING" | null;
+  /** Заданий RUNNING по источнику прямо сейчас (у одного источника их может быть несколько). */
+  running_jobs: number;
+  /** Самое раннее начатое из RUNNING — по нему считается длительность цикла. */
+  running_job_id: number | null;
+  running_since: string | null;
+  last_job: CollectionCycleJob | null;
+}
+
+export interface CollectionCyclesScheduler {
+  /** in_process — сбор ведёт этот процесс; external — отдельный воркер; off — выключен. */
+  mode: "in_process" | "external" | "off";
+  /** Почему сбор выключен (только для mode="off"). */
+  reason: string;
+  collect_in_process: boolean;
+  tick_seconds: number;
+  pending_jobs: number;
+  running_jobs: number;
+  last_tick_at: string | null;
+  last_tick_status: string | null;
+  next_tick_at: string | null;
+}
+
+export interface CollectionCyclesOut {
+  now: string;
+  scheduler: CollectionCyclesScheduler;
+  sources: CollectionCycleSource[];
+}
+
 export interface AdminReportItem {
   id: number;
   user_id: number;
@@ -491,6 +549,34 @@ export interface StationForecast {
     window_minutes: number | null;
     mean_absence_minutes: number | null;
   };
+}
+
+/**
+ * R58: честный сигнал о состоянии сбора (`GET /api/v1/collection/health`).
+ *
+ * Не «флаг поломки», а наблюдаемые факты: последний успешный сбор, план, очередь
+ * и режим планировщика. Тексты собирает интерфейс из `state`/`reason`, поэтому
+ * язык переключается вместе с остальным интерфейсом (R100).
+ */
+export interface CollectionHealth {
+  state: "ok" | "disabled" | "overdue" | "stalled" | "unplanned" | "unknown";
+  warning: boolean;
+  /** Машинный ключ причины: schedule_off | plan_overdue | no_success | nothing_planned. */
+  reason: string | null;
+  mode: "in_process" | "external" | "off" | null;
+  /** Пояснение режима от backend (например, «выключено настройкой COLLECT_IN_PROCESS»). */
+  mode_reason: string | null;
+  tick_seconds: number;
+  last_success_at: string | null;
+  age_minutes: number | null;
+  planned_at: string | null;
+  overdue_minutes: number | null;
+  next_run_at: string | null;
+  next_tick_at: string | null;
+  pending_jobs: number;
+  running_jobs: number;
+  stale_after_minutes: number;
+  overdue_after_minutes: number;
 }
 
 /** R79: районы дефицита — группировка TTL-censored агрегатов по городу/региону. */

@@ -28,7 +28,7 @@ PWA-система независимой агрегации данных о н�
 ```
 make install                              # pip install backend + npm install frontend
 make dev                                  # backend: uvicorn app.main:app --reload --port 8000 (dev — SQLite, без Docker)
-cd backend && pytest                      # 255 passed
+cd backend && pytest                      # 354 passed
 cd backend && pytest tests/test_api.py    # один файл
 cd backend && pytest -k dedup             # по имени
 cd backend && ruff check .                # линт, "All checks passed!"
@@ -37,13 +37,15 @@ cd frontend && npm install
 cd frontend && npm run dev                # localhost:3000, проксирует /api/* на API_INTERNAL_URL
 cd frontend && npm run typecheck          # tsc --noEmit, чисто
 cd frontend && npm run build              # успешно, ~331 kB First Load JS
-cd frontend && npm test                   # vitest run — 213 passed (42 файла)
-cd frontend && npm run test:e2e           # Playwright/Chromium E2E — 8 passed (нужен system Chrome)
+cd frontend && npm test                   # vitest run — 258 passed (48 файлов)
+cd frontend && npm run test:e2e           # Playwright/Chromium E2E — 9 passed (нужен system Chrome)
 make e2e                                  # то же, одной командой
 cd frontend && npm test -- ReportForm     # один файл/маска
 make compose-up                           # полный docker-compose: api+worker+db(Postgres/PostGIS)+redis+frontend+caddy
-make desktop-dist                         # Electron-приложение: NSIS-установщик desktop/dist/FuelRadar-Setup-<v>.exe (+ автообновление: фид — Releases приватного репозитория, токен перед сборкой в desktop/.update-feed-token, см. desktop/README.md)
-make desktop-smoke                        # smoke-проверка оболочки (нужен backend на :8000)
+make desktop-dist                         # Electron-приложение: NSIS-установщик desktop/dist/FuelRadar-Setup-<v>.exe; сборка замораживает backend внутрь установщика (PyInstaller → resources/backend), поэтому Python на машине пилота не нужен (+ автообновление: фид — Releases приватного репозитория, токен перед сборкой в desktop/.update-feed-token, см. desktop/README.md)
+make desktop-smoke                        # smoke-проверка оболочки (backend поднимает сама оболочка — автозапуск)
+cd desktop && npm run smoke:first-run      # то же + первый запуск с наполнением демо-каталога из офлайн-фикстур
+cd desktop && npm test                     # node --test оболочки — 62 passed
 ```
 
 `make test` = `pytest` (backend) + `npm run typecheck` (frontend) — не гоняет frontend-тесты, гонять `npm test` отдельно.
@@ -55,7 +57,7 @@ backend/app/
   main.py            — точка входа FastAPI: /health /ready /metrics, монтирует api_router + alerts/analytics/reports роутеры, CORS, обработчик 422
   core/               — config.py (Settings — pydantic-settings, единственный источник дефолтов), metrics.py (in-memory счётчики)
   db/                 — models.py (все таблицы), session.py (SessionLocal/get_db/init_db), migrations.py (идемпотентные post-init миграции), base.py (Base)
-  sources/            — SourceAdapter (base.py) + overpass/network_import/user_reports (ACTIVE) + network_lists (реальный HTTP-адаптер сетевых списков АЗС, NOT_USED до настройки NETWORK_LISTS_URLS, активация через админку), research.py (RESEARCH_REQUIRED-заглушки без сети), registry.py
+  sources/            — SourceAdapter (base.py) + overpass/network_import/user_reports (ACTIVE) + network_lists (реальный HTTP-адаптер сетевых списков АЗС: каталог и НАЛИЧИЕ топлива из одного списка — `fuel` в JSON / колонки `fuel_*` в CSV, `availability_bulk`; NOT_USED до настройки NETWORK_LISTS_URLS, активация через админку), fuel_fields.py (разбор наличия: R13/R15), research.py (RESEARCH_REQUIRED-заглушки без сети), registry.py
   stations/           — ingest.py: source_station_records → мастер-каталог
   normalization/      — fuel.py, names.py — нормализация топлива/брендов/названий
   dedup/              — compare.py (compare_records — чистая функция), service.py (DedupService: авто-слияние/REVIEW/admin_merge/admin_split)
@@ -67,7 +69,7 @@ backend/app/
   analytics/          — service.py (summarize/deficit_statistics — читают кэш AnalyticsSnapshot), models.py, router.py
   digest/             — service.py — Telegram-дайджест: сводка событий по расписанию (getUpdates/discovery/отправка), настройки в БД
   api/                — stations.py, meta.py, personal.py (favorites/monitoring-zones/alerts — открыты, без профиля), admin.py, settings.py (Telegram-дайджест), deps.py (rate_limit), cache.py, schemas.py
-  worker/             — Worker/run_once, schedule_priority_job, locking.py (advisory/файловый лок); __main__.py — точка входа `python -m app.worker`
+  worker/             — Worker/run_once, schedule_priority_job, locking.py (advisory/файловый лок); __main__.py — точка входа `python -m app.worker`; inprocess.py — фоновый тикер сбора в процессе API (COLLECT_IN_PROCESS — автономный запуск/desktop; пишет наблюдаемое состояние тика `ticker_state()` — его читает админский журнал циклов); health.py — честный сигнал о простое сбора (pure `collection_signal`): его видят `/ready` (статус degraded) и главный экран (`GET /api/v1/collection/health`)
 backend/cli/          — seed.py (`python -m cli.seed --region <regions.py> [--offline]`), regions.py
 backend/tests/        — по одному файлу на модуль (test_<module>.py) + fixtures/ (офлайн-данные для seed), conftest.py (client/db_session — session-scope)
 
@@ -77,18 +79,18 @@ frontend/components/
   map/                  — MapView.tsx, Legend.tsx
   station/              — StationCard/StationList/ReportForm/HistoryChart/WhyExplanation/StatusBadge
   filters/, favorites/  — FiltersPanel, FavoritesPanel/FavoriteRulesBar
-  layout/               — Header, NotificationsPanel, MapProviderToggle, ThemeToggle, LocaleToggle
+  layout/               — Header, NotificationsPanel, CollectionIdleBanner (R58 — предупреждение «сбор стоит»), MapProviderToggle, ThemeToggle, LocaleToggle
   settings/             — SettingsScreen + Privacy/MonitoringZones/ObservationMode/NetworkPreferences/AlertRules/Push/TelegramDigest панели
-  admin/                — AdminScreen + SourcesTable/CollectionLog/Coverage/DedupQueue/AdminTokenGate
+  admin/                — AdminScreen + SourcesTable/CollectionCycles/CollectionLog/Coverage/DedupQueue/AdminTokenGate
   onboarding/, providers/, ui/ — OnboardingTour, AppProviders/ServiceWorkerRegister/OfflineReportsSync, EmptyState
 frontend/lib/
   api.ts, adminApi.ts   — fetch-обёртки (сессий/ролей нет — приложение открытое, всё доступно запустившему)
-  types.ts, filters.ts, format.ts, fuel.ts, availability.ts, geo.ts, i18n.ts, personalization.ts, offlineReports.ts, telegram.ts
+  types.ts, filters.ts, format.ts, fuel.ts, availability.ts, geo.ts, i18n.ts, personalization.ts, offlineReports.ts, telegram.ts, collectionCycles.ts (отсчёт/смещение часов для живой вкладки «Циклы сбора»)
   map/                  — types.ts (MapProviderProps — единый контракт), maplibre-provider.tsx, yandex-provider.tsx, index.ts (выбор провайдера), statusColor/brandColor/markerIcon/markerData/cluster/config/osmStyle/yandexLoader
-  hooks/                — useMeta, useFilters, useStations, useStationDetail, useFavorites, useNotifications, useTheme, useI18n, useOnboarding, useMapProviderPreference, usePrivacy, useObservationMode, useNetworkPreferences, useMonitoringZones, useAlertRules, useFollowMeZone, useAdminAuth, useRoutePlan
+  hooks/                — useMeta, useFilters, useStations, useStationDetail, useFavorites, useNotifications, useTheme, useI18n, useOnboarding, useMapProviderPreference, usePrivacy, useObservationMode, useNetworkPreferences, useMonitoringZones, useAlertRules, useFollowMeZone, useAdminAuth, useRoutePlan, useCollectionHealth, useCyclesRefresh
 frontend/public/       — manifest.json, icon.svg, sw.js (PWA, network-first для навигации)
 deploy/Caddyfile        — прод-реверс-прокси: /api/* → api:8000, остальное → frontend:3000
-desktop/                — Electron-оболочка (Windows): встроенный Next standalone + reverse-proxy /api/* (Origin переписывается), NSIS-установщик, автообновление electron-updater, Telegram-popup; сборка `make desktop-dist`, детали desktop/README.md
+desktop/                — Electron-оболочка (Windows): встроенный Next standalone + reverse-proxy /api/* (Origin переписывается), автозапуск локального backend с honest-экраном при недоступности (backend.cjs, config.json → apiBaseUrl/backend.*, самопроверка FUELRADAR_BACKEND_STATUS=1), встроенный backend — заморожен PyInstaller'ом (scripts/prepare-backend.mjs → backend-dist → resources/backend, точка входа backend/desktop_server.py: --data-dir/--seed-offline/--backup-db/--migrate-db, данные в %APPDATA%\FuelRadar\data), вкладка настроек «Данные» (копия/экспорт локальной базы и перенос во внешний Postgres — backend.cjs::maintenanceCommand + IPC fuelradar:db-*, панель frontend/components/settings/DatabasePanel.tsx), NSIS-установщик, автообновление electron-updater, Telegram-popup; сборка `make desktop-dist`, детали desktop/README.md
 .claude/launch.json     — дев-превью (`npm run dev --prefix frontend`), не код приложения
 ```
 
@@ -99,6 +101,7 @@ desktop/                — Electron-оболочка (Windows): встроен�
 - `backend/app/db/models.py` — владелец схемы; новые таблицы/поля — только здесь, миграции для прод-БД — `db/migrations.py` (идемпотентно).
 - `backend/app/confidence/service.py` — `StatusService.record_fuel_observation`/`recompute_station_fuel`/`recompute_station_queue`/`expire_stale`; сюда встроены хуки `alerts.service.evaluate_rules` — не задваивать вызов записи статуса в других модулях.
 - `backend/app/worker/__main__.py` + `backend/app/worker/service.py` — реальный воркер (`python -m app.worker`), `schedule_priority_job()` — единственная точка постановки задания сбора (используется и `POST /admin/sources/{id}/refresh`).
+- `backend/app/worker/inprocess.py` — сбор по расписанию в процессе API для автономного запуска (встроенный backend десктоп-сборки, `make dev` без воркера): тот же `Worker.run_once` под общим `worker_lock`, включается настройкой `COLLECT_IN_PROCESS` (десктоп включает её сам).
 - `frontend/lib/map/types.ts` (`MapProviderProps`) — контракт карты; `frontend/lib/map/index.ts` — выбор MapLibre/Яндекс по `NEXT_PUBLIC_MAP_PROVIDER`/наличию ключа.
 - `frontend/lib/filters.ts` (`Filters`) + `useFilters()` — единственное состояние фильтров, живёт в URL query.
 - `frontend/lib/i18n.ts` — оба словаря (ru/en) обновлять вместе, ключ не может существовать в одном и отсутствовать в другом.
@@ -106,9 +109,9 @@ desktop/                — Electron-оболочка (Windows): встроен�
 
 ## Архитектура
 
-Поток данных: `sources/*` (SourceAdapter, только ACTIVE: osm_overpass/network_import/user_reports) → `source_station_records` → `stations/ingest.py` строит/обновляет мастер-каталог → `normalization/*` нормализует топливо/бренды → `dedup/*` сравнивает и авто-сливает/ставит в REVIEW → наблюдения (`fuel_observations`/`queue_observations`, всегда новая строка, история не перезаписывается) → `confidence/aggregate.py` взвешенно голосует (trust×свежесть×репутация×GPS) → `station_current_status` → `ranking/score.py` считает Score (7 компонент) → `api/stations.py` отдаёт наружу → `frontend` рендерит карту/список.
+Поток данных: `sources/*` (SourceAdapter, только ACTIVE: osm_overpass/network_import/user_reports/network_lists) → `source_station_records` → `stations/ingest.py` строит/обновляет мастер-каталог → `normalization/*` нормализует топливо/бренды → `dedup/*` сравнивает и авто-сливает/ставит в REVIEW → наблюдения (`fuel_observations`/`queue_observations`, всегда новая строка, история не перезаписывается) → `confidence/aggregate.py` взвешенно голосует (trust×свежесть×репутация×GPS) → `station_current_status` → `ranking/score.py` считает Score (7 компонент) → `api/stations.py` отдаёт наружу → `frontend` рендерит карту/список.
 
-Сбор — только через `worker/` (P1–P4 по приоритету, интервалы/backoff из config); API никогда не дёргает источники синхронно (R83) — `POST /admin/sources/{id}/refresh` лишь создаёт `CollectionJob` через `schedule_priority_job`.
+Сбор — только через `worker/` (P1–P4 по приоритету, интервалы/backoff из config); API никогда не дёргает источники синхронно (R83) — `POST /admin/sources/{id}/refresh` лишь создаёт `CollectionJob` через `schedule_priority_job`. Единственное исключение — фоновый тикер `worker/inprocess.py` (автономный/десктоп-запуск, где отдельного воркера нет): он не участвует в обработке HTTP, берёт тот же лок и выключен по умолчанию (`COLLECT_IN_PROCESS`).
 
 MapProvider-абстракция: `lib/map/types.ts::MapProviderProps` — единый интерфейс; `maplibre-provider.tsx` (дефолт, OSM-тайлы, без ключей) и `yandex-provider.tsx` (включается только при непустом `NEXT_PUBLIC_YANDEX_MAPS_API_KEY`) — обе реализации подставляются в `lib/map/index.ts`, вызывающий код (`MapView.tsx`) не знает, какая активна.
 
@@ -140,6 +143,7 @@ Frontend не ходит в backend напрямую — `next.config.mjs` рё�
 - `CORS_ORIGINS`, `RATE_LIMIT_PER_MINUTE` (0 — выключить), `ADMIN_RATE_LIMIT_PER_MINUTE` (отдельный per-IP лимит admin API, 0 — выключить), `API_CACHE_TTL_SECONDS`
 - `TELEGRAM_DIGEST_CHAT_ID` (опционально), `TELEGRAM_DIGEST_INTERVAL_MINUTES` — дефолты дайджеста, приоритет у настроек из UI
 - `WORKER_TICK_SECONDS`, `WORKER_BACKOFF_MAX_MINUTES` — воркер
+- `COLLECT_IN_PROCESS` — сбор по расписанию в процессе API (автономный запуск: встроенный backend десктоп-сборки); пусто/0 — сбор ведёт `python -m app.worker`
 - `NEXT_PUBLIC_YANDEX_MAPS_API_KEY` — дублируется здесь для docker-compose, реально читается frontend из своего `.env.local`
 
 `frontend/.env.example` (Next.js читает только отсюда, не из корня):
@@ -151,9 +155,9 @@ Frontend не ходит в backend напрямую — `next.config.mjs` рё�
 
 ## Тесты
 
-- Backend: `backend/tests/test_<module>.py`, один файл на модуль/API-поверхность (`test_api.py`, `test_dedup.py`, `test_worker.py`, `test_alerts.py`, `test_reports.py`, `test_analytics.py`, `test_confidence.py`, `test_confidence_freshness.py`, `test_ranking.py`, `test_normalization.py`, `test_fuel_status.py`, `test_sources.py`, `test_ingest.py`, `test_seed_cli.py`, `test_migrations.py`, `test_schema.py`, `test_health.py`). Гонять один файл: `pytest tests/test_dedup.py`; по имени теста: `pytest -k merge`. 255 passed.
-- Frontend: рядом с модулем как `*.test.ts(x)` (например `frontend/lib/geo.test.ts`, `frontend/components/station/ReportForm.test.tsx`). Один файл/маска: `npm test -- ReportForm`. 213 passed (42 файла).
-- E2E: `frontend/e2e/*.spec.ts` (Playwright, Chromium), общий раннер `npm run test:e2e`; моки/фикстуры — `frontend/e2e/mocks.ts` (setupBase — базовая установка: SW отключён + внешние заглушки + API-моки), ассерты консоли — `frontend/e2e/console.ts`.
+- Backend: `backend/tests/test_<module>.py`, один файл на модуль/API-поверхность (`test_api.py`, `test_dedup.py`, `test_worker.py`, `test_alerts.py`, `test_reports.py`, `test_analytics.py`, `test_confidence.py`, `test_confidence_freshness.py`, `test_ranking.py`, `test_normalization.py`, `test_fuel_status.py`, `test_sources.py`, `test_ingest.py`, `test_seed_cli.py`, `test_migrations.py`, `test_schema.py`, `test_health.py`, `test_desktop_server.py` — разбор аргументов/окружения точки входа встроенного backend, `test_worker_inprocess.py` — тикер сбора в процессе API, `test_collection_cycles.py` — админский журнал циклов сбора, `test_availability_lists.py` — наличие топлива из сетевых списков без отметок водителей, `test_db_transfer.py` — копия локальной SQLite и перенос данных во внешнюю базу, `test_collection_signal.py` — сигнал о простое сбора и `GET /api/v1/collection/health`, `test_regions.py` — газетир регионов, `test_session.py` — аргументы соединения с БД). Гонять один файл: `pytest tests/test_dedup.py`; по имени теста: `pytest -k merge`. 354 passed.
+- Frontend: рядом с модулем как `*.test.ts(x)` (например `frontend/lib/geo.test.ts`, `frontend/components/station/ReportForm.test.tsx`). Один файл/маска: `npm test -- ReportForm`. 258 passed (48 файлов).
+- E2E: `frontend/e2e/*.spec.ts` (Playwright, Chromium, 9 сценариев), общий раннер `npm run test:e2e`; моки/фикстуры — `frontend/e2e/mocks.ts` (setupBase — базовая установка: SW отключён + внешние заглушки + API-моки; сбор в порядке), ассерты консоли — `frontend/e2e/console.ts`.
 - Офлайн-фикстуры для `seed`: `backend/tests/fixtures/`.
 
 ## Подводные камни
@@ -211,6 +215,49 @@ https://github.com/Sovero/fuelradar.git (ветка `main`). Коммиты — 
 - T15: Браузерные E2E (R88, `frontend/e2e/` + `frontend/playwright.config.ts`) — 5 Playwright-тестов в Chromium, запуск `npm run test:e2e` или `make e2e` (~10 с): zero-console smoke домашнего экрана (карта+realtime+фильтр+список), коридор маршрута (2 точки → запрос коридора), «Следить» → правило → уведомление в ленте, отчёт с GPS (гость → логин; профиль → форма → успех). API и внешняя сеть — локальные моки на уровне страницы, service worker в E2E отключён (SW-запросы Chromium мимо page.route); trace/screenshot только при падении; селекторы — роли/доступные имена. Chromium — системный Chrome (`channel: "chrome"`: CDN Playwright в среде сборки недоступен); Тесты: 192 passed backend, 98 passed frontend, 5 E2E.
 - Пост-приёмочная доводка: вкладка «Обновления» в настройках desktop-оболочки — версия из `window.fuelradarDesktop.version` и ручная проверка обновлений через `fuelradarDesktop.checkForUpdates()` (IPC `fuelradar:check-updates` из desktop/main.cjs); в браузере вкладка не показывается вовсе. Честные состояния: dev-запуск → «обновлять не с чего», сбой фида → «последняя (но проверить не удалось)», отказ моста → «не удалось проверить».
 - Пост-M16 волна: дорожный маршрут (R22.1) — `backend/app/routing/` (OSRM-совместимый роутер, `POST /api/v1/route/plan`; чистый разбор `parse_route_payload`, честные причины `not_configured`/`provider_unavailable`/`no_route`), линия на обеих картах идёт по улицам (профиль `driving` — односторонние и запреты поворотов учитывает граф OSM), подпись км/мин и список маневров берутся из роутера, коридор АЗС считается по дорожной геометрии (прореживание до 100 точек). Конфиг — `ROUTING_BASE_URL`/`ROUTING_PROFILE`/`ROUTING_TIMEOUT_SECONDS` (публичный демо-OSRM — только для дев/пилота, для прода поднять свой инстанс). Тесты: 254 backend, 169 frontend, 6 E2E.
+
+Волна desktop-автономности (по прямым просьбам пользователя: «backend внутри установщика» → «исправь все недочёты и собери новое приложение»):
+- Встроенный backend (PyInstaller one-dir, `backend/desktop_server.py`, `desktop/scripts/prepare-backend.mjs`) едет в `resources/backend` — на машине пилота нет Python/venv; данные в `%APPDATA%\FuelRadar\data`, первый запуск может наполнить каталог офлайн-фикстурами (`backend.seedRegion`).
+- Сбор по расписанию: у установленного приложения нет процесса воркера, поэтому расписание ведёт фоновый тикер того же процесса (`app/worker/inprocess.py`, `COLLECT_IN_PROCESS`, общий `worker_lock`) — раньше TTL статусов истекал (все АЗС UNKNOWN), а задания из админки не исполнялись; десктоп включает тикер сам, серверные развёртывания — нет.
+- Внешняя база: `backend.databaseUrl`/`DATABASE_URL` переключает встроенный backend на общий Postgres/PostGIS, psycopg едет в установщике (проверяется сборочным шагом), пароль не показывается на экране/в логе, демо-фикстуры во внешнюю базу не пишутся.
+- Найден и исправлен попутный баг: `DEFAULT_REGION_RADIUS_KM` игнорировался, когда регион задан именем города (и воркер, и `seed` собирали по радиусу газетира).
+Тесты: 286 backend, 58 desktop (node --test); прогоны больше не копят временные каталоги в системном temp (conftest закрывает пул соединений и убирает за собой).
+
+Волна админского журнала циклов сбора (по прямой просьбе пользователя: «время последнего успешного сбора по источникам, следующий тик и причины сбоев»):
+- `GET /api/v1/admin/collection-cycles` + вкладка «Циклы сбора»: по каждому источнику — время последнего успешного сбора (`source_health.last_success_at`), следующий запуск (ближайшее активное задание, иначе план последнего завершённого; прошедший план честно «просрочено»), последний цикл (статус/записи/триггер/время) и причина сбоя (число неудач подряд + класс ошибки, R68 — без текста HTTP-ошибок). Сверху — состояние планировщика: режим (в этом процессе / отдельный воркер / выключен), такт `WORKER_TICK_SECONDS`, очередь заданий и последний/следующий тик. «Следующий тик» пишет сам цикл (`worker/inprocess.py::record_tick`/`ticker_state`); у отдельного воркера он честно помечен как невидимый — админка не выдумывает время.
+- `user_reports` (push-источник, не опрашивается) и неактивные источники помечены каждый своей причиной, а не одной общей фразой.
+Тесты: 292 backend (`test_collection_cycles.py` — 5, `test_worker_inprocess.py` — состояние тика), 220 frontend (43 файла, `AdminCollectionCycles.test.tsx` — 7); ruff/typecheck/build чистые.
+
+Волна первого реального источника НАЛИЧИЯ топлива (по прямой просьбе пользователя: «подключи первый реальный источник данных о наличии топлива, чтобы статусы обновлялись без отчётов водителей»):
+- Публичного API наличия в РФ нет (сайты «где бензин» — это те же отметки водителей; власти публикуют перечни списками/через чат-боты) — поэтому реальным источником сделаны **сетевые списки**: один файл от сети/регионального штаба/городского портала, где у каждой АЗС есть статусы топлива. `network_lists` из discovery-only стал первым источником наличия без водителей: `fuel: {"АИ-95": "есть"}` в JSON/GeoJSON или колонки `fuel_аи-95` в CSV (`sources/fuel_fields.py`, алиасы `fuel:`/`топливо_`/`наличие-`), опционально `observed_at`.
+- Наличие приезжает ВМЕСТЕ с каталогом одним запросом: `availability_bulk` в capabilities → `plan()` не ставит точечные задания на каждую АЗС, а `worker.service.apply_bulk_availability` пишет наблюдения через тот же `StatusService` (Confidence/TTL/алерты), с `idempotency_key` — повторная выгрузка того же списка не удваивает свидетельства (R17). Сбой записи наличия — отдельная строка в журнале, каталог остаётся DONE (R84). `StatusService.record_fuel_observation` получил `commit=False` для пакетной записи (один коммит на выгрузку, не на АЗС).
+- R13/R15 не ослаблены: непонятный статус («уточняется») и незнакомое топливо — пропуск со счётчиком в журнале («availability: 8 наблюдений, 1 значений не распознано»), а не «нет топлива»; объявленное, но неразобранное `observed_at` заставляет пропустить строку целиком — свежесть не выдумывается (R56).
+- Сид `network_lists` (базы до этой волны — идемпотентная миграция `upgrade_network_lists_availability`): capabilities + availability_bulk, `min_interval_minutes` 1440 → 15 (только если оператор не менял сам; TTL статуса 2 ч, суточный потолок дал бы вечные UNKNOWN).
+- Живой сквозной прогон: список на локальном HTTP → `PUT /admin/sources/network-lists` → тик сбора → публичный `/stations` отдаёт «АЗС Красная 12: AI_95=AVAILABLE, DIESEL=UNAVAILABLE» при `total=0` отчётов водителей; в журнале задания — `availability: 8 наблюдений, 1 значений не распознано`.
+Тесты: 310 backend (`test_availability_lists.py` — 12 сквозных через настоящий адаптер и SQLite, `test_sources.py` +5 разбора наличия, `test_migrations.py` +1 про границы миграции); ruff чистый; frontend не тронут (только подсказки в админке, ru+en — 220 тестов без изменений).
+
+Волна «экспорт и бэкап локальной базы с переносом в Postgres» (по прямой просьбе пользователя: «добавь в настройки десктопа экспорт и бэкап локальной базы с переносом данных в Postgres»):
+- Встроенный backend получил две служебные команды (`backend/desktop_server.py`), обе печатают одну ASCII-JSON-строку и пароль внешней базы не раскрывают (R68): `--backup-db [PATH]` — консистентный снимок локальной SQLite штатным онлайн-бэкапом (по умолчанию `<данные>/backups/fuelradar-<UTC-штамп>.db`, в отчёте путь/размер/таблицы/строки), `--migrate-db [--to-database-url URL]` — перенос накопленного во внешний Postgres/PostGIS.
+- Перенос (`app/db/transfer.py`) идёт **со снимка** локальной базы (согласованный момент времени, приложение продолжает работать), схему цели создаёт из тех же моделей, строки вставляет пачками с `ON CONFLICT DO NOTHING` (повторный запуск безопасен: «вставлено 0, пропущено N»), после данных накатывает идемпотентные миграции и сиды штатным `init_db()` и догоняет SERIAL-последовательности цели до максимумов перенесённых id (иначе следующая вставка приложения получила бы занятый id). Предпроверки честные: только SQLite→Postgres, не свой же адрес, без цели — «укажите backend.databaseUrl…».
+- Оболочка: `backend.cjs` получил `maintenanceCommand`/`parseMaintenanceReport`/`databaseStatus` (чистые функции), `main.cjs` — IPC `fuelradar:db-status|db-backup|db-export|db-migrate|db-reveal` (экспорт — системный диалог сохранения; нечем запускать — честное «нечем»), мост — в `preload.cjs`.
+- Настройки: вкладка «Данные» (desktop-only, `frontend/components/settings/DatabasePanel.tsx`) — где лежит база и её размер, последняя копия, кнопки «Создать резервную копию»/«Экспортировать копию…» и «Перенести данные» с целью без пароля; результат цифрами, ошибки причиной, без внешней базы — «не настроено»; ключи ru+en.
+- Живой прогон (dev-путь, те же флаги, что у оболочки): `--seed-offline` → `--backup-db` (59 строк, 241 КБ, файл на месте) → экспорт в выбранный путь → `--migrate-db` без цели (exit 4, честный JSON) → `--migrate-db` на недоступный Postgres (`OperationalError`, адрес в отчёте замаскирован — пароль не утёк). Тот же путь прогнан на ЗАМОРОЖЕННОМ бинарнике (`npm run prepare:backend`; флаги видны в `--help`, код выхода 5) и в самой оболочке: `npm run smoke` печатает `FUELRADAR_SMOKE_DB_BACKUP ok rows=26` и `FUELRADAR_SMOKE_DB_MIGRATE unconfigured` — то есть мост, бэкенд и разбор JSON проверены в реальном Electron. Настоящего Postgres на машине нет (ни Docker, ни локальной службы), поэтому перенос в живую Postgres-базу НЕ проверялся: диалектная ветка проверена компиляцией `ON CONFLICT DO NOTHING` для диалекта Postgres и юнит-тестами копирования.
+Тесты: 338 backend (`test_db_transfer.py` — 18, `test_desktop_server.py` +10), 62 desktop (`node --test`), 228 frontend (44 файла, `DatabasePanel.test.tsx` — 7, `format.test.ts` +1); ruff/typecheck чистые.
+
+Волна честного сигнала о простое сбора (по прямой просьбе пользователя: «если расписание выключено или план просрочен надолго, показывай предупреждение на главном экране и в /ready, а не только в админке»):
+- `backend/app/worker/health.py` — единый источник сигнала: чистая `collection_signal(now, facts, ...)` (ok / disabled / overdue / stalled / unplanned + машинный `reason`, `age_minutes`, `overdue_minutes`) и тонкая обвязка `collection_facts`/`collection_report` над `source_health`/`collection_jobs`/`ticker_state`. «Свежий успех важнее режима»: живой внешний воркер при выключенном `COLLECT_IN_PROCESS` даёт `ok`, а не ложное «расписание выключено»; идущее задание считается работой только пока оно свежее (зависший RUNNING не прячет простой).
+- Публичный `GET /api/v1/collection/health` (без админки и без текстов ошибок источников — R68) и `/ready` с третьим состоянием `degraded` + блоком `collection`: мониторинг видит «данные не обновляются», а не только «процесс жив». Пороги — `COLLECTION_STALE_MINUTES` (180) / `COLLECTION_OVERDUE_MINUTES` (30) в конфиге и `.env.example`.
+- Главный экран: хук `useCollectionHealth` (перепроверка по realtime-событию и раз в 5 минут — простой случается, пока окно открыто) + баннер `CollectionIdleBanner` над картой: причина, «статусы АЗС могут быть устаревшими», последний успех, просрочка плана, идущие задания; ключи ru+en, состояние `ok` не шумит, а сетевой сбой не превращается в выдуманное предупреждение.
+- Проверено: E2E `frontend/e2e/collection-idle.spec.ts` (молчащий сбор → баннер на главном экране, консоль чистая) — 9 E2E.
+- Живой прогон: uvicorn на временной базе — пустой каталог → `/ready` `degraded` (`reason: nothing_planned`); свежий успех в `source_health` → `ready`/`ok` (режим `external` без ложного «расписание выключено»); успех 5 ч назад + задание, просроченное на 2 ч → `degraded`/`overdue` (`overdue_minutes: 120`, `age_minutes: 300`); `COLLECT_IN_PROCESS=1` без региона → `disabled`/`schedule_off` с честной причиной в `mode_reason`. Оболочка (`npm run smoke` / `smoke:first-run`) печатает `FUELRADAR_SMOKE_COLLECTION unplanned` на пустом каталоге и `ok` после офлайн-наполнения — сигнал не врёт в обе стороны; в упавшем smoke-прогоне временный каталог теперь убирается после выхода backend (раньше оставался).
+Тесты: 353 backend (`test_collection_signal.py` — 13, `test_health.py` +2 про degraded/not_ready), 239 frontend (46 файлов, `CollectionIdleBanner.test.tsx` — 7, `useCollectionHealth.test.tsx` — 4); ruff/typecheck/build чистые.
+
+Волна живой вкладки «Циклы сбора» (по прямой просьбе пользователя: «автообновление с обратным отсчётом до следующего тика и подсветкой источника, у которого цикл идёт прямо сейчас»):
+- Журнал обновляется сам с периодом, который задаёт оператор полем «живое обновление» (дефолт 60 с, границы 5–3600; `normalizeRefreshSeconds` + хук `useCyclesRefresh` с localStorage): значение применяется по Enter/blur, в поле остаётся нормализованное («3» → 5, нечисловое → 60), скрытое окно не опрашивается, а возвращение обновляет сразу, запросы не наслаиваются (пока ответ не пришёл, нового нет). Рядом с заголовком — поле периода («живое обновление · каждые 60 с») и «обновлено N с назад»; сбой фонового опроса не стирает журнал, а честно помечает его: «не удалось обновить журнал — на экране данные N с назад».
+- Обратный отсчёт — по серверным часам: ответ несёт `now`, по нему считается смещение часов браузера (`serverClockSkewMs`), иначе на машине со сбитым временем отсчёт показывал бы часы вместо секунд. Секунды в последнюю минуту (`через 45 с`), дальше минуты/часы; прошедший тик — «сейчас» (сборщик вот-вот вернётся), просроченный надолго — «просрочено». Текст собирается в компоненте (ru+en), математика — в `lib/collectionCycles.ts` (чистые функции + юнит-тесты).
+- Подсветка — по факту, а не по догадке: `GET /admin/collection-cycles` отдаёт по источнику `active_job_status` (PENDING — «в очереди», RUNNING — уже собирается: раньше эти состояния были неотличимы), `running_jobs`/`running_job_id`/`running_since`. Строка источника с RUNNING подсвечивается, рядом подпись «идёт сейчас · 20 с · задание №8 · заданий: 2»; для PENDING остаётся «в очереди, задание №N». Зависшее RUNNING так же честно исчезает: каждый тик `run_once` возвращает брошенные задания в PENDING.
+- Живой прогон (uvicorn на временной БД + `COLLECT_IN_PROCESS`, медленный список наличия на локальном HTTP с задержкой 25 с): вкладка без перезагрузки сама показала «идёт сейчас · 5 с · задание №8» → «идёт сейчас · 20 с» → после завершения подсветка ушла сама, а в журнале остался `DONE · записей: 1`; ответ API и экран совпадали в каждой точке (проверено также `data-running` в DOM).
+Тесты: 354 backend (`test_collection_cycles.py` — 6: RUNNING-задание как факт, PENDING — не «идёт»), 258 frontend (48 файлов, `AdminCollectionCycles.test.tsx` — 16 про подсветку/отсчёт/период в поле/сбой опроса/скрытое окно, `collectionCycles.test.ts` — 5 про смещение часов и нормализацию периода, `useCyclesRefresh.test.tsx` — 5 про дефолт 60 с и localStorage); ruff/typecheck/build чистые, E2E 9.
 <!-- autopilot:end -->
 
 <!-- IJFW-MEMORY-START -->

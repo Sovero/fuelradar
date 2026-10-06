@@ -4,10 +4,11 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Depends
 
-from . import admin, meta, personal, settings, stations
+from . import admin, collection, meta, personal, settings, stations
 from .deps import rate_limit
 
 api_router = APIRouter(prefix="/api/v1", dependencies=[Depends(rate_limit)])
+api_router.include_router(collection.router)
 api_router.include_router(meta.router)
 api_router.include_router(settings.router)
 api_router.include_router(stations.router)

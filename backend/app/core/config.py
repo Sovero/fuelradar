@@ -34,6 +34,10 @@ class Settings(BaseSettings):
     app_name: str = "FuelRadar"
     debug: bool = False
     database_url: str = "sqlite:///./fuelradar.db"
+    # Таймаут УСТАНОВЛЕНИЯ соединения с Postgres (сек). Без него недоступная или
+    # ошибочно указанная база (десктоп: backend.databaseUrl) вешает старт на
+    # TCP-ретраях — вместо честного «не подключиться» через понятное время.
+    db_connect_timeout_seconds: int = 10
     redis_url: str = ""  # пусто -> метрики in-memory на процесс (R70); задать для общих метрик api+worker
 
     # --- регион (R04/R81): город по умолчанию — данные, не код ---
@@ -52,6 +56,20 @@ class Settings(BaseSettings):
     collect_favorite_minutes: int = 30
     collect_deficit_minutes: int = 30
     collect_stable_minutes: int = 120
+    # Сбор по расписанию в процессе API: в установленном десктоп-приложении
+    # оболочка запускает ровно один процесс, отдельного воркера там нет —
+    # расписание ведёт фоновый тикер (app/worker/inprocess.py) под тем же
+    # worker_lock, поэтому дублей нет, даже если рядом работает воркер.
+    # В серверных развёртываниях (docker/api+worker, make dev) — выключено:
+    # сбор ведёт `python -m app.worker`. Включает встроенный backend
+    # (backend/desktop_server.py выставляет COLLECT_IN_PROCESS=1).
+    collect_in_process: bool = False
+    # Порог «сбор молчит» (R58/R97i): сколько минут без успешного сбора считать
+    # простоем и сколько минут просрочки плана — «просрочен надолго». Сигнал
+    # используют /ready и предупреждение на главном экране (worker/health.py).
+    # Дефолт — 3 часа: TTL статуса 2 ч, плюс запас на один-два цикла сбора.
+    collection_stale_minutes: int = 180
+    collection_overdue_minutes: int = 30
 
     # --- пороги и веса ---
     dedup_auto_merge: float = 0.85         # §7: автослияние
@@ -127,7 +145,7 @@ class Settings(BaseSettings):
     cors_origins: str = ""                 # белый список CORS через запятую (R66); пусто → same-origin
     rate_limit_per_minute: int = 120       # R66: простой per-IP лимит; 0 — выключить
     admin_rate_limit_per_minute: int = 30  # security: отдельный лимит admin API; 0 — выключить
-    worker_tick_seconds: int = 10
+    worker_tick_seconds: int = 10         # такт и воркера, и встроенного тикера сбора
     worker_backoff_max_minutes: int = 120
     smtp_from: str = "noreply@localhost"   # контакт в VAPID-подписи push (не почта приложения)
     public_app_url: str = "http://localhost:3000"  # ссылка в тексте Telegram-дайджеста

@@ -1,18 +1,42 @@
 """Единственная точка подключения к БД и сиды словарей (R62, R13, R94i)."""
 
+
 from __future__ import annotations
 
-from sqlalchemy import create_engine, select
+from sqlalchemy import Engine, create_engine, select
 from sqlalchemy.orm import Session, sessionmaker
 
 from ..core.config import settings
 from .base import Base
-from .migrations import upgrade_no_users, upgrade_prices, upgrade_spatial_index, upgrade_worker_jobs
+from .migrations import (
+    upgrade_network_lists_availability,
+    upgrade_no_users,
+    upgrade_prices,
+    upgrade_spatial_index,
+    upgrade_worker_jobs,
+)
 from .models import FuelBrand, FuelType, SourceProvider
+
+
+def connect_args(database_url: str, *, connect_timeout: int) -> dict:
+    """Аргументы соединения по схеме адреса БД (чистая функция — есть тесты).
+
+    - SQLite: соединение живёт в разных потоках (SSE, тикер сбора);
+    - Postgres: таймаут установления соединения. Без него недоступная база вешает
+      старт приложения на TCP-ретраях, и в десктоп-сборке окно минутами ждёт
+      причину вместо честного «не удалось подключиться»;
+    - прочие драйверы (тестовые) — без аргументов.
+    """
+    if database_url.startswith("sqlite"):
+        return {"check_same_thread": False}
+    if database_url.startswith("postgresql"):
+        return {"connect_timeout": connect_timeout}
+    return {}
+
 
 _engine = create_engine(
     settings.database_url,
-    connect_args={"check_same_thread": False} if settings.database_url.startswith("sqlite") else {},
+    connect_args=connect_args(settings.database_url, connect_timeout=settings.db_connect_timeout_seconds),
 )
 SessionLocal = sessionmaker(bind=_engine, autocommit=False, autoflush=False)
 
@@ -52,8 +76,14 @@ SOURCE_PROVIDERS: list[dict] = [
      "status": "ACTIVE", "min_interval_minutes": 5, "attribution": "", "trust": 0.7},
     {"code": "user_reports", "name": "Пользовательские отчёты", "capabilities": {"discovery": False, "availability": True, "queue": True},
      "status": "ACTIVE", "min_interval_minutes": 5, "attribution": "", "trust": 0.4},
-    {"code": "network_lists", "name": "Сетевые списки АЗС (HTTP)", "capabilities": {"discovery": True, "availability": False, "queue": False},
-     "status": "NOT_USED", "min_interval_minutes": 1440, "attribution": "", "trust": 0.7},
+    # Сетевые списки — единственный источник наличия без отметок водителей: список
+    # сети/штаба может нести статусы топлива (`fuel` в JSON, колонки `fuel_*` в CSV).
+    # `availability_bulk` = наличие приезжает вместе с каталогом одним запросом, поэтому
+    # потолок частоты низкий (15 мин), а плановый такт задаёт collect_default_minutes:
+    # список обновляется чаще TTL статусов (R56), но источник не дёргается зря.
+    {"code": "network_lists", "name": "Сетевые списки АЗС (HTTP)",
+     "capabilities": {"discovery": True, "availability": True, "queue": False, "availability_bulk": True},
+     "status": "NOT_USED", "min_interval_minutes": 15, "attribution": "", "trust": 0.7},
     {"code": "yandex", "name": "Яндекс Карты", "capabilities": {}, "status": "RESEARCH_REQUIRED", "min_interval_minutes": 60, "attribution": "", "trust": 0.0},
     {"code": "twogis", "name": "2ГИС", "capabilities": {}, "status": "RESEARCH_REQUIRED", "min_interval_minutes": 60, "attribution": "", "trust": 0.0},
     {"code": "lukoil", "name": "Лукойл", "capabilities": {}, "status": "RESEARCH_REQUIRED", "min_interval_minutes": 60, "attribution": "", "trust": 0.0},
@@ -88,6 +118,10 @@ def init_db() -> None:
     upgrade_worker_jobs(_engine)
     upgrade_spatial_index(_engine)
     upgrade_prices(_engine)
+    # Уже развёрнутые базы: capabilities/интервал network_lists не переписываются
+    # вслепую (см. migrations.upgrade_network_lists_availability). Новые базы
+    # получают правильные значения из SOURCE_PROVIDERS — миграция там no-op.
+    upgrade_network_lists_availability(_engine)
     with Session(_engine) as session:
         for code, name in FUEL_TYPES:
             if session.scalar(select(FuelType).where(FuelType.code == code)) is None:
@@ -106,6 +140,15 @@ def init_db() -> None:
             if session.scalar(select(SourceProvider).where(SourceProvider.code == spec["code"])) is None:
                 session.add(SourceProvider(**spec))
         session.commit()
+
+
+def engine() -> Engine:
+    """Движок приложения — единственная точка подключения (R62).
+
+    Нужен там, где работа идёт с базой целиком, а не через ORM-сессию: перенос
+    локальных данных во внешнюю базу (db/transfer.py) и проверки схемы.
+    """
+    return _engine
 
 
 def get_db():

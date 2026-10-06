@@ -28,6 +28,7 @@ from .db.session import SessionLocal, init_db
 from .realtime import router as realtime_router
 from .reports.router import router as reports_router
 from .route import router as route_router
+from .worker.health import collection_report
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
 logger = logging.getLogger("fuelradar")
@@ -62,17 +63,45 @@ async def _digest_ticker() -> None:
             logger.warning("telegram digest tick failed: %s", type(exc).__name__)
 
 
+def _start_collector() -> asyncio.Task | None:
+    """Сбор по расписанию в этом процессе — или честная причина, почему нет.
+
+    Нужен только автономному запуску (встроенный backend десктоп-сборки): там
+    отдельного воркера нет. Решение «включать ли» принимает `collector_plan`,
+    а цикл берёт тот же `Worker`, что и `python -m app.worker`.
+    """
+    from .worker.inprocess import collector_plan, collector_ticker
+    from .worker.service import Worker
+
+    region, reason = collector_plan(settings)
+    if region is None:
+        logger.info("сбор по расписанию: выключен — %s", reason)
+        return None
+    worker = Worker(SessionLocal, region)
+    logger.info(
+        "сбор по расписанию: включён — %s, такт %s с (лок общий с воркером)",
+        region.get("city"), settings.worker_tick_seconds,
+    )
+    return asyncio.create_task(collector_ticker(worker, settings.worker_tick_seconds))
+
+
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     init_db()
     logger.info("DB initialized")
-    digest_task = asyncio.create_task(_digest_ticker())
+    # Тикер сбора сам отправляет Telegram-дайджест (это часть worker.run_once),
+    # поэтому отдельный тикер дайджеста поднимаем только без сбора.
+    collector_task = _start_collector()
+    digest_task = None if collector_task else asyncio.create_task(_digest_ticker())
     try:
         yield
     finally:
-        digest_task.cancel()
-        with contextlib.suppress(asyncio.CancelledError):
-            await digest_task
+        for task in (collector_task, digest_task):
+            if task is None:
+                continue
+            task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await task
 
 
 app = FastAPI(title=settings.app_name, version="0.1.0", lifespan=lifespan)
@@ -117,6 +146,17 @@ def metrics() -> dict:
 
 @app.get("/ready")
 def ready() -> dict:
+    """Готовность к работе: БД И честный сигнал о сборе (R58/R97i).
+
+    Без сигнала о сборе мониторинг видел бы «ready», пока карта тихо показывает
+    устаревшие статусы. Поэтому статус получает третье значение `degraded`:
+    процесс жив и БД отвечает, но данные не обновляются (сбор выключен, план
+    просрочен надолго или нет успешных сборов). HTTP-код не меняем (200 у всех
+    исходов, как и раньше): внешние пробы читают поле `status`, а не код, и
+    `degraded` не должен выкидывать живой процесс из балансировки.
+    """
+    db_ok = False
+    collection: dict = {"state": "unknown", "warning": False, "reason": None, "mode": None}
     try:
         with SessionLocal() as session:
             session.execute(text("SELECT 1"))
@@ -124,4 +164,22 @@ def ready() -> dict:
     except Exception as exc:  # noqa: BLE001 — /ready обязан отвечать при любой поломке
         logger.error("ready check failed: %s", exc)
         db_ok = False
-    return {"status": "ready" if db_ok else "not_ready", "db": "ok" if db_ok else "error", "time": datetime.now(UTC).replace(tzinfo=None).isoformat()}
+    if db_ok:
+        try:
+            with SessionLocal() as session:
+                collection = collection_report(session)
+        except Exception as exc:  # noqa: BLE001 — сигнал не имеет права ронять /ready
+            logger.warning("ready: сигнал о сборе недоступен: %s", type(exc).__name__)
+            collection = {"state": "unknown", "warning": False, "reason": None, "mode": None}
+    if not db_ok:
+        status = "not_ready"
+    elif collection.get("warning"):
+        status = "degraded"
+    else:
+        status = "ready"
+    return {
+        "status": status,
+        "db": "ok" if db_ok else "error",
+        "collection": collection,
+        "time": datetime.now(UTC).replace(tzinfo=None).isoformat(),
+    }

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildRouteUrl, formatAgeMinutes, formatConfidence, formatDistance, formatEtaMinutes, formatPrice, formatUpdatedAt } from "@/lib/format";
+import { buildRouteUrl, formatAgeMinutes, formatBytes, formatConfidence, formatDistance, formatEtaMinutes, formatPrice, formatUpdatedAt } from "@/lib/format";
 
 describe("format helpers", () => {
   it("formatDistance округляет метры/километры и отдаёт «—» без данных", () => {
@@ -20,6 +20,14 @@ describe("format helpers", () => {
     expect(formatPrice(62.4, "USD")).toBe("62.40 USD");
     expect(formatPrice(null)).toBe("нет данных");
     expect(formatPrice(undefined, "RUB", { noData: "no data" })).toBe("no data");
+  });
+
+  it("formatBytes: размер копии базы без выдуманного нуля", () => {
+    expect(formatBytes(512)).toBe("512 Б");
+    expect(formatBytes(2048)).toBe("2,0 КБ");
+    expect(formatBytes(5 * 1024 * 1024)).toBe("5,0 МБ");
+    expect(formatBytes(0)).toBe("—");
+    expect(formatBytes(null)).toBe("—");
   });
 
   it("formatAgeMinutes покрывает минуты/часы/дни", () => {

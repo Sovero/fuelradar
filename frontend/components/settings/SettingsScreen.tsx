@@ -19,17 +19,29 @@ import { AlertRulesPanel } from "@/components/settings/AlertRulesPanel";
 import { PushSettingsPanel } from "@/components/settings/PushSettingsPanel";
 import { TelegramDigestPanel } from "@/components/settings/TelegramDigestPanel";
 import { UpdatesPanel } from "@/components/settings/UpdatesPanel";
+import { DatabasePanel } from "@/components/settings/DatabasePanel";
 
-type SettingsTab = "zones" | "privacy" | "observation" | "networks" | "rules" | "push" | "telegram" | "updates";
+type SettingsTab =
+  | "zones"
+  | "privacy"
+  | "observation"
+  | "networks"
+  | "rules"
+  | "push"
+  | "telegram"
+  | "updates"
+  | "database";
 
-const TABS: SettingsTab[] = ["zones", "privacy", "observation", "networks", "rules", "push", "telegram", "updates"];
+const TABS: SettingsTab[] = ["zones", "privacy", "observation", "networks", "rules", "push", "telegram", "updates", "database"];
+/** Вкладки, которые есть только в desktop-оболочке (в браузере делать нечего). */
+const DESKTOP_ONLY_TABS = new Set<SettingsTab>(["updates", "database"]);
 
 export function SettingsScreen() {
   const { t } = useI18n();
   const [tab, setTab] = useState<SettingsTab>("zones");
-  // Вкладка «Обновления» существует только в desktop-оболочке (Electron).
-  // Флаг после монтирования: SSR и первый клиентский рендер совпадают (без
-  // hydration-расхождения), в оболочке вкладка появляется сразу после старта.
+  // Вкладки «Обновления» и «Данные» существуют только в desktop-оболочке
+  // (Electron). Флаг после монтирования: SSR и первый клиентский рендер совпадают
+  // (без hydration-расхождения), в оболочке вкладки появляются сразу после старта.
   const [isDesktop, setIsDesktop] = useState(false);
   useEffect(() => setIsDesktop(isDesktopShell()), []);
 
@@ -51,7 +63,7 @@ export function SettingsScreen() {
       <div className="flex flex-1 flex-col overflow-hidden sm:flex-row">
         <nav className="no-scrollbar flex shrink-0 gap-1 overflow-x-auto border-b border-gray-200 bg-white px-2 py-2 dark:border-gray-800 dark:bg-gray-900 sm:w-48 sm:flex-col sm:overflow-visible sm:border-b-0 sm:border-r">
           {TABS.map((key) =>
-            key === "updates" && !isDesktop ? null : (
+            DESKTOP_ONLY_TABS.has(key) && !isDesktop ? null : (
               <button
                 key={key}
                 type="button"
@@ -76,6 +88,7 @@ export function SettingsScreen() {
           {tab === "push" && <PushSettingsPanel />}
           {tab === "telegram" && <TelegramDigestPanel />}
           {tab === "updates" && <UpdatesPanel />}
+          {tab === "database" && <DatabasePanel />}
         </div>
       </div>
     </div>

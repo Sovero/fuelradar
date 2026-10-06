@@ -140,6 +140,42 @@ export const ROUTE_PLAN = {
   reason: null,
 };
 
+/**
+ * R58: сигнал о состоянии сбора. В базовой установке сбор «в порядке» — иначе на
+ * главном экране был бы честный баннер (он проверяется отдельным сценарием),
+ * а остальные сценарии проверяют другое.
+ */
+export const COLLECTION_OK = {
+  state: "ok",
+  warning: false,
+  reason: null,
+  mode: "external",
+  mode_reason: null,
+  tick_seconds: 10,
+  last_success_at: now,
+  age_minutes: 5,
+  planned_at: "2026-09-12T13:00:00Z",
+  overdue_minutes: null,
+  next_run_at: "2026-09-12T13:00:00Z",
+  next_tick_at: null,
+  pending_jobs: 1,
+  running_jobs: 0,
+  stale_after_minutes: 180,
+  overdue_after_minutes: 30,
+};
+
+/** Молчащий сбор (для сценария «честное предупреждение на главном экране»). */
+export const COLLECTION_STALLED = {
+  ...COLLECTION_OK,
+  state: "stalled",
+  warning: true,
+  reason: "no_success",
+  last_success_at: "2026-09-12T05:00:00Z",
+  age_minutes: 420,
+  planned_at: "2026-09-12T06:00:00Z",
+  overdue_minutes: 360,
+};
+
 /** Честный отказ роутера: фронт обязан рисовать прямую линию и объяснять причину. */
 export const ROUTE_PLAN_UNAVAILABLE = {
   is_road_route: false,
@@ -194,6 +230,8 @@ export async function installApiMocks(page: Page) {
     route.request().method() === "GET" ? json([])(route) : json(createdAlert, 201)(route),
   );
   await page.route("**/api/v1/push/subscriptions*", json([]));
+  // R58: сигнал о простое сбора — в базовой установке сбор в порядке.
+  await page.route("**/api/v1/collection/health", json(COLLECTION_OK));
   // Дорожный маршрут (R22.1): роутер отвечает геометрией по улицам. Расстояние и
   // время нарочно не совпадают с прямой линией между кликами — тест проверяет,
   // что подпись берёт числа роутера, а не haversine.

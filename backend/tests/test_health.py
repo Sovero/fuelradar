@@ -7,11 +7,66 @@ def test_health_ok(client):
 
 
 def test_ready_ok_with_db(client):
+    """БД отвечает — /ready отдаёт db=ok и честный сигнал о сборе рядом.
+
+    Сам статус может быть `degraded` — это зависит от состояния сбора в общей
+    тестовой БД, и он не должен вводить в заблуждение: `db` и `collection`
+    проверяются отдельно (R58: статус процесса и свежесть данных — разные вещи).
+    """
     resp = client.get("/ready")
     assert resp.status_code == 200
     body = resp.json()
-    assert body["status"] == "ready"
+    assert body["status"] in {"ready", "degraded"}
     assert body["db"] == "ok"
+    collection = body["collection"]
+    assert collection["state"] in {"ok", "disabled", "overdue", "stalled", "unplanned", "unknown"}
+    assert collection["warning"] == (collection["state"] != "ok")
+    if collection["warning"]:
+        assert body["status"] == "degraded"
+    else:
+        assert body["status"] == "ready"
+
+
+def test_ready_degraded_when_collection_warns(client, monkeypatch):
+    """Простой сбора виден в /ready (R58): процесс жив, но данные не обновляются."""
+    from app import main as app_main
+
+    monkeypatch.setattr(
+        app_main,
+        "collection_report",
+        lambda session: {"state": "stalled", "warning": True, "reason": "no_success", "mode": "external"},
+    )
+    body = client.get("/ready").json()
+    assert body["status"] == "degraded"
+    assert body["db"] == "ok"
+    assert body["collection"]["reason"] == "no_success"
+
+
+def test_ready_not_ready_and_unknown_collection_when_db_is_down(client, monkeypatch):
+    """БД упала: not_ready и честное unknown вместо выдуманного сигнала."""
+    from app import main as app_main
+
+    class _BrokenSession:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+        def execute(self, *args, **kwargs):
+            raise RuntimeError("db down")
+
+    monkeypatch.setattr(app_main, "SessionLocal", lambda: _BrokenSession())
+    monkeypatch.setattr(
+        app_main,
+        "collection_report",
+        lambda session: {"state": "ok", "warning": False, "reason": None, "mode": "external"},
+    )
+    body = client.get("/ready").json()
+    assert body["status"] == "not_ready"
+    assert body["db"] == "error"
+    # Сигнал о сборе не вычислялся (БД недоступна) — это состояние `unknown`, а не «всё хорошо».
+    assert body["collection"] == {"state": "unknown", "warning": False, "reason": None, "mode": None}
 
 
 def test_metrics_endpoint(client):

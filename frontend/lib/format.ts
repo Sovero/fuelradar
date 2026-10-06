@@ -28,6 +28,23 @@ export function formatPrice(
   return `${value} ${currency ?? ""}`.trim();
 }
 
+/**
+ * Размер файла (копия базы) — «2,4 МБ». Ноль/пусто — «—», чтобы «0 Б» не
+ * выглядел как пустой файл там, где размер просто неизвестен.
+ */
+export function formatBytes(bytes: number | null | undefined): string {
+  if (bytes === null || bytes === undefined || bytes <= 0) return "—";
+  const units = ["Б", "КБ", "МБ", "ГБ"];
+  let value = bytes;
+  let unit = 0;
+  while (value >= 1024 && unit < units.length - 1) {
+    value /= 1024;
+    unit += 1;
+  }
+  const rounded = unit === 0 ? String(Math.round(value)) : value.toFixed(1).replace(".", ",");
+  return `${rounded} ${units[unit]}`;
+}
+
 export function formatAgeMinutes(minutes: number): string {
   if (minutes < 1) return "только что";
   if (minutes < 60) return `${minutes} мин назад`;

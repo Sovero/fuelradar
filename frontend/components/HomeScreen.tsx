@@ -9,6 +9,7 @@ import { useRoutePlan } from "@/lib/hooks/useRoutePlan";
 import { useRouteStations } from "@/lib/hooks/useRouteStations";
 import { useHeat } from "@/lib/hooks/useHeat";
 import { useRealtime } from "@/lib/hooks/useRealtime";
+import { useCollectionHealth } from "@/lib/hooks/useCollectionHealth";
 import { useFavorites } from "@/lib/hooks/useFavorites";
 import { useObservationMode } from "@/lib/hooks/useObservationMode";
 import { useNetworkPreferences } from "@/lib/hooks/useNetworkPreferences";
@@ -19,6 +20,7 @@ import { formatDistance, formatEtaMinutes } from "@/lib/format";
 import { applyObservationMode, applyPreferredBrandsOrder } from "@/lib/personalization";
 import { apiPost, ApiError } from "@/lib/api";
 import { Header } from "@/components/layout/Header";
+import { CollectionIdleBanner } from "@/components/layout/CollectionIdleBanner";
 import { TopControls } from "@/components/layout/TopControls";
 import { FuelQuickFilters } from "@/components/layout/FuelQuickFilters";
 import { Tabs } from "@/components/layout/Tabs";
@@ -102,7 +104,17 @@ function HomeScreenBody() {
   // T14 (R64): SSE-сигнал «данные изменились» → переподтягиваем станции обычным
   // GET (R82). При обрыве соединения данные на экране не трогаются — живём на
   // последнем успешном ответе (и офлайн-кэше), EventSource переподключится сам.
-  const realtimeState = useRealtime({ onRevision: () => refetch() });
+  // R58: сигнал о простое сбора. Перезапрос привязан к тому же событию realtime,
+  // что и обновление станций: если данные перестали приходить, экран не должен
+  // молчать вместе с ними (и отдельно — по таймеру внутри хука).
+  const [revisionTick, setRevisionTick] = useState(0);
+  const { health: collectionHealth } = useCollectionHealth(revisionTick);
+  const realtimeState = useRealtime({
+    onRevision: () => {
+      refetch();
+      setRevisionTick((tick) => tick + 1);
+    },
+  });
   const routeReady = routeActive && routePoints.length >= 2;
   // R22.1: линия маршрута идёт по дорогам и улицам (роутер из конфигурации,
   // профиль driving — односторонние улицы и запреты поворотов учитывает граф
@@ -289,6 +301,9 @@ function HomeScreenBody() {
       {realtimeState === "offline" && (
         <p className="bg-gray-100 px-4 py-1 text-xs text-gray-500 dark:bg-gray-900 dark:text-gray-400">{t("realtime.offline")}</p>
       )}
+      {/* R58: простой сбора виден на главном экране, а не только в админке —
+          иначе старые статусы АЗС выглядят как свежие. */}
+      <CollectionIdleBanner health={collectionHealth} />
 
       <main className="relative flex-1 overflow-hidden" data-tour="map">
         {isEmpty ? (

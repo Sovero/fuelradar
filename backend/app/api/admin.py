@@ -8,8 +8,8 @@
 
 from __future__ import annotations
 
+from datetime import UTC, datetime, timedelta
 from datetime import date as date_type
-from datetime import datetime, timedelta
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, Response, UploadFile
@@ -17,6 +17,7 @@ from pydantic import BaseModel
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from ..core.config import settings
 from ..db.models import (
     AdminActionLog,
     CollectionJob,
@@ -364,6 +365,138 @@ def collection_log(
             }
             for j in jobs
         ],
+    }
+
+
+def _cycle_job(job: CollectionJob) -> dict:
+    """Один прогон сбора для журнала циклов. Текст ошибки — только имя исключения
+    (R68): произвольный текст HTTP-ошибки наружу не отдаётся и в БД не пишется."""
+    return {
+        "id": job.id,
+        "job_type": job.job_type,
+        "trigger": job.trigger,
+        "status": job.status,
+        "records_count": int(job.records_count or 0),
+        "error_count": int(job.error_count or 0),
+        "error_message": job.error_message or "",
+        "started_at": job.started_at,
+        "finished_at": job.finished_at,
+    }
+
+
+@router.get("/collection-cycles", dependencies=[Depends(admin_rate_limit)])
+def collection_cycles(session: Session = Depends(get_db)) -> dict:
+    """Журнал циклов сбора: последний успех, следующий запуск и причины сбоев.
+
+    По каждому источнику отвечает на три вопроса оператора (R58):
+    - когда сбор последний раз завершился успешно (`source_health.last_success_at`);
+    - когда ждать следующий запуск: `next_run_at` ближайшего активного задания,
+      а если активных нет — план из `next_run_at` последнего завершённого
+      (его выставляет сам воркер по интервалу или backoff);
+    - почему были сбои: число подряд неудач и класс ошибки (в `last_error`
+      хранится только имя исключения — R68).
+
+    Отдельно — состояние планировщика: такт сборщика в этом процессе
+    (`WORKER_TICK_SECONDS`, наблюдаемый `worker/inprocess.py`), количество
+    заданий в очереди и честный режим: сбор в этом процессе, отдельным воркером
+    (отсюда его состояние не видно) или выключен.
+
+    По каждому источнику видно и то, что нельзя получить из снимка health: идёт ли
+    цикл прямо сейчас (`running_jobs`/`running_since` — факт RUNNING, а не план) и
+    ждёт ли задание очереди (`queued_job_id` + `active_job_status`).
+    """
+    from ..worker.inprocess import collector_plan, ticker_state
+
+    now = datetime.now(UTC).replace(tzinfo=None)
+    health = {h.source_provider_id: h for h in session.scalars(select(SourceHealth))}
+
+    sources: list[dict] = []
+    for provider in session.scalars(select(SourceProvider).order_by(SourceProvider.code)):
+        h = health.get(provider.id)
+        active = session.scalar(
+            select(CollectionJob)
+            .where(
+                CollectionJob.source_provider_id == provider.id,
+                CollectionJob.status.in_(["PENDING", "RUNNING"]),
+            )
+            .order_by(CollectionJob.next_run_at, CollectionJob.id)
+        )
+        last_done = session.scalar(
+            select(CollectionJob)
+            .where(
+                CollectionJob.source_provider_id == provider.id,
+                CollectionJob.status.in_(["DONE", "FAILED"]),
+            )
+            .order_by(CollectionJob.id.desc())
+        )
+        # Живой журнал (автообновление в админке): у источника может идти не одно
+        # задание (каталог + точечные по АЗС), поэтому «идёт прямо сейчас» — это
+        # факт RUNNING, а не догадка по очереди. Берём самое раннее начатое:
+        # именно оно определяет, сколько цикл уже длится.
+        running = session.scalars(
+            select(CollectionJob)
+            .where(
+                CollectionJob.source_provider_id == provider.id,
+                CollectionJob.status == "RUNNING",
+            )
+            .order_by(CollectionJob.started_at, CollectionJob.id)
+        ).all()
+        planned = active or last_done
+        sources.append(
+            {
+                "id": provider.id,
+                "code": provider.code,
+                "name": provider.name,
+                "status": provider.status,
+                # Планировщик опрашивает только активные источники; user_reports —
+                # push-источник (отчёты с устройств), его в цикле сбора нет.
+                "collectable": provider.status == "ACTIVE" and provider.code != "user_reports",
+                "min_interval_minutes": provider.min_interval_minutes,
+                "health": h.health if h else "UNKNOWN",
+                "last_success_at": h.last_success_at if h else None,
+                "last_attempt_at": h.last_check_at if h else None,
+                "consecutive_failures": int(h.consecutive_failures or 0) if h else 0,
+                "last_error": (h.last_error if h else "") or "",
+                "next_run_at": planned.next_run_at if planned else None,
+                "queued_job_id": active.id if active else None,
+                # Статус активного задания: PENDING — «в очереди», RUNNING — цикл уже идёт
+                # (это разные состояния, и в одном ярлыке они были бы неправдой).
+                "active_job_status": active.status if active else None,
+                "running_jobs": len(running),
+                "running_job_id": running[0].id if running else None,
+                "running_since": running[0].started_at if running else None,
+                "last_job": _cycle_job(last_done) if last_done else None,
+            }
+        )
+
+    pending = session.scalar(
+        select(func.count()).select_from(CollectionJob).where(CollectionJob.status == "PENDING")
+    ) or 0
+    running = session.scalar(
+        select(func.count()).select_from(CollectionJob).where(CollectionJob.status == "RUNNING")
+    ) or 0
+    region, reason = collector_plan(settings)
+    if not settings.collect_in_process:
+        mode, mode_reason = "external", ""
+    elif region is None:
+        mode, mode_reason = "off", reason
+    else:
+        mode, mode_reason = "in_process", ""
+    tick = ticker_state()
+    return {
+        "now": now,
+        "scheduler": {
+            "mode": mode,
+            "reason": mode_reason,
+            "collect_in_process": bool(settings.collect_in_process),
+            "tick_seconds": int(settings.worker_tick_seconds),
+            "pending_jobs": int(pending),
+            "running_jobs": int(running),
+            "last_tick_at": tick["last_tick_at"],
+            "last_tick_status": tick["last_status"],
+            "next_tick_at": tick["next_tick_at"],
+        },
+        "sources": sources,
     }
 
 

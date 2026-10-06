@@ -1,0 +1,9 @@
+# Зависимости СБОРКИ десктоп-приложения (backend внутри установщика).
+#
+# Ставится не на машину пилота, а туда, где собирается установщик:
+# `desktop/scripts/prepare-backend.mjs` замораживает backend/ этим PyInstaller'ом,
+# чтобы установленное приложение работало без Python и venv.
+#
+# Runtime-зависимости берутся из requirements.txt (они же попадают в бинарник).
+-r requirements.txt
+pyinstaller>=6.16

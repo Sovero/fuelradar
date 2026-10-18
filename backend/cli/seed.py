@@ -13,11 +13,17 @@
 from __future__ import annotations
 
 import argparse
+import os
 import sys
 import time
 from pathlib import Path
 
-_FIXTURES = Path(__file__).resolve().parents[1] / "tests" / "fixtures"
+# Фикстуры офлайн-режима. В замороженной desktop-сборке бандл PyInstaller кладёт их
+# рядом с кодом (`--add-data`, см. desktop/scripts/prepare-backend.mjs), и путь
+# приходит переменной окружения из backend/desktop_server.py; обычно — рядом.
+_FIXTURES = Path(
+    os.environ.get("FUELRADAR_FIXTURES_DIR") or (Path(__file__).resolve().parents[1] / "tests" / "fixtures")
+)
 
 
 def _ru_plural(n: int, one: str, few: str, many: str) -> str:

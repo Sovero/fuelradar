@@ -13,7 +13,7 @@ const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
-const { test } = require("node:test");
+const { after, test } = require("node:test");
 
 const {
   REPO_ROOT,
@@ -43,12 +43,26 @@ function runRecorder(handlers = {}) {
   return { run, calls };
 }
 
+/** Каталоги теста — в системном temp; в конце прогона убираем за собой. */
+const tempDirs = [];
+
 function tempFile(contents) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "fuelradar-feed-token-"));
+  tempDirs.push(dir);
   const file = path.join(dir, "update-feed-token");
   fs.writeFileSync(file, contents, "utf8");
   return file;
 }
+
+after(() => {
+  for (const dir of tempDirs) {
+    try {
+      fs.rmSync(dir, { recursive: true, force: true });
+    } catch {
+      // Временный каталог мог быть уже удалён самим тестом — это не ошибка.
+    }
+  }
+});
 
 test("env: UPDATE_FEED_TOKEN побеждает все остальные источники", () => {
   const { run, calls } = runRecorder();

@@ -38,9 +38,21 @@ def resolve_region(
             region["radius_km"] = radius_km
         return region
     if default_city:
-        match = next((r for name, r in REGIONS.items() if r["city"].lower() == default_city.lower()), None)
+        # Имя региона принимаем и ключом газетира (`krasnodar`), и городом
+        # (`Краснодар`): в настройках пишут и так, и так (десктоп-оболочка знает
+        # только ключ `backend.seedRegion`).
+        wanted = default_city.strip().lower()
+        match = REGIONS.get(wanted) or next(
+            (r for r in REGIONS.values() if r["city"].lower() == wanted), None
+        )
         if match:
-            return dict(match)
+            region = dict(match)
+            # Явный радиус (DEFAULT_REGION_RADIUS_KM / --radius-km) важнее
+            # газетейрного: раньше он молча терялся на этой ветке — воркер и
+            # seed собирали по паспортному радиусу, а не по настроенному.
+            if radius_km is not None:
+                region["radius_km"] = radius_km
+            return region
     raise ValueError(
         "не указан регион: передайте --region (из gazetteer) или --lat/--lon [--radius-km]"
     )

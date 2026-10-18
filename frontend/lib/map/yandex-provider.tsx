@@ -92,7 +92,9 @@ export function YandexMapProvider({
         const map = new ymaps.Map(containerRef.current, {
           center: [initialViewport.center[1], initialViewport.center[0]], // ymaps: [lat, lon]
           zoom: initialViewport.zoom,
-          controls: ["zoomControl", "geolocationControl"],
+          // Без geolocationControl: как и в MapLibre-реализации, GPS подключает
+          // только «Найти топливо рядом» с учётом тумблера приватности (R24).
+          controls: ["zoomControl"],
         });
         mapRef.current = map;
 

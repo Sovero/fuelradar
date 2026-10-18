@@ -61,6 +61,9 @@ export function ObservationModeSettings() {
               </button>
             ))}
           </div>
+          {/* Разные по смыслу настройки не должны выглядеть одинаково: здесь фильтр
+              показа, во вкладке «Сети» — приоритет в оценке (пользователь их путал). */}
+          <p className="mt-1 text-xs text-gray-400">{t("observation.networks.hint")}</p>
         </div>
       )}
 

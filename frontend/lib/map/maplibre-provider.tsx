@@ -96,8 +96,10 @@ export function MapLibreProvider({
       attributionControl: { compact: true },
     });
     mapRef.current = map;
+    // R24/R73: встроенный GeolocateControl не подключаем — он берёт GPS напрямую,
+    // минуя тумблер приватности, и дублирует «Найти топливо рядом». Зум-контрол
+    // остаётся единственным штатным контролом карты.
     map.addControl(new maplibregl.NavigationControl({ showCompass: false }), "top-right");
-    map.addControl(new maplibregl.GeolocateControl({ positionOptions: { enableHighAccuracy: true } }), "top-right");
 
     map.on("load", () => {
       map.addSource(ROUTE_SOURCE_ID, {

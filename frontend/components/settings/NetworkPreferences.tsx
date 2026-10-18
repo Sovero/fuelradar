@@ -38,6 +38,9 @@ export function NetworkPreferences() {
         ))}
         {brands.length === 0 && <p className="text-sm text-gray-400">{t("networkPrefs.empty")}</p>}
       </div>
+      {/* Не путать с режимом «Только выбранные сети» во вкладке «Наблюдение»: там
+          остальные сети скрываются, здесь — только поднимаются в оценке. */}
+      <p className="text-xs text-gray-400">{t("networkPrefs.hint")}</p>
     </div>
   );
 }

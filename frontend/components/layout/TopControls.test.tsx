@@ -9,6 +9,7 @@ import { I18nProvider } from "@/lib/hooks/useI18n";
 afterEach(() => {
   cleanup();
   window.localStorage.clear();
+  navState.searchParams = new URLSearchParams();
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
 });
@@ -31,10 +32,12 @@ vi.mock("@/lib/hooks/useGeolocation", () => ({
 }));
 
 // FiltersProvider завязан на next/navigation (useRouter/usePathname/useSearchParams).
+// searchParams изменяемый: тест может прийти «по ссылке» (например, radius=7 из URL).
+const navState = vi.hoisted(() => ({ searchParams: new URLSearchParams() }));
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ push: vi.fn(), replace: vi.fn() }),
   usePathname: () => "/",
-  useSearchParams: () => new URLSearchParams(),
+  useSearchParams: () => navState.searchParams,
 }));
 
 import { useGeolocation } from "@/lib/hooks/useGeolocation";
@@ -121,5 +124,36 @@ describe("TopControls — IP-город с подтверждением", () => 
     renderControls();
 
     expect(screen.queryByTestId("ip-city-banner")).not.toBeInTheDocument();
+  });
+});
+
+describe("TopControls — радиус без тупика", () => {
+  it("радиус вне пресетов (например, из URL) сразу показывает числовое поле", () => {
+    navState.searchParams = new URLSearchParams("radius=7");
+    mockGeolocation({ status: "idle", position: null, source: null, error: null, ipCandidate: null });
+
+    renderControls();
+
+    const select = screen.getByRole("combobox") as HTMLSelectElement;
+    expect(select.value).toBe("custom");
+    const input = screen.getByRole("spinbutton", { name: "Радиус, км" }) as HTMLInputElement;
+    expect(input.value).toBe("7");
+  });
+
+  it("«свой…» открывает ввод, список пресетов остаётся — из «своего» режима можно выйти", async () => {
+    mockGeolocation({ status: "idle", position: null, source: null, error: null, ipCandidate: null });
+    renderControls();
+
+    const user = userEvent.setup();
+    const select = screen.getByRole("combobox") as HTMLSelectElement;
+    expect(screen.queryByRole("spinbutton", { name: "Радиус, км" })).toBeNull();
+
+    await user.selectOptions(select, "custom");
+    expect(select.value).toBe("custom");
+    expect((screen.getByRole("spinbutton", { name: "Радиус, км" }) as HTMLInputElement).value).toBe("10");
+
+    // Возврат к пресету возможен, не перезагружая страницу.
+    await user.selectOptions(select, "20");
+    expect(screen.queryByRole("spinbutton", { name: "Радиус, км" })).toBeNull();
   });
 });

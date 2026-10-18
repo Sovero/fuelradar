@@ -1,9 +1,10 @@
 "use client";
 
 /**
- * Полная панель фильтров (R32): топливо, сеть, доступность, достоверность,
- * очередь, радиус + поиск. Применяется и к карте, и к списку — состояние общее
- * (useFilters, хранится в URL), не сбрасывается при переключении вкладок (R32.1).
+ * Панель фильтров (R32): сеть, доступность, достоверность, очередь, цена + поиск.
+ * Топливо и радиус живут наверху экрана (чипы и TopControls) и здесь не
+ * дублируются — состояние общее (useFilters, хранится в URL), не сбрасывается
+ * при переключении вкладок (R32.1).
  */
 
 import { useState } from "react";
@@ -130,23 +131,25 @@ export function FiltersPanel() {
             <span id="price-max-hint" className="text-xs text-gray-400">{t("filters.priceMax.hint")}</span>
           </label>
 
-          <label className="flex flex-col gap-1 text-sm">
-            <span className="text-xs font-semibold uppercase text-gray-500">{t("filters.radius")}</span>
-            <input
-              type="number"
-              min={1}
-              max={500}
-              value={filters.radiusKm}
-              onChange={(e) => setFilters({ radiusKm: Number(e.target.value) || 1 })}
-              className="rounded-md border border-gray-300 px-2 py-1.5 dark:border-gray-700 dark:bg-gray-800"
-            />
-          </label>
+          <span className="flex flex-col gap-1 text-sm">
+            <label className="flex items-center gap-2">
+              <input
+                type="checkbox"
+                checked={filters.includeLikely}
+                onChange={(e) => setFilters({ includeLikely: e.target.checked })}
+                aria-describedby="filters-likely-hint"
+                className="h-4 w-4 accent-emerald-600"
+              />
+              <span className="text-xs font-semibold uppercase text-gray-500">{t("filters.includeLikely")}</span>
+            </label>
+            <span id="filters-likely-hint" className="text-xs text-gray-400">{t("filters.includeLikely.hint")}</span>
+          </span>
 
           <div className="sm:col-span-2 lg:col-span-3">
             <button
               type="button"
               onClick={() =>
-                setFilters({ brand: null, status: null, confidenceMin: null, queueMax: null, priceMax: null, search: "" })
+                setFilters({ brand: null, status: null, confidenceMin: null, queueMax: null, priceMax: null, includeLikely: false, search: "" })
               }
               className="text-sm text-gray-500 underline hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
             >

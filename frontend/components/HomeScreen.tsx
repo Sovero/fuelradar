@@ -297,8 +297,10 @@ function HomeScreenBody() {
       {visibleError && (!isStale || routeReady) && <p className="px-4 py-2 text-sm text-red-600 dark:text-red-400">{visibleError}</p>}
       {isStale && !routeReady && <p className="bg-amber-50 px-4 py-1 text-xs text-amber-700 dark:bg-amber-950 dark:text-amber-300">{t("error.stale")}</p>}
       {/* T14 (R64): честный индикатор живого канала — только когда соединение потеряно.
-          live/connecting не шумят: connecting виден долю секунды при старте. */}
-      {realtimeState === "offline" && (
+          live/connecting не шумят: connecting виден долю секунды при старте.
+          Когда показан «нет соединения с сервером» (устаревшие данные), второй баннер
+          об обрыве того же соединения не дублируется — причина та же, слова одни. */}
+      {realtimeState === "offline" && !(isStale && !routeReady) && (
         <p className="bg-gray-100 px-4 py-1 text-xs text-gray-500 dark:bg-gray-900 dark:text-gray-400">{t("realtime.offline")}</p>
       )}
       {/* R58: простой сбора виден на главном экране, а не только в админке —
@@ -337,27 +339,10 @@ function HomeScreenBody() {
                   highlightedStationIds={highlightedStationIds.length ? highlightedStationIds : undefined}
                   onMapClick={routeActive ? (point) => setRoutePoints((current) => [...current, point].slice(0, 100)) : undefined}
                   heatCircles={heatCircles.length ? heatCircles : undefined}
+                  heatOn={isHeatmapOn}
+                  heatError={heatError}
+                  onToggleHeat={setIsHeatmapOn}
                 />
-                <div className="absolute right-2 top-2 z-20 flex flex-col items-end gap-2">
-                  <label
-                    className="flex cursor-pointer items-center gap-2 rounded-lg bg-white/95 px-3 py-1.5 text-xs font-medium text-gray-700 shadow dark:bg-gray-900/95 dark:text-gray-200"
-                    title={isHeatmapOn ? t("heat.on") : t("heat.off")}
-                  >
-                    <input
-                      type="checkbox"
-                      checked={isHeatmapOn}
-                      onChange={(event) => setIsHeatmapOn(event.target.checked)}
-                      aria-label={t("heat.toggle")}
-                      className="h-4 w-4 accent-emerald-600"
-                    />
-                    {t("heat.toggle")}
-                  </label>
-                  {isHeatmapOn && heatError && (
-                    <p className="max-w-[260px] rounded-lg bg-amber-50/95 px-3 py-1.5 text-xs text-amber-800 shadow dark:bg-amber-950/95 dark:text-amber-200">
-                      {t(heatError === "unavailable" ? "heat.unavailable" : "heat.error")}
-                    </p>
-                  )}
-                </div>
               </>
             )}
             {filters.tab === "list" && <StationList stations={personalized} onSelect={(id) => setFilters({ station: id })} />}

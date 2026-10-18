@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { useI18n } from "@/lib/hooks/useI18n";
 import type { StatusExplanation } from "@/lib/types";
 
 /**
@@ -9,6 +10,7 @@ import type { StatusExplanation } from "@/lib/types";
  * Для «нет данных» — тоже есть объяснение (R71.1).
  */
 export function WhyExplanation({ explanation }: { explanation: StatusExplanation }) {
+  const { t } = useI18n();
   const [open, setOpen] = useState(false);
   const contributions = explanation.contributions ?? [];
 
@@ -20,7 +22,7 @@ export function WhyExplanation({ explanation }: { explanation: StatusExplanation
         aria-expanded={open}
         className="text-sm font-medium text-blue-700 hover:underline dark:text-blue-400"
       >
-        Почему система так считает?
+        {t("station.why")}
       </button>
       {open && (
         <div className="mt-2 rounded-md bg-blue-50 p-3 text-sm text-gray-700 dark:bg-blue-950/40 dark:text-gray-300">

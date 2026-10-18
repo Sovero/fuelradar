@@ -131,7 +131,7 @@ export function StationCard({
             <HistoryChart stationId={station.id} fuelCode={historyFuel} />
           </div>
 
-          <NavigationPreference provider={navProvider} onSelect={setNavProvider} />
+          <NavigationPreference provider={navProvider} onSelect={setNavProvider} lat={station.latitude} lon={station.longitude} />
 
           <div className="flex gap-2 pt-2">
             <RouteButton lat={station.latitude} lon={station.longitude} onBuildRoute={onBuildRoute} navProvider={navProvider} />

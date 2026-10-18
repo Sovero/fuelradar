@@ -8,8 +8,21 @@ import type { FuelStatusCode } from "@/lib/types";
 
 const LEGEND_ORDER: FuelStatusCode[] = ["AVAILABLE", "LIKELY_AVAILABLE", "LOW_STOCK", "UNAVAILABLE", "UNKNOWN"];
 
-/** Легенда цветов карты (R27.1): ⚪ явно объясняется как «нет данных», не «нет топлива». */
-export function Legend({ showHeat = false }: { showHeat?: boolean }) {
+/** Легенда цветов карты (R27.1): ⚪ явно объясняется как «нет данных», не «нет топлива».
+ * Переключатель тепловой карты живёт здесь же (R50): он рядом со своим пояснением
+ * и не перекрывает штатные контролы карты в правом верхнем углу. */
+export function Legend({
+  showHeat = false,
+  heatOn = false,
+  heatError = null,
+  onToggleHeat,
+}: {
+  showHeat?: boolean;
+  /** Тепловая карта включена (чекбокс виден, только когда есть обработчик). */
+  heatOn?: boolean;
+  heatError?: "unavailable" | "error" | null;
+  onToggleHeat?: (on: boolean) => void;
+}) {
   const { statusLabel } = useMeta();
   const { t } = useI18n();
   return (
@@ -27,6 +40,25 @@ export function Legend({ showHeat = false }: { showHeat?: boolean }) {
         <span aria-hidden className="inline-block h-3 w-3 rounded-full border-2 border-blue-600" />
         <span className="text-gray-500 dark:text-gray-400">{t("legend.brandRing")}</span>
       </div>
+      {onToggleHeat && (
+        <div className="pointer-events-auto mt-1 border-t border-gray-200 pt-1 dark:border-gray-700">
+          <label className="flex cursor-pointer items-center gap-1.5" title={heatOn ? t("heat.on") : t("heat.off")}>
+            <input
+              type="checkbox"
+              checked={heatOn}
+              onChange={(e) => onToggleHeat(e.target.checked)}
+              aria-label={t("heat.toggle")}
+              className="h-3.5 w-3.5 accent-emerald-600"
+            />
+            <span className="text-gray-700 dark:text-gray-300">{t("heat.toggle")}</span>
+          </label>
+          {heatOn && heatError && (
+            <p className="mt-1 max-w-[220px] text-[10px] text-amber-700 dark:text-amber-300">
+              {t(heatError === "unavailable" ? "heat.unavailable" : "heat.error")}
+            </p>
+          )}
+        </div>
+      )}
       {showHeat && (
         <div className="mt-1 border-t border-gray-200 pt-1 dark:border-gray-700">
           <p className="font-semibold text-gray-600 dark:text-gray-300">{t("heat.legend.title")}</p>

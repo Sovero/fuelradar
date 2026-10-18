@@ -28,6 +28,9 @@ export function MapView({
   highlightedStationIds,
   onMapClick,
   heatCircles,
+  heatOn,
+  heatError,
+  onToggleHeat,
 }: {
   stations: StationBrief[];
   selectedFuelCodes: string[];
@@ -49,6 +52,10 @@ export function MapView({
   onMapClick?: (point: MapPoint) => void;
   /** R50: круги heatmap — включаются отдельно, обновляются по фильтрам. */
   heatCircles?: MapHeatCircle[];
+  /** Переключатель тепловой карты отрисовывается в легенде (без обработчика его нет). */
+  heatOn?: boolean;
+  heatError?: "unavailable" | "error" | null;
+  onToggleHeat?: (on: boolean) => void;
 }) {
   const { ProviderComponent: Provider } = useMapProviderPreference();
   const markers = useMemo(() => buildStationMarkers(stations, selectedFuelCodes), [stations, selectedFuelCodes]);
@@ -91,7 +98,12 @@ export function MapView({
         onMapClick={onMapClick}
         heatCircles={heatCircles}
       />
-      <Legend showHeat={Boolean(heatCircles?.length)} />
+      <Legend
+        showHeat={Boolean(heatCircles?.length)}
+        heatOn={heatOn}
+        heatError={heatError}
+        onToggleHeat={onToggleHeat}
+      />
     </div>
   );
 }

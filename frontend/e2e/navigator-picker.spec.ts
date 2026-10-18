@@ -39,12 +39,17 @@ test("выбор навигатора: клик 2ГИС сохраняется �
     })
     .toBe("2gis");
 
+  // Выбор не декоративен: ссылка «Открыть в навигаторе» ведёт в 2ГИС (R80).
+  const openLink = page.getByRole("link", { name: /Открыть точку станции/ });
+  await expect(openLink).toHaveAttribute("href", /2gis\.ru/);
+
   // Перезагрузка: карточка открывается снова (?station=… в URL), выбор
   // восстанавливается из хранилища — 2ГИС подсвечен, не дефолтный Яндекс.
   await page.reload();
   await expect(yandex).toBeVisible();
   await expect(gis).toHaveAttribute("aria-pressed", "true");
   await expect(yandex).toHaveAttribute("aria-pressed", "false");
+  await expect(openLink).toHaveAttribute("href", /2gis\.ru/);
 
   assertNoConsoleErrors(errors);
 });

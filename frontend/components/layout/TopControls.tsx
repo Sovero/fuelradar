@@ -5,18 +5,27 @@ import { useFilters } from "@/lib/hooks/useFilters";
 import { useGeolocation } from "@/lib/hooks/useGeolocation";
 import { usePrivacy } from "@/lib/hooks/usePrivacy";
 import { useI18n } from "@/lib/hooks/useI18n";
-import { DEFAULT_RADIUS_KM } from "@/lib/filters";
 
 const RADIUS_PRESETS = [5, 10, 20, 30, 50];
 
-/** Выбор топлива/радиуса и кнопка «Найти топливо рядом» (R73, §104). GPS — только если разрешено в приватности (R24). */
+/** Радиус и кнопка «Найти топливо рядом» (R73, §104). GPS — только если разрешено в приватности (R24). */
 export function TopControls() {
   const { filters, setFilters } = useFilters();
   const { t, tt } = useI18n();
   const geo = useGeolocation(t);
   const privacy = usePrivacy();
   const [customRadius, setCustomRadius] = useState(false);
+  const [radiusText, setRadiusText] = useState(String(filters.radiusKm));
   const [privacyNotice, setPrivacyNotice] = useState(false);
+
+  // Радиус меняется и снаружи (пустое состояние «+20 км») — поле ввода следует за
+  // фильтром. «Свой…» и значение вне пресетов (например, radius=7 из URL) держат
+  // числовое поле видимым, а список пресетов остаётся в той же строке: из «своего»
+  // режима всегда можно вернуться выбором пресета — тупика в одну сторону нет.
+  useEffect(() => {
+    setRadiusText(String(filters.radiusKm));
+  }, [filters.radiusKm]);
+  const showCustomRadius = customRadius || !RADIUS_PRESETS.includes(filters.radiusKm);
 
   function findNearby() {
     if (!privacy.gpsEnabled) {
@@ -52,36 +61,54 @@ export function TopControls() {
         <label htmlFor="fr-radius" className="text-sm text-gray-600 dark:text-gray-400">
           {t("radius.label")}
         </label>
-        {customRadius ? (
+        <select
+          id="fr-radius"
+          value={showCustomRadius ? "custom" : String(filters.radiusKm)}
+          onChange={(e) => {
+            if (e.target.value === "custom") {
+              setCustomRadius(true);
+            } else {
+              setCustomRadius(false);
+              setFilters({ radiusKm: Number(e.target.value) });
+            }
+          }}
+          className="rounded-md border border-gray-300 px-2 py-1 text-sm dark:border-gray-700 dark:bg-gray-800"
+        >
+          {RADIUS_PRESETS.map((km) => (
+            <option key={km} value={km}>
+              {km} км
+            </option>
+          ))}
+          <option value="custom">{t("radius.custom")}</option>
+        </select>
+        {showCustomRadius && (
           <input
-            id="fr-radius"
             type="number"
             min={1}
             max={500}
-            value={filters.radiusKm}
-            onChange={(e) => setFilters({ radiusKm: Number(e.target.value) || DEFAULT_RADIUS_KM })}
-            className="w-20 rounded-md border border-gray-300 px-2 py-1 text-sm dark:border-gray-700 dark:bg-gray-800"
-          />
-        ) : (
-          <select
-            id="fr-radius"
-            value={RADIUS_PRESETS.includes(filters.radiusKm) ? filters.radiusKm : "custom"}
+            value={radiusText}
+            aria-label={t("filters.radius")}
             onChange={(e) => {
-              if (e.target.value === "custom") {
-                setCustomRadius(true);
-              } else {
-                setFilters({ radiusKm: Number(e.target.value) });
+              const next = e.target.value;
+              setRadiusText(next);
+              const value = Number(next);
+              if (next.trim() !== "" && Number.isFinite(value) && value >= 1 && value <= 500) {
+                setFilters({ radiusKm: value });
               }
             }}
-            className="rounded-md border border-gray-300 px-2 py-1 text-sm dark:border-gray-700 dark:bg-gray-800"
-          >
-            {RADIUS_PRESETS.map((km) => (
-              <option key={km} value={km}>
-                {km} км
-              </option>
-            ))}
-            <option value="custom">{t("radius.custom")}</option>
-          </select>
+            // Пустое или некорректное значение не оставляем висеть — возвращаем
+            // актуальный радиус, чтобы поле не выглядело как «ничего не выбрано».
+            onBlur={() => {
+              const value = Number(radiusText);
+              if (radiusText.trim() === "" || !Number.isFinite(value) || value < 1 || value > 500) {
+                setRadiusText(String(filters.radiusKm));
+              }
+            }}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") (e.target as HTMLInputElement).blur();
+            }}
+            className="w-20 rounded-md border border-gray-300 px-2 py-1 text-sm dark:border-gray-700 dark:bg-gray-800"
+          />
         )}
       </div>
       <button

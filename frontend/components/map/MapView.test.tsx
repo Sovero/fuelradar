@@ -22,7 +22,15 @@ vi.mock("@/lib/hooks/useMapProviderPreference", () => ({
   }),
 }));
 
-vi.mock("@/components/map/Legend", () => ({ Legend: () => null }));
+// Легенда замокана, но её пропсы записываем: контракт «переключатель тепловой
+// карты живёт в легенде» проверяется здесь, не поднимая карту целиком.
+const legendProps = vi.hoisted(() => [] as Array<Record<string, unknown>>);
+vi.mock("@/components/map/Legend", () => ({
+  Legend: (props: Record<string, unknown>) => {
+    legendProps.push(props);
+    return null;
+  },
+}));
 
 describe("MapView Route Mode contract (R22)", () => {
   it("передаёт линию и клики через общий MapProviderProps", async () => {
@@ -83,6 +91,28 @@ describe("MapView heatmap contract (R50)", () => {
     );
 
     expect(received.at(-1)?.heatCircles).toBeUndefined();
+  });
+
+  it("переключатель тепловой карты уходит в легенду с состоянием и ошибкой (R50)", () => {
+    const onToggleHeat = vi.fn();
+
+    render(
+      <MapView
+        stations={[]}
+        selectedFuelCodes={[]}
+        selectedStationId={null}
+        onSelectStation={vi.fn()}
+        focus={null}
+        heatOn
+        heatError="unavailable"
+        onToggleHeat={onToggleHeat}
+      />,
+    );
+
+    const props = legendProps.at(-1);
+    expect(props?.heatOn).toBe(true);
+    expect(props?.heatError).toBe("unavailable");
+    expect(props?.onToggleHeat).toBe(onToggleHeat);
   });
 });
 

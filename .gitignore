@@ -23,6 +23,9 @@ out/
 desktop/dist/
 desktop/server-dist/
 desktop/build/
+# встроенный backend (заморожен PyInstaller'ом, desktop/scripts/prepare-backend.mjs)
+desktop/backend-dist/
+desktop/.backend-build/
 
 # Загрузки оператора в каталоге импорта (пишет POST /admin/catalog-gaps/import-csv,
 # см. backend/data/import/README.md): данные, а не код. Шаблон-заготовка — в git.

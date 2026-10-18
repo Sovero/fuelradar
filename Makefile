@@ -1,4 +1,4 @@
-.PHONY: install dev test lint e2e compose-up compose-prod
+.PHONY: install dev test lint e2e compose-up compose-prod seed desktop-dist desktop-smoke desktop-smoke-first-run
 
 # Локальная разработка (R96i): SQLite + haversine, без Docker.
 
@@ -28,13 +28,22 @@ e2e:
 seed:
 	cd backend && python -m cli.seed $(ARGS)
 
-# Десктоп-приложение (Electron + NSIS-установщик): desktop/README.md
+# Десктоп-приложение (Electron + NSIS-установщик): desktop/README.md.
+# Сборка сама замораживает backend внутрь установщика (prepare:backend →
+# desktop/backend-dist) и проверяет его на пустом каталоге данных и на драйвере
+# Postgres, поэтому у пилота Python не нужен, а сбор по расписанию идёт.
+# Требуется Python с зависимостями backend — на машине СБОРЩИКА (FUELRADAR_BUILD_PYTHON).
 desktop-dist:
 	cd desktop && npm install && npm run dist
 
-# Smoke-проверка оболочки (нужен backend на :8000)
+# Smoke-проверка оболочки: backend поднимает она сама (автозапуск), ручной
+# `make dev` не нужен.
 desktop-smoke:
 	cd desktop && npm run smoke
+
+# То же + первый запуск с наполнением демо-каталога (офлайн-фикстуры)
+desktop-smoke-first-run:
+	cd desktop && npm run smoke:first-run
 
 # Docker (R85)
 compose-up:

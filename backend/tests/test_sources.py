@@ -21,7 +21,12 @@ from app.sources.network_import import (
     parse_csv,
     parse_file,
 )
-from app.sources.network_lists import NetworkListsAdapter, parse_stations_payload, split_urls
+from app.sources.network_lists import (
+    NetworkListsAdapter,
+    parse_payload_with_stats,
+    parse_stations_payload,
+    split_urls,
+)
 from app.sources.overpass import OverpassAdapter, bbox_from_region, parse_overpass_element
 from app.sources.registry import ADAPTER_CLASSES
 
@@ -261,13 +266,92 @@ def test_lists_bbox_filter_keeps_only_region_stations() -> None:
     assert all(r.external_id != "Газпромнефть-9" for r in records)
 
 
-def test_lists_discovery_only_and_records_raw_payload() -> None:
+def test_lists_records_raw_payload_and_unknown_station_has_no_availability() -> None:
     text = (FIXTURES / "network_lists_krasnodar.geojson").read_text("utf-8")
     adapter = _lists_adapter(lambda url: text)
-    assert adapter.get_fuel_availability("x") == []  # discovery-only
+    assert adapter.get_fuel_availability("не-из-списка") == []  # по этой АЗС данных нет
     records = adapter.discover_stations(REGION)
     payload = json.loads(records[0].payload)
     assert payload["brand"] == "Лукойл"  # сырой properties сохранён (R84)
+
+
+# ---------- наличие топлива из списка (R94i: без отметок водителей) ----------
+
+
+def test_lists_availability_from_json_map() -> None:
+    """Список несёт статусы топлива — адаптер отдаёт их одним запросом (bulk)."""
+    text = json.dumps([
+        {"name": "АЗС 1", "brand": "Лукойл", "lat": 45.03, "lon": 38.97, "ref": "1",
+         "fuel": {"АИ-95": "есть", "ДТ": "нет", "АИ-98": "уточняется"}},
+        {"name": "АЗС 2", "brand": "Лукойл", "lat": 45.04, "lon": 38.98, "ref": "2",
+         "fuel": {"АИ-95": "UNAVAILABLE"}},
+    ], ensure_ascii=False)
+    adapter = _lists_adapter(lambda url: text)
+    assert adapter.capabilities["availability"] is True
+    assert adapter.capabilities["availability_bulk"] is True
+    records = adapter.discover_stations(REGION)
+    assert len(records) == 2
+
+    availability = adapter.bulk_fuel_availability()
+    assert set(availability) == {"Лукойл-1", "Лукойл-2"}
+    first = {item["fuel_code"]: item["status"] for item in availability["Лукойл-1"]}
+    assert first == {"AI_95": "AVAILABLE", "DIESEL": "UNAVAILABLE"}  # «уточняется» не стало «нет»
+    # по точечному запросу — тот же ответ, без второго обращения к сети
+    assert adapter.get_fuel_availability("Лукойл-2")[0]["status"] == "UNAVAILABLE"
+    assert adapter.skipped_fuel_values == 1
+
+
+def test_lists_availability_from_csv_fuel_columns() -> None:
+    """CSV: колонки fuel_<топливо> — тот же смысл, что карта `fuel` в JSON."""
+    text = (
+        "name,brand,lat,lon,ref,fuel_аи-95,fuel_дт,обновлено\n"
+        "АЗС 7,Тест,45.05,38.95,7,есть,мало,2026-10-06T09:30:00\n"
+    )
+    adapter = _lists_adapter(lambda url: text)
+    adapter.discover_stations(REGION)
+    items = adapter.bulk_fuel_availability()["Тест-7"]
+    by_code = {item["fuel_code"]: item for item in items}
+    assert by_code["AI_95"]["status"] == "AVAILABLE"
+    assert by_code["DIESEL"]["status"] == "LOW_STOCK"
+    # время наблюдения из списка сохраняется: свежесть не выдумываем (R56)
+    assert by_code["AI_95"]["observed_at"].isoformat() == "2026-10-06T09:30:00"
+
+
+def test_lists_unknown_fuel_and_status_are_not_guessed() -> None:
+    """Непонятное название топлива и непонятный статус — пропуск, а не выдуманные данные."""
+    text = json.dumps([{
+        "name": "АЗС 3", "brand": "Тест", "lat": 45.03, "lon": 38.97, "ref": "3",
+        "fuel": {"керосин": "есть", "АИ-95": "наверное"},
+    }], ensure_ascii=False)
+    adapter = _lists_adapter(lambda url: text)
+    records = adapter.discover_stations(REGION)
+    assert len(records) == 1
+    assert adapter.bulk_fuel_availability() == {}  # ни одного статуса
+    assert adapter.skipped_fuel_values == 2
+    # сырьё не потеряно: в payload видно, что именно сказал источник (R84)
+    assert "наверное" in records[0].payload
+
+
+def test_lists_unparsable_observed_at_skips_row() -> None:
+    """Время объявлено, но не разобрано — статусы строки не выдаём за свежие."""
+    text = json.dumps([{
+        "name": "АЗС 4", "brand": "Тест", "lat": 45.03, "lon": 38.97, "ref": "4",
+        "observed_at": "вчера утром", "fuel": {"АИ-95": "есть"},
+    }], ensure_ascii=False)
+    adapter = _lists_adapter(lambda url: text)
+    adapter.discover_stations(REGION)
+    assert adapter.bulk_fuel_availability() == {}
+    assert adapter.skipped_fuel_values == 1
+
+
+def test_parse_stations_payload_keeps_availability_in_extra() -> None:
+    text = json.dumps([{
+        "name": "АЗС 5", "brand": "Тест", "lat": 45.03, "lon": 38.97, "ref": "5",
+        "fuel_ai95": "есть",
+    }], ensure_ascii=False)
+    records, skipped = parse_payload_with_stats(text)
+    assert skipped == 0
+    assert records[0].extra["availability"][0]["fuel_code"] == "AI_95"
 
 
 def test_lists_no_urls_raises_adapter_error() -> None:

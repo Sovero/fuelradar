@@ -76,8 +76,15 @@ class StatusService:
         price: float | None = None,
         idempotency_key: str | None = None,
         report_id: int | None = None,
+        commit: bool = True,
     ) -> FuelObservation:
-        """Новое наблюдение → новая строка (R17) → пересчёт агрегата (R16)."""
+        """Новое наблюдение → новая строка (R17) → пересчёт агрегата (R16).
+
+        `commit=False` — для пакетной записи (списки наличия: сотни АЗС за один
+        сбор): наблюдения копятся в транзакции вызывающего, а не коммитятся
+        каждое. Смысл записи тот же — пересчёт агрегата выполняется сразу, —
+        поэтому ответственный за атомарность теперь вызывающий.
+        """
         validate_fuel_status(status)
         if price is not None:
             if isinstance(price, bool) or not isinstance(price, (int, float)) or not math.isfinite(price):
@@ -105,7 +112,8 @@ class StatusService:
         self.session.add(observation)
         self.session.flush()
         self.recompute_station_fuel(station_id, fuel_type.id)
-        self.session.commit()
+        if commit:
+            self.session.commit()
         return observation
 
     def record_queue_observation(

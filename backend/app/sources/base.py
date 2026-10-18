@@ -76,6 +76,9 @@ class SourceAdapter(ABC):
     attribution: str = ""  # обязательная атрибуция (R81: ODbL и т.п.)
     research_required: bool = False  # RESEARCH_REQUIRED-заглушки (R89)
     # Возможности источника; совпадает с SourceProvider.capabilities (R01/R94i).
+    # `availability_bulk` — наличие и очередь приезжают одним файлом вместе с
+    # каталогом (сетевые списки): воркер применяет их после каталога и НЕ ставит
+    # точечные задания на каждую АЗС (иначе источник опрашивался бы списком N раз).
     capabilities: dict[str, bool] = {"discovery": False, "availability": False, "queue": False}
 
     @abstractmethod
@@ -89,6 +92,18 @@ class SourceAdapter(ABC):
     def get_fuel_availability(self, external_id: str) -> list[dict[str, Any]]:
         """Availability: статусы топлива сейчас. Discovery-источники возвращают []."""
         return []
+
+    def bulk_fuel_availability(self) -> dict[str, list[dict[str, Any]]]:
+        """Наличие из последнего сбора для источников-списков (R94i).
+
+        {external_id: [{fuel_code, status, commercial_name?, observed_at?}]} — то,
+        что источник уже принёс в `discover_stations()`. Так наличие из сети/штаба
+        становится статусами без отметок водителей и без N повторных запросов
+        (R83 не нарушается: сеть дёргает воркер, не HTTP-запрос).
+
+        Базово пусто: точечные API отдают наличие через `get_fuel_availability`.
+        """
+        return {}
 
     def get_queue_status(self, external_id: str) -> dict[str, Any] | None:
         """Очередь. Источники без данных об очереди возвращают None."""

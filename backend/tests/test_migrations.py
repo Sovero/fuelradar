@@ -45,6 +45,54 @@ def test_legacy_user_schema_is_dropped_and_is_repeatable(tmp_path):
     engine.dispose()
 
 
+def test_network_lists_gains_availability_without_touching_operator_choice(tmp_path):
+    """Старая база: у сетевых списков появляется наличие, интервал ужимается до 15 мин.
+
+    Проверяем и границы миграции: статус (выключенный оператором источник) и доверие
+    не меняются, а выставленный человеком интервал не переписывается.
+    """
+    from app.db.base import Base
+    from app.db.migrations import upgrade_network_lists_availability
+    from app.db.models import SourceProvider
+
+    engine = create_engine(f"sqlite:///{tmp_path / 'lists.db'}")
+    Base.metadata.create_all(engine)
+    with engine.begin() as connection:
+        connection.execute(text(
+            "INSERT INTO source_providers (code, name, capabilities, status, min_interval_minutes, "
+            "attribution, trust) VALUES ('network_lists', 'Сетевые списки АЗС (HTTP)', "
+            "'{\"discovery\": true, \"availability\": false, \"queue\": false}', 'NOT_USED', 1440, '', 0.65)"
+        ))
+        connection.execute(text(
+            "INSERT INTO source_providers (code, name, capabilities, status, min_interval_minutes, "
+            "attribution, trust) VALUES ('osm_overpass', 'OSM', '{\"discovery\": true}', 'ACTIVE', 1440, '', 0.6)"
+        ))
+
+    upgrade_network_lists_availability(engine)
+    upgrade_network_lists_availability(engine)  # идемпотентность
+
+    from sqlalchemy.orm import Session
+
+    with Session(engine) as session:
+        lists = session.query(SourceProvider).filter_by(code="network_lists").one()
+        assert lists.capabilities["availability"] is True
+        assert lists.capabilities["availability_bulk"] is True
+        assert lists.min_interval_minutes == 15  # старый суточный сид
+        assert lists.status == "NOT_USED"  # решение оператора не трогаем
+        assert lists.trust == 0.65
+        osm = session.query(SourceProvider).filter_by(code="osm_overpass").one()
+        assert osm.min_interval_minutes == 1440  # чужие источники не затронуты
+        assert osm.capabilities == {"discovery": True}
+
+    # Оператор выставил свой интервал — миграция его не переопределяет
+    with engine.begin() as connection:
+        connection.execute(text("UPDATE source_providers SET min_interval_minutes = 30 WHERE code = 'network_lists'"))
+    upgrade_network_lists_availability(engine)
+    with Session(engine) as session:
+        assert session.query(SourceProvider).filter_by(code="network_lists").one().min_interval_minutes == 30
+    engine.dispose()
+
+
 def test_legacy_worker_jobs_upgrade_keeps_jobs(tmp_path):
     from app.db.migrations import upgrade_worker_jobs
 

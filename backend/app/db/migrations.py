@@ -1,6 +1,7 @@
 """Small additive upgrades for catalogs created before the worker existed."""
 
 from sqlalchemy import Engine, inspect, text
+from sqlalchemy.orm import Session
 
 # Таблицы, которые приложение больше не использует: данные в них были привязаны к
 # профилю. ``favorites`` пересоздаётся целиком (её уникальность включала user_id и
@@ -153,3 +154,48 @@ def upgrade_prices(engine: Engine) -> None:
             connection.execute(text(
                 "ALTER TABLE station_current_status ADD COLUMN price_updated_at TIMESTAMP"
             ))
+
+
+def upgrade_network_lists_availability(engine: Engine) -> None:
+    """R94i: сетевые списки умеют наличие топлива — базам, созданным раньше, добавить признак.
+
+    Что меняется и почему именно так:
+      - `capabilities`: добавляются `availability` и `availability_bulk` (наличие
+        приезжает одним списком вместе с каталогом), если их нет. Оператор мог
+        выключить источник — статус и его выбор не трогаем;
+      - `min_interval_minutes` 1440 → 15 — только если он всё ещё равен старому
+        сиду (1440): оператор, который сам выставил интервал в админке, остаётся
+        при своём значении. Без этого список обновлялся бы раз в сутки, а TTL
+        статуса — 2 часа (R56): карта честно показывала бы UNKNOWN вместо данных;
+      - статус (`NOT_USED`) и доверие не меняются: без настроенных URL источник
+        так и должен молчать, активация — осознанное действие в админке.
+
+    Идемпотентно: повторный запуск ничего не меняет (значения уже новые). Пишется
+    через ORM, а не raw SQL: `capabilities` — JSON-колонка, и сериализацию должен
+    делать драйвер (у SQLite строка, у Postgres — json-параметр с типом колонки).
+    """
+    with engine.begin() as connection:
+        if connection.dialect.name == "postgresql":
+            connection.execute(text("SELECT pg_advisory_xact_lock(72819301)"))
+        if not inspect(connection).has_table("source_providers"):
+            return
+
+    from sqlalchemy import select
+
+    from .models import SourceProvider
+
+    with Session(engine) as session:
+        provider = session.scalar(select(SourceProvider).where(SourceProvider.code == "network_lists"))
+        if provider is None:
+            return
+        capabilities = dict(provider.capabilities or {})
+        changed = False
+        for key in ("availability", "availability_bulk"):
+            if not capabilities.get(key):
+                capabilities[key] = True
+                changed = True
+        if changed:
+            provider.capabilities = capabilities  # новая копия: JSON-колонка не видит in-place
+        if provider.min_interval_minutes == 1440:
+            provider.min_interval_minutes = 15
+        session.commit()

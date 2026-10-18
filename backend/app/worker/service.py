@@ -26,12 +26,13 @@ from ..db.models import (
     QueueObservation,
     SourceHealth,
     SourceProvider,
+    SourceStationRecord,
     Station,
     StationCurrentStatus,
     StationExternalId,
 )
 from ..dedup.service import DedupService
-from ..fuel_status import validate_fuel_status, validate_queue_level
+from ..fuel_status import UNKNOWN, validate_fuel_status, validate_queue_level
 from ..normalization.fuel import normalize_fuel
 from ..sources import SourceAdapter, build_adapter
 from ..sources.base import AuthError, RateLimitedError
@@ -101,6 +102,62 @@ def rate_limit_floor(db: Session, provider: SourceProvider, *,
             delay = max(delay, min(settings.worker_backoff_max_minutes,
                                    settings.collect_default_minutes * 2 ** min(health.consecutive_failures - 1, 12)))
     return last + timedelta(minutes=delay)
+
+
+def apply_bulk_availability(
+    db: Session, provider: SourceProvider, adapter: SourceAdapter, at: datetime | None = None,
+) -> int:
+    """Наличие из источника-списка → наблюдения (R17) — без заданий на каждую АЗС.
+
+    Источник уже принёс статусы в `discover_stations()` одним запросом: здесь они
+    привязываются к станциям, которые каталог разрешил (station_id проставляет
+    дедупликация), и записываются через `StatusService` — тот же Confidence
+    Engine (R16), что и для отчётов водителей, со своей очередью и TTL (R56).
+    Точечные источники сюда не попадают: у них пустой `bulk_fuel_availability()`.
+
+    Возвращает число записанных наблюдений. Повторная выгрузка того же списка с
+    тем же временем наблюдения не создаёт дублей (idempotency_key): один список,
+    разобранный дважды, — одно свидетельство, а не два (R17). «Не знаю» из
+    источника наблюдением не становится: UNKNOWN ≠ UNAVAILABLE (R15).
+    """
+    batch = adapter.bulk_fuel_availability()
+    if not batch:
+        return 0
+    rows = db.execute(
+        select(SourceStationRecord.external_id, SourceStationRecord.station_id).where(
+            SourceStationRecord.source_provider_id == provider.id,
+            SourceStationRecord.external_id.in_(list(batch)),
+            SourceStationRecord.station_id.is_not(None),
+        )
+    ).all()
+    service = StatusService(db)
+    written = 0
+    stamp = at or utcnow()
+    for external_id, station_id in rows:
+        for item in batch[external_id]:
+            fuel_code = item.get("fuel_code") or item.get("fuel") or ""
+            status = item.get("status", "")
+            if not fuel_code or status == UNKNOWN:
+                continue
+            observed = item.get("observed_at", stamp)
+            if isinstance(observed, str):
+                observed = datetime.fromisoformat(observed)
+            if observed.tzinfo is not None:
+                observed = observed.astimezone(UTC).replace(tzinfo=None)
+            key = hashlib.sha256(
+                f"{provider.id}:{external_id}:{fuel_code}:{observed.isoformat()}:{status}".encode()
+            ).hexdigest()
+            if db.scalar(select(FuelObservation.id).where(FuelObservation.idempotency_key == key)):
+                continue
+            service.record_fuel_observation(
+                station_id, fuel_code, status, provider.id,
+                observed_at=observed,
+                commercial_name=item.get("commercial_name", ""),
+                idempotency_key=key,
+                commit=False,  # один коммит на всю выгрузку, а не на каждую АЗС
+            )
+            written += 1
+    return written
 
 
 def in_zone(station: Station, zone: MonitoringZone) -> bool:
@@ -189,15 +246,28 @@ class Worker:
             targets: list[tuple[str | None, str, str]] = []
             if provider.capabilities.get("discovery"):
                 targets.append((None, "catalog", "P4"))
-            for external in db.scalars(select(StationExternalId).where(
-                StationExternalId.source_provider_id == provider.id)):
-                station = db.get(Station, external.station_id)
-                if station is None or not station.is_active:
-                    continue
-                priority = self.station_priority(db, station)
-                for kind in ("availability", "queue"):
-                    if provider.capabilities.get(kind):
-                        targets.append((station.id, kind, priority))
+            # Источники-списки отдают наличие вместе с каталогом одним запросом
+            # (availability_bulk): точечные задания на каждую АЗС им не нужны —
+            # иначе один и тот же список выкачивался бы N раз, а потолок частоты
+            # источника пропускал бы лишь одно задание за такт. Очередь это не
+            # касается: у источника-списка она может быть своим потоком данных.
+            bulk_availability = bool(provider.capabilities.get("availability_bulk"))
+            needs_station_loop = any(
+                provider.capabilities.get(kind) and not (kind == "availability" and bulk_availability)
+                for kind in ("availability", "queue")
+            )
+            if needs_station_loop:
+                for external in db.scalars(select(StationExternalId).where(
+                    StationExternalId.source_provider_id == provider.id)):
+                    station = db.get(Station, external.station_id)
+                    if station is None or not station.is_active:
+                        continue
+                    priority = self.station_priority(db, station)
+                    for kind in ("availability", "queue"):
+                        if kind == "availability" and bulk_availability:
+                            continue
+                        if provider.capabilities.get(kind):
+                            targets.append((station.id, kind, priority))
             for station_id, kind, priority in targets:
                 latest = db.scalar(select(CollectionJob).where(
                     CollectionJob.source_provider_id == provider.id,
@@ -264,6 +334,39 @@ class Worker:
                 logger.warning("telegram digest failed: %s", type(exc).__name__)
             return completed
 
+    @staticmethod
+    def _apply_catalog_availability(
+        db: Session, job_id: int, provider_id: int, code: str, adapter: SourceAdapter, at: datetime,
+    ) -> None:
+        """Наличие из списка — отдельно от судьбы каталога (R84: ошибки не смешиваются).
+
+        Каталог уже собран и закоммичен; если наличие записать не удалось (например,
+        в справочнике нет топлива), это фиксируется в collection_logs и метриках, но
+        не превращает успешный сбор каталога в FAILED и не переводит источник в OFFLINE.
+        """
+        try:
+            provider = db.get(SourceProvider, provider_id)
+            written = apply_bulk_availability(db, provider, adapter, at)
+            skipped = int(getattr(adapter, "skipped_fuel_values", 0) or 0)
+            if written or skipped:
+                # Источники без наличия (чистый каталог) в журнал не пишут — строка
+                # «availability: 0» ничего не сообщала бы оператору.
+                db.add(CollectionLog(
+                    job_id=job_id, source_provider_id=provider_id, level="INFO",
+                    message=f"availability: {written} наблюдений"
+                    + (f", {skipped} значений не распознано" if skipped else ""),
+                ))
+            db.commit()
+            metrics.inc(f"source.{code}.availability", written)
+        except Exception as exc:  # noqa: BLE001 — наличие — не часть каталога (R84)
+            db.rollback()
+            db.add(CollectionLog(
+                job_id=job_id, source_provider_id=provider_id, level="ERROR",
+                message=f"availability: {type(exc).__name__}",
+            ))
+            db.commit()
+            logger.warning("availability from %s failed: %s", code, type(exc).__name__)
+
     def _execute(self, db: Session, job: CollectionJob, provider: SourceProvider, at: datetime) -> None:
         job.status, job.started_at = "RUNNING", at
         db.commit()  # durable rate-limit reservation before any network request
@@ -284,6 +387,7 @@ class Worker:
             metrics.inc(f"source.{code}.records", count)
             if job.job_type == "catalog":
                 DedupService(db).process_pending(region=self.region)
+                self._apply_catalog_availability(db, job_id, provider_id, code, adapter, at)
         except Exception as exc:
             db.rollback()
             job = db.get(CollectionJob, job_id)

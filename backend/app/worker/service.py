@@ -35,7 +35,7 @@ from ..dedup.service import DedupService
 from ..fuel_status import UNKNOWN, validate_fuel_status, validate_queue_level
 from ..normalization.fuel import normalize_fuel
 from ..sources import SourceAdapter, build_adapter
-from ..sources.base import AuthError, RateLimitedError
+from ..sources.base import HEALTH_DEGRADED, AuthError, RateLimitedError
 from ..stations.ingest import CatalogIngest
 from .locking import worker_lock
 
@@ -237,11 +237,51 @@ class Worker:
             return settings.collect_stable_minutes
         return settings.collect_default_minutes
 
+    def waiting_reason(self, code: str) -> str | None:
+        """Почему источник пока не может собирать (нет файла/URL) — или None.
+
+        Конкретику знает адаптер («файла нет», «URL не задан»), планировщик её
+        только спрашивает — тем же реестром, что и сбор. Подменённые в тестах
+        адаптеры отвечают None по базовому контракту: поведение не меняется.
+        """
+        adapter = self.adapters.get(code)
+        if adapter is None:
+            try:
+                adapter = build_adapter(code)
+            except KeyError:
+                return None
+        return adapter.not_configured_reason()
+
+    @staticmethod
+    def _mark_waiting(db: Session, provider_id: int, at: datetime, message: str) -> None:
+        """«Ждёт данных» — не сбой: DEGRADED, счётчик неудач с нуля (R84/R58).
+
+        Иначе источник, включённый в сбор раньше, чем настроенный (файл не
+        загружен, URL не задан), копил бы FAILED и красную строку «N подряд»
+        просто за ожидание. Пишем только при изменении состояния — тик не
+        трогает строку впустую.
+        """
+        health = db.scalar(select(SourceHealth).where(SourceHealth.source_provider_id == provider_id))
+        if health is None:
+            health = SourceHealth(source_provider_id=provider_id, consecutive_failures=0)
+            db.add(health)
+        if health.health == HEALTH_DEGRADED and health.last_error == message and not health.consecutive_failures:
+            return
+        health.health, health.last_check_at, health.last_error = HEALTH_DEGRADED, at, message
+        health.consecutive_failures = 0
+
     def plan(self, db: Session, now: datetime) -> None:
         """Derive due work from durable completion times, coalescing missed cycles."""
         for provider in db.scalars(select(SourceProvider).where(SourceProvider.status == "ACTIVE")):
             # Reports are pushed by users, never polled as an external feed.
             if provider.code == "user_reports":
+                continue
+            # Источник без настроенных данных (файл не загружен, URL не задан) не
+            # опрашивается: это «ждёт данных», а не сбой (R84). Причина уйдёт —
+            # планирование вернётся само на ближайшем тике.
+            waiting = self.waiting_reason(provider.code)
+            if waiting is not None:
+                self._mark_waiting(db, provider.id, now, waiting)
                 continue
             targets: list[tuple[str | None, str, str]] = []
             if provider.capabilities.get("discovery"):

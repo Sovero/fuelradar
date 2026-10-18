@@ -201,3 +201,28 @@ def test_collection_cycles_scheduler_state_and_non_polled_source(client, db_sess
     assert reports["next_run_at"] is None
     # Активные источники каталога в цикле сбора есть — режим не вырожденный.
     assert any(src["collectable"] for src in body["sources"])
+
+
+def test_collection_cycles_waiting_source_reports_reason(client, monkeypatch, tmp_path) -> None:
+    """network_import без файла: «ждёт данных» с причиной — не план и не сбой (R84).
+
+    Причина берётся у того же источника, что у планировщика: экран не выдумывает
+    следующий запуск, не требует первого запуска воркера и, главное, не рисует
+    красный FAILED за отсутствие выгрузки.
+    """
+    from app.sources.network_import import CSV_IMPORT_FILENAME
+
+    monkeypatch.delenv("NETWORK_IMPORT_PATH", raising=False)
+    monkeypatch.setenv("FUELRADAR_CSV_UPLOAD_DIR", str(tmp_path))
+
+    src = _source(client.get("/api/v1/admin/collection-cycles").json(), "network_import")
+    assert src["collectable"] is True
+    assert src["waiting_reason"] and "не найден" in src["waiting_reason"]
+    # push-источник не «ждёт данных»: его просто не опрашивают — причина другая.
+    reports = _source(client.get("/api/v1/admin/collection-cycles").json(), "user_reports")
+    assert reports["waiting_reason"] is None
+
+    # Файл появился — ожидание снимается само: источник снова обычный.
+    (tmp_path / CSV_IMPORT_FILENAME).write_text("name,lat,lon\nАЗС 1,45.1,38.9\n", encoding="utf-8")
+    src = _source(client.get("/api/v1/admin/collection-cycles").json(), "network_import")
+    assert src["waiting_reason"] is None

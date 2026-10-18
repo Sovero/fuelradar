@@ -339,6 +339,8 @@ export interface CollectionCycleSource {
   last_attempt_at: string | null;
   consecutive_failures: number;
   last_error: string;
+  /** Причина «ждёт данных» (нет файла/URL): сбор не планируется, это не сбой; null — ждать нечего. */
+  waiting_reason: string | null;
   next_run_at: string | null;
   queued_job_id: number | null;
   /** Статус активного задания (PENDING — ждёт тика, RUNNING — уже идёт); null — активных нет. */

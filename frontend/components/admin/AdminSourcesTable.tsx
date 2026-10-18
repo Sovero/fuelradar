@@ -204,7 +204,14 @@ export function AdminSourcesTable() {
                     </p>
                   )}
                 </td>
-                <td className={`py-2 pr-3 font-medium ${HEALTH_COLOR[s.health.state] ?? "text-gray-500"}`}>{s.health.state}</td>
+                <td
+                  className={`py-2 pr-3 font-medium ${HEALTH_COLOR[s.health.state] ?? "text-gray-500"}`}
+                  // «Ждёт данных» (DEGRADED) объясняет себя подсказкой: почему
+                  // источник не собирает — нет файла/URL, см. «Циклы сбора».
+                  title={s.health.last_error || undefined}
+                >
+                  {s.health.state}
+                </td>
                 <td className="py-2 pr-3 text-gray-600 dark:text-gray-400">
                   {s.health.last_check_at ? formatUpdatedAt(s.health.last_check_at) : t("admin.sources.never")}
                 </td>

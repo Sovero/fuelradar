@@ -116,6 +116,22 @@ def _provider_or_404(session: Session, provider_id: int) -> SourceProvider:
     return provider
 
 
+def _waiting_reason(code: str) -> str | None:
+    """Причина «источник ждёт данных» (нет файла/URL) — то же правило, что у воркера.
+
+    Спрашивают его оба: планировщик (`Worker.waiting_reason`) — чтобы не ставить
+    сбор без данных, и админка — чтобы честно показать причину, не дожидаясь
+    первого запуска воркера. Неизвестный код адаптера — не «ждёт», а «нет такого
+    источника»: возвращаем None, решает вызывающий.
+    """
+    from ..sources import build_adapter
+
+    try:
+        return build_adapter(code).not_configured_reason()
+    except KeyError:
+        return None
+
+
 def _source_file_state(code: str) -> dict | None:
     """Файл-вход источника (R58) — только у файловых адаптеров; у сетевых это None.
 
@@ -203,6 +219,11 @@ def refresh_source(provider_id: int, session: Session = Depends(get_db)) -> dict
 
     if provider.status != "ACTIVE":
         raise HTTPException(status_code=409, detail="Источник не активен: требуется исследование")
+    # Источник «ждёт данных» (нет файла/URL): задание всё равно упало бы —
+    # честнее отказать сразу с причиной, чем ставить сбор, которому нечего читать.
+    waiting = _waiting_reason(provider.code)
+    if waiting is not None:
+        raise HTTPException(status_code=409, detail=f"Источник ждёт данных: {waiting}")
     job = schedule_priority_job(session, provider.id, priority="P1", trigger="manual")
     _journal(session, "refresh_source", provider.code, {"job_id": job.id})
     session.commit()
@@ -404,6 +425,11 @@ def collection_cycles(session: Session = Depends(get_db)) -> dict:
     По каждому источнику видно и то, что нельзя получить из снимка health: идёт ли
     цикл прямо сейчас (`running_jobs`/`running_since` — факт RUNNING, а не план) и
     ждёт ли задание очереди (`queued_job_id` + `active_job_status`).
+
+    Источник, включённый в сбор раньше данных (файл не загружен — network_import,
+    URL не задан — network_lists), честно помечен `waiting_reason`: сбор по нему
+    не планируется — это «ждёт данных», а не сбой, и причина видна, не дожидаясь
+    первого запуска воркера (R84/R58).
     """
     from ..worker.inprocess import collector_plan, ticker_state
 
@@ -413,6 +439,10 @@ def collection_cycles(session: Session = Depends(get_db)) -> dict:
     sources: list[dict] = []
     for provider in session.scalars(select(SourceProvider).order_by(SourceProvider.code)):
         h = health.get(provider.id)
+        # Планировщик опрашивает только активные источники; user_reports —
+        # push-источник (отчёты с устройств), его в цикле сбора нет.
+        collectable = provider.status == "ACTIVE" and provider.code != "user_reports"
+        waiting_reason = _waiting_reason(provider.code) if collectable else None
         active = session.scalar(
             select(CollectionJob)
             .where(
@@ -450,7 +480,10 @@ def collection_cycles(session: Session = Depends(get_db)) -> dict:
                 "status": provider.status,
                 # Планировщик опрашивает только активные источники; user_reports —
                 # push-источник (отчёты с устройств), его в цикле сбора нет.
-                "collectable": provider.status == "ACTIVE" and provider.code != "user_reports",
+                "collectable": collectable,
+                # «Ждёт данных»: нет файла/URL — сбор не планируется, это не сбой
+                # (см. Worker.plan); причина для ячейки «Следующий запуск».
+                "waiting_reason": waiting_reason,
                 "min_interval_minutes": provider.min_interval_minutes,
                 "health": h.health if h else "UNKNOWN",
                 "last_success_at": h.last_success_at if h else None,

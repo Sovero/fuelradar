@@ -39,6 +39,7 @@ import type { CollectionCycleSource, CollectionCyclesOut } from "@/lib/types";
 
 const HEALTH_COLOR: Record<string, string> = {
   ONLINE: "text-emerald-700 dark:text-emerald-400",
+  DEGRADED: "text-amber-700 dark:text-amber-400",
   RATE_LIMITED: "text-amber-700 dark:text-amber-400",
   AUTH_ERROR: "text-red-700 dark:text-red-400",
   OFFLINE: "text-red-700 dark:text-red-400",
@@ -246,6 +247,15 @@ export function AdminCollectionCycles() {
       // одна фраза на оба случая была бы неправдой для одного из них.
       const key = source.code === "user_reports" ? "admin.cycles.deviceReports" : "admin.cycles.inactive";
       return <span className="text-gray-400">{t(key)}</span>;
+    }
+    if (source.waiting_reason) {
+      // Источник включён, но данных ещё нет (файл не загружен, URL не задан):
+      // планировать нечего, и это не сбой — «ждёт данных» с причиной в подсказке.
+      return (
+        <span className="text-amber-700 dark:text-amber-400" title={source.waiting_reason}>
+          {t("admin.cycles.waiting")}
+        </span>
+      );
     }
     if (!source.next_run_at) return <span className="text-gray-400">{t("admin.cycles.noPlan")}</span>;
     return (

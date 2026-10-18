@@ -313,6 +313,39 @@ def test_admin_refresh_creates_job(client, db_session) -> None:
     db_session.commit()
 
 
+def test_admin_refresh_waiting_source_is_honest_409(client, db_session, monkeypatch, tmp_path) -> None:
+    """«Обновить сейчас» без данных: честный 409 с причиной, задания-пустышки нет (R84).
+
+    Источник «ждёт данных» (файл не загружен) — сбор всё равно упал бы: ставить
+    FAILED в очередь ради кнопки неправильно, оператору нужна причина сразу.
+    """
+    from app.sources.network_import import CSV_IMPORT_FILENAME
+
+    monkeypatch.delenv("NETWORK_IMPORT_PATH", raising=False)
+    monkeypatch.setenv("FUELRADAR_CSV_UPLOAD_DIR", str(tmp_path))
+    provider = db_session.scalar(select(SourceProvider).where(SourceProvider.code == "network_import"))
+    before = db_session.scalar(
+        select(func.count()).select_from(CollectionJob).where(CollectionJob.source_provider_id == provider.id)
+    )
+
+    r = client.post(f"/api/v1/admin/sources/{provider.id}/refresh")
+    assert r.status_code == 409
+    assert "ждёт данных" in r.json()["detail"]
+    db_session.expire_all()
+    assert db_session.scalar(
+        select(func.count()).select_from(CollectionJob).where(CollectionJob.source_provider_id == provider.id)
+    ) == before  # задание-пустышка не создано
+
+    # Файл появился — обновление снова можно поставить (это задание, не синхронный сбор)
+    (tmp_path / CSV_IMPORT_FILENAME).write_text("name,lat,lon\nАЗС 1,45.1,38.9\n", encoding="utf-8")
+    r2 = client.post(f"/api/v1/admin/sources/{provider.id}/refresh")
+    assert r2.status_code == 200
+    job = db_session.get(CollectionJob, r2.json()["job_id"])
+    assert job.status == "PENDING"
+    job.status = "DONE"  # гигиена session-scope БД: не держать uq_collection_active
+    db_session.commit()
+
+
 def test_admin_catalog_gaps_reports_missing_fields_and_enrichable(client, db_session) -> None:
     """GET /admin/catalog-gaps: покрытие бренда/телефона/адреса + кандидаты дозаполнения.
 

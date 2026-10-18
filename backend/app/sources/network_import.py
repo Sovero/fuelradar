@@ -214,3 +214,14 @@ class NetworkImportAdapter(SourceAdapter):
             "explicit": explicit,
             "upload_dir": str(upload_dir()),
         }
+
+    def not_configured_reason(self) -> str | None:
+        """Файл ещё не загружен → источник ждёт данных, а не падает каждый цикл.
+
+        Воркер не планирует сбор, пока файла нет: иначе журнал копил бы FAILED
+        и backoff за то, что оператор просто не загрузил выгрузку (R84).
+        """
+        path = self.resolve_path()
+        if path.is_file():
+            return None
+        return f"файл импорта не найден: {path}"

@@ -149,6 +149,26 @@ def test_network_import_defaults_to_admin_upload(monkeypatch, tmp_path) -> None:
     assert [r.external_id for r in adapter.discover_stations(REGION)] == ["Тест-1"]
 
 
+def test_not_configured_reason_names_missing_data(monkeypatch, tmp_path) -> None:
+    """«Ждёт данных» — явная причина у файлового и URL-источника (R84).
+
+    По ней планировщик не ставит сбор, а админка показывает ожидание: источник
+    честно говорит, чего именно не хватает, вместо FileNotFoundError на цикле.
+    """
+    monkeypatch.delenv("NETWORK_IMPORT_PATH", raising=False)
+    monkeypatch.setenv("FUELRADAR_CSV_UPLOAD_DIR", str(tmp_path))
+    importer = NetworkImportAdapter()
+    assert "не найден" in (importer.not_configured_reason() or "")
+    (tmp_path / CSV_IMPORT_FILENAME).write_text("name,lat,lon\nАЗС 1,45.1,38.9\n", encoding="utf-8")
+    assert importer.not_configured_reason() is None
+
+    # Сетевые списки: без URL читать нечего; с URL причины нет (сеть не дёргается)
+    assert NetworkListsAdapter(urls=[]).not_configured_reason() == (
+        "URL списков не настроен (NETWORK_LISTS_URLS или админка)"
+    )
+    assert NetworkListsAdapter(urls=["https://example.com/azs.json"]).not_configured_reason() is None
+
+
 def test_network_import_file_state_reports_path_and_mtime(monkeypatch, tmp_path) -> None:
     """R58: админка показывает, какой именно файл читает источник и когда он правился."""
     monkeypatch.delenv("NETWORK_IMPORT_PATH", raising=False)

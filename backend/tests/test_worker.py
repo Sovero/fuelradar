@@ -255,3 +255,34 @@ def test_disabled_and_push_sources_never_polled(worker_db):
         db.commit()
     assert Worker(worker_db, {}, {"fake": adapter, "user_reports": adapter}).run_once() == []
     assert adapter.calls == 0
+
+
+def test_source_waiting_for_data_is_not_a_failure(worker_db):
+    """Источник без настроенных данных не падает и не копит сбои (R84/R58).
+
+    Нет файла/URL — «ждёт данных»: сбор не планируется, health DEGRADED с
+    причиной, счётчик неудач обнулён. Красная строка «N подряд» за то, что
+    источник включили раньше, чем настроили, пугала бы оператора без повода.
+    """
+
+    class Waiting(Adapter):
+        def not_configured_reason(self):
+            return "нет файла данных"
+
+    adapter = Waiting()
+    at = datetime.now(UTC).replace(tzinfo=None)
+    with worker_db() as db:
+        p = provider(db)
+        pid = p.id
+        db.add(SourceHealth(source_provider_id=p.id, health="OFFLINE",
+                            consecutive_failures=2, last_error="FileNotFoundError"))
+        db.commit()
+    worker = Worker(worker_db, {}, {"fake": adapter})
+    assert worker.run_once(at) == []  # заданий нет: собирать пока нечего
+    assert adapter.calls == 0  # источник не опрашивался
+    with worker_db() as db:
+        assert db.scalar(select(func.count()).select_from(CollectionJob)) == 0
+        health = db.scalar(select(SourceHealth).where(SourceHealth.source_provider_id == pid))
+        assert health.health == "DEGRADED"
+        assert health.consecutive_failures == 0
+        assert health.last_error == "нет файла данных"

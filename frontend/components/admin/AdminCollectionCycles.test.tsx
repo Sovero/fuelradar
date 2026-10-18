@@ -49,6 +49,7 @@ const CYCLES: CollectionCyclesOut = {
       last_attempt_at: minutesAgoIso(120),
       consecutive_failures: 0,
       last_error: "",
+      waiting_reason: null,
       next_run_at: minutesAheadIso(30),
       queued_job_id: 7,
       active_job_status: "PENDING",
@@ -79,6 +80,7 @@ const CYCLES: CollectionCyclesOut = {
       last_attempt_at: minutesAgoIso(10),
       consecutive_failures: 3,
       last_error: "FileNotFoundError",
+      waiting_reason: null,
       next_run_at: minutesAheadIso(45),
       queued_job_id: null,
       active_job_status: null,
@@ -109,6 +111,7 @@ const CYCLES: CollectionCyclesOut = {
       last_attempt_at: null,
       consecutive_failures: 0,
       last_error: "",
+      waiting_reason: null,
       next_run_at: null,
       queued_job_id: null,
       active_job_status: null,
@@ -129,6 +132,7 @@ const CYCLES: CollectionCyclesOut = {
       last_attempt_at: null,
       consecutive_failures: 0,
       last_error: "",
+      waiting_reason: null,
       next_run_at: null,
       queued_job_id: null,
       active_job_status: null,
@@ -247,6 +251,33 @@ describe("AdminCollectionCycles (R58)", () => {
     // NOT_USED/RESEARCH_REQUIRED: та же пустая ячейка, но по другой причине
     expect(screen.getByText("Сетевые списки АЗС (HTTP)")).toBeInTheDocument();
     expect(screen.getByText("не опрашивается: источник не активен")).toBeInTheDocument();
+  });
+
+  it("источник без данных показывает «ждёт данных», а не сбой и не план", async () => {
+    const reason = "файл импорта не найден: C:\\data\\catalog-enrichment.csv";
+    renderCycles({
+      ...CYCLES,
+      sources: [
+        {
+          ...CYCLES.sources[1],
+          health: "DEGRADED",
+          consecutive_failures: 0,
+          last_error: reason,
+          waiting_reason: reason,
+          next_run_at: null,
+          last_job: null,
+        },
+      ],
+    });
+
+    await waitFor(() => expect(screen.getByText("Импорт списков сетей (CSV/JSON)")).toBeInTheDocument());
+    // «ждёт данных» вместо счётчика/обратного отсчёта; причина — в подсказке
+    const waiting = screen.getByText("ждёт данных");
+    expect(waiting).toHaveAttribute("title", reason);
+    expect(screen.queryByText("нет запланированного запуска")).not.toBeInTheDocument();
+    expect(screen.queryByText("FAILED")).not.toBeInTheDocument();
+    // состояние — DEGRADED (янтарный), не красный OFFLINE
+    expect(screen.getByText("DEGRADED")).toBeInTheDocument();
   });
 
   it("просроченный план помечен «просрочено», а не «вот-вот»", async () => {

@@ -119,6 +119,17 @@ class SourceAdapter(ABC):
         """
         return None
 
+    def not_configured_reason(self) -> str | None:
+        """Источник включён, но собирать пока нечего (нет файла/URL) — причина.
+
+        Это не сбой источника, а состояние «ждёт данных» (R84): воркер не
+        планирует по нему сбор и не копит ошибки, пока причина есть, а админка
+        показывает честное ожидание вместо красного FAILED. Сеть при проверке не
+        дёргается — причина выводится из настроек/файла. None — источник готов.
+        Возвращаемый текст — человекочитаемая причина (попадает в source_health).
+        """
+        return None
+
     @abstractmethod
     def health_check(self) -> HealthResult:
         """R57: ONLINE | DEGRADED | OFFLINE | RATE_LIMITED | AUTH_ERROR."""

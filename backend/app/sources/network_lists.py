@@ -300,6 +300,17 @@ class NetworkListsAdapter(SourceAdapter):
         except Exception:  # noqa: BLE001 — список URL не должен ломать сбор
             return split_urls(settings.network_lists_urls)
 
+    def not_configured_reason(self) -> str | None:
+        """Без URL читать нечего: «ждёт данных» (активация — через админку/.env).
+
+        Проверяется до планирования: включённый, но не заполненный источник не
+        должен копить сбои на каждом цикле (R84) — оператор видит причину и
+        добавляет ссылки списка.
+        """
+        if self.current_urls():
+            return None
+        return "URL списков не настроен (NETWORK_LISTS_URLS или админка)"
+
     def discover_stations(self, region: dict[str, Any]) -> list[SourceRecord]:
         urls = self.current_urls()
         if not urls:

@@ -7,9 +7,11 @@
 
 from __future__ import annotations
 
+import io
 import json
 import os
 import sqlite3
+import sys
 from pathlib import Path
 
 from desktop_server import (
@@ -20,6 +22,7 @@ from desktop_server import (
     apply_env,
     build_parser,
     check_database_url,
+    configure_stdio,
     ensure_data_dir,
     frozen_support_env,
     resolve_backup_destination,
@@ -288,3 +291,40 @@ def test_apply_env_writes_variables(monkeypatch) -> None:
     apply_env({"DATABASE_URL": "sqlite:///x.db", "FUELRADAR_DATA_DIR": "/tmp/x"})
     assert os.environ["DATABASE_URL"] == "sqlite:///x.db"
     assert os.environ["FUELRADAR_DATA_DIR"] == "/tmp/x"
+
+
+# ---------- кодировка вывода: релиз 0.1.10 (падение найдено CI-раннером) ----------
+
+
+def test_configure_stdio_makes_russian_output_survivable(monkeypatch) -> None:
+    # Англоязычная Windows-копия cp1252 не кодирует русский текст: первый же
+    # print() встроенного backend падал UnicodeEncodeError (сборка поймала это
+    # на CI-раннере; локально воспроизводится PYTHONIOENCODING=cp1252). После
+    # настройки потоки пишут UTF-8 — так же их читает оболочка.
+    out_raw, err_raw = io.BytesIO(), io.BytesIO()
+    out = io.TextIOWrapper(out_raw, encoding="cp1252")
+    err = io.TextIOWrapper(err_raw, encoding="cp1252")
+    try:
+        out.write("офлайн")
+        crashed_before = False
+    except UnicodeEncodeError:
+        crashed_before = True
+    assert crashed_before, "cp1252 обязан падать на русском тексте — иначе тест не о том"
+
+    monkeypatch.setattr(sys, "stdout", out)
+    monkeypatch.setattr(sys, "stderr", err)
+    configure_stdio()
+    out.write("офлайн-наполнение демо-каталога")
+    err.write("диалект не загрузился")
+    out.flush()
+    err.flush()
+    assert out_raw.getvalue().decode("utf-8") == "офлайн-наполнение демо-каталога"
+    assert err_raw.getvalue().decode("utf-8") == "диалект не загрузился"
+
+
+def test_configure_stdio_skips_streams_without_reconfigure(monkeypatch) -> None:
+    # Потоки без reconfigure (подменённые обёртки) не трогаются: настройка
+    # должна быть безопасной, а не заменять одну ошибку другой.
+    monkeypatch.setattr(sys, "stdout", object())
+    monkeypatch.setattr(sys, "stderr", object())
+    configure_stdio()

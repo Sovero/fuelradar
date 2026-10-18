@@ -367,7 +367,31 @@ def run_offline_seed(region: str | None) -> int:
     return int(seed_main(argv) or 0)
 
 
+def configure_stdio() -> None:
+    """Перевести stdout/stderr в UTF-8: русские строки не должны ронять процесс.
+
+    Замороженная сборка на Windows выбирает кодировку потоков из локали машины:
+    у англоязычной это cp1252, и первый же `print()` с русским текстом падал
+    `UnicodeEncodeError` — на это наткнулась сборочная самопроверка на CI-раннере
+    (ровно так же падало бы первое наполнение демо-каталога у пилота с
+    англоязычной Windows). Оболочка читает вывод процесса как UTF-8;
+    `errors="replace"` — страховка, чтобы «не упасть» было гарантией, а не
+    совпадением.
+    """
+    for stream in (sys.stdout, sys.stderr):
+        reconfigure = getattr(stream, "reconfigure", None)
+        if reconfigure is None:  # подменённые потоки (например, в тестах) — не трогаем
+            continue
+        try:
+            reconfigure(encoding="utf-8", errors="replace")
+        except (ValueError, OSError):  # закрытый/отделённый поток — перенастраивать нечего
+            continue
+
+
 def main(argv: list[str] | None = None) -> int:
+    # Раньше всего: диагностика ниже печатает по-русски, а кодировка консоли на
+    # машине пользователя может быть любой (см. configure_stdio).
+    configure_stdio()
     args = build_parser().parse_args(argv)
     runtime = resolve_runtime(args, dict(os.environ))
     apply_env(runtime["env"])
